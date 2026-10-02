@@ -202,7 +202,10 @@ function sbOrderFields_(sheet, row) {
 /** The latest moment the order was worked on (or came off an earlier standby). A standby can't start before this. */
 function sbEarliestStartMs_(f, list) {
   var ms = 0;
-  ['Verified Date', 'Sent to Ops Timestamp', 'Received by Ops Timestamp', 'Vehicle Confirmed Timestamp'].forEach(function (k) {
+  // Real events only. 'Vehicle Confirmed Timestamp' is left out on purpose: it is the moment
+  // Accounts SAVES the pickup form (often the same day site-not-ready is recorded), not when
+  // anything happened -- counting it blocked backdating for exactly the orders that need it.
+  ['Verified Date', 'Sent to Ops Timestamp', 'Received by Ops Timestamp'].forEach(function (k) {
     var m = sbMs_(f[k]);
     if (m && m <= Date.now() && m > ms) ms = m;
   });
