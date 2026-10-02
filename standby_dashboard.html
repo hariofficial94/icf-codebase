@@ -1,0 +1,276 @@
+<!--
+  Standby on the Owner Dashboard (Oct 2026). Pulled in by dashboard.html with
+  <?!= include('standby_dashboard'); ?> as the LAST line before </body>.
+  It wraps a few of the page's functions instead of editing them:
+    renderAll          -> fetches the standby periods first, then nets them out
+                          of every order's TAT before the page draws anything
+    lastTouched        -> an order on standby isn't "sitting at a stage"; after
+                          a standby, days-at-stage count from when it ended
+    renderPerformance  -> pickup-to-gate also excludes standby time
+    renderKpis/Funnel  -> an "On standby" tile and funnel bar
+    drillBaseSet       -> the tile's drill-down
+    applyCurrentPeriod -> redraws the Standby section when the period changes
+  plus, for Directors only, an approvals panel and a Settings link at the top.
+-->
+<style>
+  .sb-sec .card { border-left: 4px solid #6b4c9a; }
+  .sb-sec h2 { color: #6b4c9a !important; }
+  .sb-mini { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 16px; }
+  .sb-mini div { background: #faf8fd; border-radius: 6px; padding: 10px 12px; }
+  .sb-mini .l { font-size: 11px; color: #666; font-weight: 600; }
+  .sb-mini .v { font-size: 19px; font-weight: 700; color: #1F3864; margin-top: 3px; }
+  .sb-mini .v.over { color: #B00020; }
+  .sb-mini .s { font-size: 10.5px; color: #888; margin-top: 2px; }
+  .bar-fill.sb { background: #6b4c9a; }
+  .sb-active-row { display: flex; justify-content: space-between; gap: 10px; padding: 7px 0; border-bottom: 1px dashed #eee; font-size: 12.5px; }
+  .sb-active-row:last-child { border-bottom: none; }
+  .sb-active-row b { color: #1F3864; }
+  .sb-active-row .r { text-align: right; color: #6b4c9a; font-weight: 700; white-space: nowrap; }
+  .dir-panel { background: #fff; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.06); padding: 18px 20px; margin-bottom: 22px; border-left: 4px solid #B06E00; display: none; }
+  .dir-panel.show { display: block; }
+  .dir-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .dir-head h2 { font-size: 15px; color: #1F3864; margin: 0; }
+  .dir-head a { font-size: 12px; font-weight: 600; color: #2E74B5; text-decoration: none; border: 1px solid #d5dbe0; border-radius: 5px; padding: 6px 12px; background: #fff; }
+  .dir-item { border: 1px solid #e0e0e0; border-radius: 6px; padding: 12px 14px; margin-top: 10px; background: #fafafa; font-size: 12.5px; }
+  .dir-item .t { font-weight: 700; color: #1F3864; font-size: 13px; }
+  .dir-item .m { color: #666; margin-top: 2px; }
+  .dir-item .why { margin-top: 6px; padding: 6px 9px; background: #fff4e5; border-radius: 4px; color: #7a5300; }
+  .dir-item .acts { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; margin-top: 10px; }
+  .dir-item .acts label { display: block; font-size: 10.5px; font-weight: 700; color: #888; margin-bottom: 3px; }
+  .dir-item .acts input { padding: 6px 8px; font-size: 12.5px; border: 1px solid #ccc; border-radius: 4px; }
+  .dir-item button { padding: 7px 14px; font-size: 12px; font-weight: 600; border-radius: 5px; cursor: pointer; border: 1px solid #1F3864; background: #1F3864; color: #fff; }
+  .dir-item button.no { background: #fff; color: #B00020; border-color: #e2a19a; }
+  .dir-item button:disabled { opacity: 0.6; cursor: not-allowed; }
+  .dir-item .res { margin-top: 6px; font-size: 12px; }
+  .dir-empty { font-size: 12.5px; color: #888; font-style: italic; margin-top: 8px; }
+  .dir-sub { font-size: 12px; font-weight: 700; color: #888; text-transform: uppercase; letter-spacing: 0.03em; margin-top: 14px; }
+</style>
+
+<script>
+(function () {
+  var SB = { records: [], byId: {}, usage: null, pending: 0, withDirector: 0, loaded: false };
+  var DAY = 86400000;
+  function esc(t) { return String(t == null ? '' : t).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+  function periodsFor(o) { return SB.byId[String(o.id).toLowerCase()] || []; }
+  /** Milliseconds of [a, b] that fall inside standby periods. */
+  function overlap(ps, a, b) {
+    if (!a || !b || b <= a) return 0;
+    var t = 0;
+    ps.forEach(function (p) {
+      var s = Math.max(a, p.startMs), e = Math.min(b, p.endMs == null ? Date.now() : p.endMs);
+      if (e > s) t += e - s;
+    });
+    return t;
+  }
+  function net(gross, ps, a, b) {
+    if (gross === null || gross === undefined || !isFinite(gross) || gross <= 0) return gross;
+    var ov = overlap(ps, a, b);
+    return ov ? Math.max(0, Math.round((gross - ov / 3600000) * 100) / 100) : gross;
+  }
+
+  // ---------- Net TAT: standby time comes out of each order's figures ----------
+  function adjustOrders() {
+    (window.allOrders || []).forEach(function (o) {
+      if (o._sbDone) return;
+      o._sbDone = true;
+      var ps = periodsFor(o);
+      if (!ps.length) return;
+      o.grossVToPHrs = o.vToPHrs; o.grossCycleHrs = o.cycleHrs;
+      o.vToPHrs = net(o.vToPHrs, ps, o.verifiedDate, o.recvOpsDate);
+      o.cycleHrs = net(o.cycleHrs, ps, o.verifiedDate, o.deliveredDate);
+    });
+  }
+
+  var origRenderAll = window.renderAll;
+  window.renderAll = function () {
+    authRun()
+      .withSuccessHandler(function (d) {
+        SB.records = (d && d.records) || []; SB.usage = d && d.usage; SB.pending = (d && d.pending) || 0; SB.withDirector = (d && d.withDirector) || 0;
+        SB.byId = {};
+        SB.records.forEach(function (r) { var k = r.trackerId.toLowerCase(); (SB.byId[k] = SB.byId[k] || []).push(r); });
+        SB.loaded = true;
+        adjustOrders();
+        origRenderAll();
+      })
+      .withFailureHandler(function () { SB.loaded = false; origRenderAll(); })
+      .getStandbyDashboard();
+  };
+
+  var origLastTouched = window.lastTouched;
+  window.lastTouched = function (o) {
+    if (o.status === 'On Standby') return null; // waiting on the customer, not stuck
+    var base = origLastTouched(o);
+    periodsFor(o).forEach(function (p) { if (p.endMs && (!base || p.endMs > base)) base = p.endMs; });
+    return base;
+  };
+
+  var origRenderPerformance = window.renderPerformance;
+  window.renderPerformance = function (periodOrders, period) {
+    // The page works out pickup-to-gate as dispatch minus pickup; hand it dispatch
+    // times with any standby in between taken out (copies -- the real orders aren't touched).
+    var adj = periodOrders.map(function (o) {
+      var ov = overlap(periodsFor(o), o.recvOpsDate, o.dispatchDate);
+      return ov ? Object.assign({}, o, { dispatchDate: o.dispatchDate - ov }) : o;
+    });
+    return origRenderPerformance(adj, period);
+  };
+  if (window.PERF_KPI_INFO) {
+    ['Avg. total cycle time', 'Avg. verification-to-pickup', 'Avg. pickup to gate verification'].forEach(function (k) {
+      if (PERF_KPI_INFO[k]) PERF_KPI_INFO[k] += ' Time the order spent on an approved standby (a customer-side delay) is left out.';
+    });
+  }
+
+  // ---------- "On standby" in the funnel and the Right now tiles ----------
+  if (window.FUNNEL_STATUSES && FUNNEL_STATUSES.indexOf('On Standby') === -1) {
+    var gi = FUNNEL_STATUSES.indexOf('Gate-Verified');
+    FUNNEL_STATUSES.splice(gi === -1 ? FUNNEL_STATUSES.length : gi, 0, 'On Standby');
+  }
+  var origRenderFunnel = window.renderFunnel;
+  window.renderFunnel = function (orders) {
+    origRenderFunnel(orders);
+    Array.prototype.forEach.call(document.querySelectorAll('#funnelBox .bar-row'), function (row) {
+      var n = row.querySelector('.name');
+      if (n && n.textContent === 'On Standby') { var f = row.querySelector('.bar-fill'); if (f) f.className = 'bar-fill sb'; }
+    });
+  };
+  var origRenderKpis = window.renderKpis;
+  window.renderKpis = function (orders) {
+    origRenderKpis(orders);
+    var on = orders.filter(function (o) { return o.status === 'On Standby'; });
+    var held = on.reduce(function (s, o) { return s + o.total; }, 0);
+    var u = SB.usage;
+    var over = u && (on.length > u.maxOrders || held > u.maxValue);
+    document.getElementById('kpiGrid').insertAdjacentHTML('beforeend',
+      '<div class="kpi-card clickable' + (over ? ' danger' : '') + '" style="border-left-color:#6b4c9a;" data-kpi="standby" data-label="On standby (customer delay)">' +
+      '<div class="kpi-label">On standby (customer delay)</div>' +
+      '<div class="kpi-value">' + on.length + (u ? ' <span style="font-size:13px;color:#888;font-weight:600;">of ' + u.maxOrders + '</span>' : '') + '</div>' +
+      '<div class="kpi-sub">' + fmtINR(held) + ' held' + (u ? ' of ' + fmtINR(u.maxValue) : '') + (SB.pending || SB.withDirector ? ' \u00b7 ' + (SB.pending + SB.withDirector) + ' awaiting decision' : '') + '</div></div>');
+  };
+  var origDrill = window.drillBaseSet;
+  window.drillBaseSet = function (key) {
+    if (key === 'standby') return allOrders.filter(function (o) { return o.status === 'On Standby'; });
+    return origDrill(key);
+  };
+
+  // ---------- Standby section (period tabs apply) ----------
+  var sec = document.createElement('div');
+  sec.className = 'section sb-sec';
+  sec.innerHTML = '<div class="section-head"><h2>Standby \u2013 customer-side delays</h2><span class="section-note" id="sbNote"></span></div>' +
+    '<div class="two-col"><div class="card"><div class="sb-mini" id="sbMini"></div><div id="sbReasons"></div></div>' +
+    '<div class="card"><div class="section-head" style="margin-bottom:8px;"><h2 style="font-size:14px;">On standby now</h2></div><div id="sbActiveList"></div></div></div>';
+  var perf = document.getElementById('perfKpiGrid');
+  var perfSection = perf && perf.closest ? perf.closest('.section') : null;
+  if (perfSection && perfSection.parentNode) perfSection.parentNode.insertBefore(sec, perfSection);
+
+  function renderStandbySection() {
+    if (!SB.loaded) { sec.style.display = 'none'; return; }
+    sec.style.display = '';
+    var periodOrders = filterByPeriod(allOrders, currentPeriod);
+    var verified = periodOrders.filter(function (o) { return o.verifiedDate; });
+    var ids = {}; periodOrders.forEach(function (o) { ids[String(o.id).toLowerCase()] = true; });
+    var recs = SB.records.filter(function (r) { return ids[r.trackerId.toLowerCase()]; });
+    var withSb = {}; recs.forEach(function (r) { withSb[r.trackerId.toLowerCase()] = true; });
+    var rate = verified.length ? Math.round(Object.keys(withSb).length / verified.length * 1000) / 10 : null;
+    var days = recs.reduce(function (s, r) { return s + ((r.endMs == null ? Date.now() : r.endMs) - r.startMs) / DAY; }, 0);
+    var backdated = recs.filter(function (r) { return r.backdatedDays > 0; }).length;
+    var byDirector = recs.filter(function (r) { return r.directorApproved; }).length;
+    var u = SB.usage || { count: 0, value: 0, maxOrders: 0, maxValue: 0 };
+    var cells = [
+      ['On standby now', u.count + ' of ' + u.maxOrders, fmtINR(u.value) + ' of ' + fmtINR(u.maxValue) + ' held', u.count >= u.maxOrders || u.value >= u.maxValue],
+      ['Standby rate', rate === null ? '\u2013' : rate + '%', Object.keys(withSb).length + ' of ' + verified.length + ' verified orders', false],
+      ['Standby days', Math.round(days * 10) / 10, recs.length ? 'avg ' + Math.round(days / recs.length * 10) / 10 + ' per standby' : 'no standbys', false],
+      ['Backdated', backdated, 'started before the request', false],
+      ['Past a limit', byDirector, 'approved by a director', false]
+    ];
+    document.getElementById('sbMini').innerHTML = cells.map(function (c) {
+      return '<div><div class="l">' + c[0] + '</div><div class="v' + (c[3] ? ' over' : '') + '">' + c[1] + '</div><div class="s">' + esc(c[2]) + '</div></div>';
+    }).join('');
+    var byReason = {};
+    recs.forEach(function (r) { byReason[r.reason] = (byReason[r.reason] || 0) + 1; });
+    var reasons = Object.keys(byReason).sort(function (a, b) { return byReason[b] - byReason[a]; });
+    var max = Math.max.apply(null, reasons.map(function (k) { return byReason[k]; }).concat([1]));
+    document.getElementById('sbReasons').innerHTML = reasons.length
+      ? reasons.map(function (k) {
+          return '<div class="bar-row"><div class="bar-row-label"><span class="name">' + esc(k) + '</span><span class="count">' + byReason[k] + '</span></div>' +
+            '<div class="bar-track"><div class="bar-fill sb" style="width:' + Math.round(byReason[k] / max * 100) + '%;"></div></div></div>';
+        }).join('')
+      : '<div class="empty-state" style="padding:12px;">No standbys for orders logged in this period.</div>';
+    var active = SB.records.filter(function (r) { return r.active; }).sort(function (a, b) { return a.resumeYmd < b.resumeYmd ? -1 : 1; });
+    document.getElementById('sbActiveList').innerHTML = active.length
+      ? active.map(function (r) {
+          return '<div class="sb-active-row"><div><b>' + esc(r.institution) + '</b><div style="font-size:11px;color:#888;">' + esc(r.trackerId) + ' \u00b7 ' + esc(r.reason) + ' \u00b7 ' + fmtINR(r.orderValue) + '</div></div>' +
+            '<div class="r">until ' + esc(r.resume) + '</div></div>';
+        }).join('')
+      : '<div class="empty-state" style="padding:12px;">Nothing on standby right now.</div>';
+    var notes = { '30': 'last 30 days', '90': 'last 90 days', 'all': 'all time', 'custom': 'custom range' };
+    document.getElementById('sbNote').textContent = 'Rate, days and reasons: orders logged in the ' + (notes[currentPeriod] || 'period') + '. TAT figures above and below leave standby time out.';
+  }
+  var origApply = window.applyCurrentPeriod;
+  window.applyCurrentPeriod = function () { origApply(); renderStandbySection(); };
+
+  // ---------- Directors: approvals panel + Settings link ----------
+  var panel = document.createElement('div');
+  panel.className = 'dir-panel';
+  var anchor = document.getElementById('loadingState');
+  if (anchor && anchor.parentNode) anchor.parentNode.insertBefore(panel, anchor);
+
+  function loadDirector() {
+    authRun()
+      .withSuccessHandler(renderDirector)
+      .withFailureHandler(function () { panel.classList.remove('show'); })
+      .getDirectorPanel();
+  }
+  function renderDirector(d) {
+    var tot = d.standby.length + d.payments.length;
+    panel.innerHTML =
+      '<div class="dir-head"><h2>Waiting for a director' + (tot ? ' (' + tot + ')' : '') + '</h2>' +
+      (d.settingsUrl ? '<a href="' + esc(d.settingsUrl) + '" target="_top">&#9881; Settings</a>' : '') + '</div>' +
+      '<div class="dir-sub">Standby past your limits</div>' +
+      (d.standby.length ? d.standby.map(function (r) {
+        return '<div class="dir-item" data-kind="sb" data-id="' + esc(r.requestId) + '">' +
+          '<div class="t">' + esc(r.trackerId) + ' \u2013 ' + esc(r.institution) + ' (' + fmtINR(r.orderValue) + ')</div>' +
+          '<div class="m">' + esc(r.reason) + (r.note ? ' \u2013 ' + esc(r.note) : '') + '</div>' +
+          '<div class="m">' + esc(r.from) + ' to ' + esc(r.resume) + ' \u00b7 asked by ' + esc(r.requestedByName) + ', reported by ' + esc(r.reportedBy) + ' \u00b7 approved by ' + esc(r.decidedBy) + '</div>' +
+          '<div class="why">' + esc((r.history.split(' \u2013 sent to the directors: ')[1] || 'Past a limit').split(' | ')[0]) + '</div>' +
+          '<div class="acts"><div><label>Resume date</label><input type="date" class="rd" value="' + esc(r.resumeYmd) + '" min="' + esc(d.tomorrow) + '" max="' + esc(r.resumeYmd) + '"></div>' +
+          '<button type="button" class="yes">Approve</button><button type="button" class="no">Decline</button></div><div class="res"></div></div>';
+      }).join('') : '<div class="dir-empty">Nothing waiting. Currently ' + d.usage.count + ' of ' + d.usage.maxOrders + ' orders and ' + fmtINR(d.usage.value) + ' of ' + fmtINR(d.usage.maxValue) + ' on standby.</div>') +
+      '<div class="dir-sub">Payment approvals</div>' +
+      (d.payments.length ? d.payments.map(function (r) {
+        return '<div class="dir-item" data-kind="px" data-id="' + esc(r.requestId) + '">' +
+          '<div class="t">' + esc(r.typeLabel) + ' \u2013 ' + esc(r.trackerId) + (r.escalated ? ' <span style="color:#B00020;">\u2022 overdue</span>' : '') + '</div>' +
+          '<div class="m">' + esc(r.institution) + ' \u2013 ' + esc(r.amountNote) + '</div>' +
+          '<div class="m">Asked by ' + esc(r.requestedByName) + ' at ' + esc(r.requestedAt) + ': ' + esc(r.reason) + '</div>' +
+          '<div class="acts"><button type="button" class="yes">Approve</button><button type="button" class="no">Decline</button></div><div class="res"></div></div>';
+      }).join('') : '<div class="dir-empty">No payment approvals waiting.</div>');
+    panel.classList.add('show');
+    Array.prototype.forEach.call(panel.querySelectorAll('.dir-item'), function (el) {
+      el.querySelector('.yes').addEventListener('click', function () { decide(el, true); });
+      el.querySelector('.no').addEventListener('click', function () { decide(el, false); });
+    });
+  }
+  function decide(el, approve) {
+    var btns = el.querySelectorAll('button'), res = el.querySelector('.res');
+    Array.prototype.forEach.call(btns, function (b) { b.disabled = true; });
+    var isSb = el.getAttribute('data-kind') === 'sb';
+    var form = { requestId: el.getAttribute('data-id'), approve: approve };
+    if (isSb && approve) form.resumeDate = el.querySelector('.rd').value;
+    var runner = authRun()
+      .withSuccessHandler(function (r) {
+        res.style.color = '#2c5a1e';
+        res.textContent = !approve ? 'Declined.' : isSb ? 'Approved \u2013 on standby until ' + r.resume + '.' : 'Approved.' + (r.releasedToOps ? ' Released to Ops.' : '');
+        setTimeout(function () { loadDirector(); if (typeof window.ICF_RELOAD === 'function') window.ICF_RELOAD(); }, 1200);
+      })
+      .withFailureHandler(function (e) {
+        Array.prototype.forEach.call(btns, function (b) { b.disabled = false; });
+        res.style.color = '#B00020'; res.textContent = 'Error: ' + e.message;
+      });
+    if (isSb) runner.decideStandbyDirector(form); else runner.decidePaymentAsDirector(form);
+  }
+  document.addEventListener('icf-signed-in', function (e) {
+    if (e.detail && e.detail.role === 'Director') loadDirector(); else panel.classList.remove('show');
+  });
+  var prevClear = window.ICF_CLEAR;
+  window.ICF_CLEAR = function () { if (typeof prevClear === 'function') prevClear(); panel.classList.remove('show'); panel.innerHTML = ''; };
+})();
+</script>

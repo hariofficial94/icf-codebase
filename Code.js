@@ -44,6 +44,14 @@
  *   A mixed order (a courier product plus anything else) goes the normal
  *   vehicle route -- the packet simply travels with the vehicle.
  *
+ * STANDBY (added Oct 2026): a customer-caused delay can put an order "On
+ * Standby" -- Accounts asks, an Admin approves (a Director past the limits),
+ * and the time is kept out of the turnaround figures. Directors also get an
+ * approvals panel on the dashboard and a Settings page (?page=settings, the
+ * only page an Admin can't open). All of it lives in Standby.gs plus three
+ * small include files (standby_accounts, standby_admin, standby_dashboard)
+ * and settings.html -- see the note at the top of Standby.gs.
+ *
  * Old links (?page=verify, ?page=ops, ?page=delivery) still work and now route
  * to the combined Accounts page, since in practice only Sales and Accounts ever
  * touch this system -- there was no reason to keep those as separate pages.
@@ -483,7 +491,8 @@ function doGet(e) {
     ops: 'accounts',
     delivery: 'accounts',
     dashboard: 'dashboard',
-    admin: 'admin'
+    admin: 'admin',
+    settings: 'settings'
   };
   var file = fileMap[page] || 'index';
   var titleMap = {
@@ -493,7 +502,8 @@ function doGet(e) {
     ops: 'ICF Accounts',
     delivery: 'ICF Accounts',
     dashboard: 'ICF Dashboard',
-    admin: 'ICF Admin'
+    admin: 'ICF Admin',
+    settings: 'ICF Settings'
   };
   // Evaluated as a template (not a plain file) so each page can pull in the
   // shared sign-in screen with <?!= include('auth'); ?> -- one copy of the
@@ -1599,7 +1609,9 @@ function lookupOrder_(trackerId) {
       verify: summarizePaymentException_(latestPaymentException_(raw['Tracker ID'] || trackerId, PX_VERIFY)),
       dispatch: summarizePaymentException_(latestPaymentException_(raw['Tracker ID'] || trackerId, PX_DISPATCH)),
       correction: summarizePaymentException_(latestPaymentException_(raw['Tracker ID'] || trackerId, PX_CORRECTION))
-    }
+    },
+    // Standby (Oct 2026): request/approval state for the Accounts page. Never throws.
+    standby: (typeof standbyInfoForOrder_ === 'function') ? standbyInfoForOrder_(raw['Tracker ID'] || trackerId, raw['Status'] || '') : null
   };
 }
 
@@ -1806,6 +1818,7 @@ function submitPickupAndVehicle_(form) {
   if (normalizeDispatchType_(getRowFields(sheet, row, ['Dispatch Type'])['Dispatch Type']) === DISPATCH_COURIER) {
     throw new Error('This is a courier order \u2013 there is no vehicle stage. The CRE records the postal receipt instead.');
   }
+  assertNotOnStandby_(getRowFields(sheet, row, ['Status'])['Status']);
 
   var siteReady = form.siteReadiness === 'Y';
   var now = new Date();
@@ -1832,6 +1845,7 @@ function confirmSiteReady_(trackerId) {
   var sheet = getSheet();
   var row = resolveTrackerId(sheet, id);
   if (row === -1) throw new Error('Tracker ID not found.');
+  assertNotOnStandby_(getRowFields(sheet, row, ['Status'])['Status']);
 
   setRowFields(sheet, row, {
     'Site Readiness Confirmed': 'Y',
@@ -1857,6 +1871,7 @@ function submitDispatch_(form) {
     'Institution / Customer', 'Vehicle No.', 'Tracker ID', 'Site Readiness Confirmed',
     'Status', 'Payment Terms Type', 'Total Order Value', 'Advance Received'
   ]);
+  assertNotOnStandby_(data['Status']);
   if (data['Site Readiness Confirmed'] !== 'Y') {
     throw new Error('Site readiness is not confirmed for this order -- dispatch is on hold until that is set to Yes.');
   }
@@ -2325,8 +2340,15 @@ var ROLES = ['CRE', 'Accounts', 'Director', 'Admin'];
 var SESSION_SECONDS = 21600;   // 6 h -- CacheService maximum
 var LOCKOUT_ATTEMPTS = 5;
 var LOCKOUT_SECONDS = 900;     // 15 min
-var PAGE_ROLES = { cre: ['CRE'], accounts: ['Accounts'], dashboard: ['Director'], admin: [] }; // Admin is always allowed
-var PAGE_LABELS = { cre: 'the CRE page', accounts: 'the Accounts page', dashboard: 'the Owner Dashboard', admin: 'the Admin page' };
+var PAGE_ROLES = { cre: ['CRE'], accounts: ['Accounts'], dashboard: ['Director'], admin: [], settings: ['Director'] }; // Admin is always allowed...
+var PAGE_LABELS = { cre: 'the CRE page', accounts: 'the Accounts page', dashboard: 'the Owner Dashboard', admin: 'the Admin page', settings: 'the Settings page' };
+var DIRECTOR_ONLY_PAGES = { settings: true }; // ...except on these: Directors only, Admins too are refused (Oct 2026)
+
+/** May this role open this page? Admin may open everything except DIRECTOR_ONLY_PAGES. */
+function canOpenPage_(role, page) {
+  if (role === 'Admin' && !DIRECTOR_ONLY_PAGES[page]) return true;
+  return (PAGE_ROLES[page] || []).indexOf(role) !== -1;
+}
 
 var CURRENT_STAFF_ = null; // set by callApi for the duration of one call
 var CURRENT_ON_BEHALF_ = ''; // set by requireCanAct_ when someone acts on another CRE's order
@@ -2335,7 +2357,7 @@ var CURRENT_ON_BEHALF_ = ''; // set by requireCanAct_ when someone acts on anoth
 function apiMap_() {
   var CRE = ['CRE'], ACC = ['Accounts'], DIR = ['Director'];
   var ANY = ['CRE', 'Accounts', 'Director'];
-  return {
+  var map = {
     getProductList:         { fn: getProductList_,         roles: CRE },
     getProductCatalog:      { fn: getProductCatalog_,      roles: CRE },
     lookupPincode:          { fn: lookupPincode_,          roles: CRE },
@@ -2371,6 +2393,12 @@ function apiMap_() {
     getDashboardData:       { fn: getDashboardData_,       roles: DIR },
     getAllLineItems:        { fn: getAllLineItems_,        roles: DIR }
   };
+  // Standby + Settings page (Oct 2026) -- defined in Standby.gs.
+  if (typeof standbyApiMap_ === 'function') {
+    var extra = standbyApiMap_();
+    for (var k in extra) map[k] = extra[k];
+  }
+  return map;
 }
 
 /** The one entry point the pages call. See HOW IT'S ENFORCED above. */
@@ -2380,6 +2408,9 @@ function callApi(token, fnName, args) {
   if (!entry) throw new Error('Unknown action: ' + fnName);
   if (staff.role !== 'Admin' && entry.roles.indexOf(staff.role) === -1) {
     throw new Error('Your role (' + staff.role + ') cannot do this. Ask the admin if you need access.');
+  }
+  if (entry.directorOnly && staff.role !== 'Director') {
+    throw new Error('Only a Director can do this.');
   }
   CURRENT_STAFF_ = staff;
   CURRENT_ON_BEHALF_ = '';
@@ -2426,7 +2457,7 @@ function activityDetail_(fnName, a, result) {
     case 'decideAccessRequest': return (a.requestId || '') + ' \u2013 ' + (a.approve ? 'approved' : 'declined');
     case 'setStaffCover': return (a.staffCode || '') + (a.coveredBy ? ' away ' + (a.awayFrom || '') + ' to ' + (a.awayTo || '') + ', covered by ' + a.coveredBy : ' \u2013 cover cleared');
     case 'reassignOrders': return (a.fromCode || '') + ' \u2192 ' + (a.toCode || '') + ': ' + (result.moved || 0) + ' order(s)' + (a.trackerId ? ' (' + a.trackerId + ')' : '');
-    default: return '';
+    default: return (typeof standbyActivityDetail_ === 'function') ? standbyActivityDetail_(fnName, a, result) : '';
   }
 }
 
@@ -2458,8 +2489,7 @@ function staffLogin(staffCode, pin, page) {
   }
   cache.remove(failKey);
 
-  var allowed = PAGE_ROLES[page] || [];
-  if (staff.role !== 'Admin' && allowed.indexOf(staff.role) === -1) {
+  if (!canOpenPage_(staff.role, page)) {
     throw new Error(staff.name + ', your role (' + staff.role + ') doesn\u2019t use ' + (PAGE_LABELS[page] || 'this page') + '. Open the link for your role instead.');
   }
 
@@ -2474,8 +2504,7 @@ function staffLogin(staffCode, pin, page) {
 function checkSession(token, page) {
   try {
     var staff = requireSession_(token);
-    var allowed = PAGE_ROLES[page] || [];
-    if (staff.role !== 'Admin' && allowed.indexOf(staff.role) === -1) return null;
+    if (!canOpenPage_(staff.role, page)) return null;
     return { code: staff.code, name: staff.name, role: staff.role, appUrl: staff.role === 'Admin' ? appUrl_() : '' };
   } catch (e) {
     return null;
@@ -2671,6 +2700,7 @@ function onOpen() {
     .addItem('Remove empty rows between orders', 'compactTrackerRows')
     .addItem('Turn on approval alerts (every 10 min)', 'installAlertTrigger')
     .addItem('Run approval alert check now', 'checkApprovalAlerts')
+    .addItem('Set up standby (tab + settings rows)', 'setupStandby')
     .addSeparator()
     .addItem('Sign everyone out', 'signEveryoneOut')
     .addToUi();
@@ -3453,22 +3483,29 @@ function getApprovalSummary_() {
   var now = Date.now();
   var px = readPaymentExceptions_().filter(function (r) { return r.status === 'Pending'; });
   var ar = readAccessRequests_().filter(function (r) { return r.status === 'Pending'; });
+  // Standby requests waiting for an admin (Oct 2026). "Pending Director" ones are the directors', not counted here.
+  var sb = (typeof readStandby_ === 'function') ? readStandby_().filter(function (r) { return r.status === 'Pending'; }) : [];
   var oldest = null;
-  px.concat(ar).forEach(function (r) {
+  px.concat(ar, sb).forEach(function (r) {
     if (r.requestedAtMs && (oldest === null || r.requestedAtMs < oldest)) oldest = r.requestedAtMs;
   });
   var cfg = getAlertSettings_();
   var overdue = 0;
   px.forEach(function (r) { if (r.requestedAtMs && officeMinutesBetween_(r.requestedAtMs, now, cfg) >= cfg.paymentEscalateAfter) overdue++; });
   ar.forEach(function (r) { if (r.requestedAtMs && officeMinutesBetween_(r.requestedAtMs, now, cfg) >= cfg.accessEscalateAfter) overdue++; });
+  if (sb.length) {
+    var sbEsc = getStandbySettings_().escalateAfter;
+    sb.forEach(function (r) { if (r.requestedAtMs && officeMinutesBetween_(r.requestedAtMs, now, cfg) >= sbEsc) overdue++; });
+  }
   return {
     payments: px.length,
     access: ar.length,
-    total: px.length + ar.length,
+    standby: sb.length,
+    total: px.length + ar.length + sb.length,
     overdue: overdue, // past the target in OFFICE time -- a request left overnight isn't overdue at 9:30
 
     oldestMinutes: oldest === null ? null : Math.max(0, Math.floor((now - oldest) / 60000)),
-    newestId: px.concat(ar).reduce(function (m, r) { return (!m || (r.requestedAtMs || 0) > m.t) ? { id: r.requestId, t: r.requestedAtMs || 0 } : m; }, null)
+    newestId: px.concat(ar, sb).reduce(function (m, r) { return (!m || (r.requestedAtMs || 0) > m.t) ? { id: r.requestId, t: r.requestedAtMs || 0 } : m; }, null)
   };
 }
 
@@ -3768,6 +3805,10 @@ function checkApprovalAlerts() {
         label: function (r) { return 'CRE access request \u2013 ' + r.trackerId; },
         detail: function (r) { return r.requestedByName + ' wants to update ' + ((staffMap[r.ownerCode] || {}).name || r.ownerCode) + '\u2019s order: ' + r.reason; } }
     ];
+    jobs[0].directorCanAct = true; // payment approvals: a Director can decide them from the dashboard (Oct 2026)
+    if (typeof standbyAlertJob_ === 'function') {
+      try { jobs.push(standbyAlertJob_()); } catch (e) { Logger.log('Standby alert job failed: ' + e); }
+    }
 
     jobs.forEach(function (job) {
       job.list.forEach(function (r) {
@@ -3782,10 +3823,12 @@ function checkApprovalAlerts() {
         if (mins >= job.escalate && !escalated) {
           var to = emailOf(escal) ? [emailOf(escal)] : firstEmails; // no escalation contact on file -> at least chase the approvers
           var cc = firstEmails.concat(emailOf(requester) ? [emailOf(requester)] : []).filter(function (e) { return to.indexOf(e) === -1; });
-          if (sendAlertEmail_(to, cc, 'OVERDUE: ' + job.label(r),
+          // An escalation to a Director links to the dashboard, where they can decide it (payments only).
+        var escLink = (job.directorCanAct && escal && escal.role === 'Director' && url) ? url + '?page=dashboard' : link;
+        if (sendAlertEmail_(to, cc, 'OVERDUE: ' + job.label(r),
               '<p>This request has waited <b>' + fmtMins_(mins) + ' of office time</b> without a decision (target: ' + fmtMins_(job.escalate) + ').</p>' +
               '<p>' + job.detail(r) + '</p>' +
-              (first ? '<p>First approver: ' + first.name + (staffPhone_(first.code) ? ' (' + staffPhone_(first.code) + ')' : '') + '</p>' : ''), link)) {
+              (first ? '<p>First approver: ' + first.name + (staffPhone_(first.code) ? ' (' + staffPhone_(first.code) + ')' : '') + '</p>' : ''), escLink)) {
             markAlert_(job.sheet, r.row, job.col, r.alertsSent, (reminded ? '' : 'Reminder ' + stamp + ' | ') + 'Escalated ' + stamp);
             logActivity_({ code: 'SYSTEM', name: 'Approval alerts', role: '' }, 'Escalated overdue request', r.trackerId, r.requestId + ' after ' + mins + ' office min');
             sent++;
@@ -3801,6 +3844,10 @@ function checkApprovalAlerts() {
         }
       });
     });
+    // Standby timers (Oct 2026): auto-resume on the resume date, nudge the working day before.
+    if (typeof processStandbyTimers_ === 'function') {
+      try { sent += processStandbyTimers_(now, staffMap, cfg); } catch (e) { Logger.log('Standby timers failed: ' + e); }
+    }
     return sent;
   } finally {
     lock.releaseLock();

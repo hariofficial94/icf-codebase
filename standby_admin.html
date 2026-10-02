@@ -1,0 +1,151 @@
+<!--
+  Standby on the Admin page (Oct 2026). Pulled in by admin.html with
+  <?!= include('standby_admin'); ?> as the LAST line before </body>.
+  Adds one card under the page header; doesn't change the page's own code.
+-->
+<style>
+  .sb-card { border-left: 4px solid #6b4c9a; }
+  .sb-card h2 { color: #6b4c9a; }
+  .sb-usage { display: flex; gap: 18px; flex-wrap: wrap; font-size: 12px; color: #555; margin: 4px 0 6px; }
+  .sb-usage b { color: #1F3864; }
+  .sb-usage .over { color: #B00020; }
+  .sb-dir { margin-top: 8px; padding: 8px 10px; background: #fff4e5; border: 1px solid #f0c98a; border-radius: 4px; font-size: 12px; color: #7a5300; }
+  .sb-inline { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; margin-top: 10px; }
+  .sb-inline label { margin: 0 0 4px 0; }
+  .sb-inline input { width: 170px; }
+  .sb-sub { font-size: 11px; color: #888; }
+  .sb-hist { font-size: 11px; color: #888; margin-top: 6px; }
+  .status.Ended { background: #eee; color: #666; }
+  .status.Active { background: #ece4f6; color: #6b4c9a; }
+</style>
+
+<script>
+(function () {
+  function esc(t) { return String(t == null ? '' : t).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+  function inr(n) { return '\u20b9' + Math.round(Number(n) || 0).toLocaleString('en-IN'); }
+  var focusId = String(window.ICF_REQ_ID || '');
+
+  var card = document.createElement('div');
+  card.className = 'card sb-card';
+  card.innerHTML =
+    '<h2>Standby requests</h2>' +
+    '<div class="subtitle">Accounts asking to pause an order because the customer is holding it up. While approved, the order is off the live lists and the time isn\u2019t counted against Ops. Check with the customer or ops if it doesn\u2019t sound genuine. You can approve with an earlier resume date than asked.</div>' +
+    '<div class="sb-usage" id="sbUsage"></div>' +
+    '<div id="sbPending" class="empty">Loading...</div>' +
+    '<div id="sbWithDir"></div>' +
+    '<h2 style="margin-top:18px;">On standby now</h2>' +
+    '<div class="table-scroll" id="sbActive"></div>' +
+    '<div class="msg" id="sbMsg"></div>' +
+    '<details><summary>Recent decisions</summary><div class="table-scroll" id="sbRecent"></div></details>' +
+    '<div class="actions"><button type="button" class="secondary" id="sbRefresh">&#8635; Refresh standby</button></div>';
+  var firstCard = document.querySelector('.wrap > .card');
+  if (firstCard && firstCard.parentNode) firstCard.parentNode.insertBefore(card, firstCard.nextSibling);
+
+  function msg(text, ok) { var el = document.getElementById('sbMsg'); el.textContent = text; el.className = 'msg show ' + (ok ? 'ok' : 'err'); }
+
+  function render(d) {
+    var u = d.usage;
+    document.getElementById('sbUsage').innerHTML =
+      '<span>On standby: <b' + (u.count >= u.maxOrders ? ' class="over"' : '') + '>' + u.count + '</b> of ' + u.maxOrders + ' orders</span>' +
+      '<span>Order value held: <b' + (u.value >= u.maxValue ? ' class="over"' : '') + '>' + inr(u.value) + '</b> of ' + inr(u.maxValue) + '</span>' +
+      '<span>Directors approve past ' + u.maxDays + ' days or ' + u.maxBackdateDays + ' days backdated</span>';
+
+    var pending = d.pending.slice().sort(function (a, b) { return (b.requestId === focusId) - (a.requestId === focusId); });
+    var box = document.getElementById('sbPending');
+    if (!pending.length) {
+      box.className = 'empty';
+      box.textContent = focusId.indexOf('SB-') === 0 ? 'Request ' + focusId + ' has already been decided. Nothing waiting now.' : 'No standby requests waiting.';
+    } else {
+      box.className = '';
+      box.innerHTML = pending.map(function (r) {
+        return '<div class="req' + (r.requestId === focusId ? ' focus' : '') + '" data-id="' + esc(r.requestId) + '">' +
+          '<div class="req-top"><div>' +
+            '<div class="req-title">Standby \u2013 ' + esc(r.trackerId) + '</div>' +
+            '<div class="req-meta">' + esc(r.institution) + ' \u2013 ' + inr(r.orderValue) + '</div>' +
+            '<div class="req-meta">Asked by ' + esc(r.requestedByName) + ' (' + esc(r.requestedBy) + '), reported by ops: ' + esc(r.reportedBy) + '</div>' +
+            '<div class="req-meta"><b>' + esc(r.from) + '</b> to <b>' + esc(r.requestedResume) + '</b> (' + r.days + ' days' + (r.backdatedDays ? ', started ' + r.backdatedDays + ' day' + (r.backdatedDays === 1 ? '' : 's') + ' before the request' : '') + ')</div>' +
+          '</div><div class="req-when">' + esc(r.requestedAt) + '</div></div>' +
+          '<div class="req-reason"><b>' + esc(r.reason) + '</b>' + (r.note ? ' \u2013 ' + esc(r.note) : '') + '</div>' +
+          (r.directorReasons && r.directorReasons.length ? '<div class="sb-dir">If you approve, it also goes to a director: ' + esc(r.directorReasons.join('; ')) + '. A shorter resume date may bring it within your limit.</div>' : '') +
+          '<div class="sb-inline"><div><label>Resume date</label><input type="date" class="sb-resume" value="' + esc(r.requestedResumeYmd) + '" min="' + esc(d.tomorrow) + '" max="' + esc(r.requestedResumeYmd) + '"></div>' +
+          '<div style="flex:1 1 200px;"><label>Note (optional)</label><input type="text" class="sb-note" style="width:100%;" placeholder="e.g. Confirmed with the customer"></div></div>' +
+          '<div class="actions"><button type="button" class="approve">Approve</button><button type="button" class="decline">Decline</button></div>' +
+          '<div class="msg"></div></div>';
+      }).join('');
+      Array.prototype.forEach.call(box.querySelectorAll('.req'), function (el) {
+        el.querySelector('.approve').addEventListener('click', function () { decide(el, true); });
+        el.querySelector('.decline').addEventListener('click', function () { decide(el, false); });
+      });
+    }
+
+    document.getElementById('sbWithDir').innerHTML = d.withDirector.length
+      ? '<div class="subtitle" style="margin-top:14px;">With the directors (past a limit):</div>' + d.withDirector.map(function (r) {
+          return '<div class="req"><div class="req-title">' + esc(r.trackerId) + ' \u2013 ' + esc(r.institution) + '</div>' +
+            '<div class="req-meta">' + esc(r.reason) + ', ' + esc(r.from) + ' to ' + esc(r.resume) + ' \u2013 approved by ' + esc(r.decidedBy) + '</div></div>';
+        }).join('')
+      : '';
+
+    document.getElementById('sbActive').innerHTML = d.active.length
+      ? '<table><tr><th>Order</th><th>Reason</th><th>Resumes</th><th>Shorten</th></tr>' + d.active.map(function (r) {
+          return '<tr data-id="' + esc(r.requestId) + '"><td>' + esc(r.trackerId) + '<div class="sub">' + esc(r.institution) + ' \u2013 ' + inr(r.orderValue) + '</div></td>' +
+            '<td>' + esc(r.reason) + '<div class="sub">' + esc(r.note) + '</div><div class="sub">since ' + esc(r.from) + ', reported by ' + esc(r.reportedBy) + '</div></td>' +
+            '<td><span class="status Active">' + esc(r.resume) + '</span><div class="sub">' + r.daysLeft + ' day' + (r.daysLeft === 1 ? '' : 's') + ' left</div></td>' +
+            '<td><input type="date" class="sb-new" style="width:150px;" min="' + esc(d.tomorrow) + '" max="' + esc(r.resumeYmd) + '"> ' +
+            '<button type="button" class="link-btn sb-shorten">Bring forward</button></td></tr>';
+        }).join('') + '</table>'
+      : '<div class="empty">No orders on standby.</div>';
+    Array.prototype.forEach.call(document.querySelectorAll('#sbActive .sb-shorten'), function (b) {
+      b.addEventListener('click', function () {
+        var tr = b.closest('tr'), val = tr.querySelector('.sb-new').value;
+        if (!val) { msg('Pick the new resume date first.'); return; }
+        b.disabled = true;
+        authRun()
+          .withSuccessHandler(function (res) { msg(res.trackerId + ' now resumes on ' + res.resume + '. Accounts and the admins have been emailed.', true); load(); })
+          .withFailureHandler(function (e) { b.disabled = false; msg('Error: ' + e.message); })
+          .shortenStandby({ requestId: tr.getAttribute('data-id'), resumeDate: val });
+      });
+    });
+
+    document.getElementById('sbRecent').innerHTML = d.recent.length
+      ? '<table><tr><th>Order</th><th>Reason</th><th>Outcome</th></tr>' + d.recent.map(function (r) {
+          return '<tr><td>' + esc(r.trackerId) + '<div class="sub">' + esc(r.requestedAt) + '</div></td>' +
+            '<td>' + esc(r.reason) + '<div class="sub">' + esc(r.from) + ' to ' + esc(r.resume) + '</div></td>' +
+            '<td><span class="status ' + esc(r.status) + '">' + esc(r.status) + '</span><div class="sub">' + esc(r.status === 'Ended' ? r.endedHow : (r.directorDecision || r.decidedBy)) + '</div></td></tr>';
+        }).join('') + '</table>'
+      : '<div class="empty">None yet.</div>';
+  }
+
+  function decide(el, approve) {
+    var btns = el.querySelectorAll('button');
+    Array.prototype.forEach.call(btns, function (b) { b.disabled = true; });
+    var m = el.querySelector('.msg');
+    authRun()
+      .withSuccessHandler(function (res) {
+        m.textContent = res.declined ? 'Declined. Accounts has been told.'
+          : res.sentToDirector ? 'Approved \u2013 sent to the directors (' + res.reasons.join('; ') + '). The order stays live until they decide.'
+          : 'Approved \u2013 on standby until ' + res.resume + '.';
+        m.className = 'msg show ok';
+        setTimeout(load, 1200);
+        if (window.ICF_REFRESH_APPROVALS) window.ICF_REFRESH_APPROVALS();
+      })
+      .withFailureHandler(function (e) {
+        Array.prototype.forEach.call(btns, function (b) { b.disabled = false; });
+        m.textContent = 'Error: ' + e.message; m.className = 'msg show err';
+      })
+      .decideStandby({ requestId: el.getAttribute('data-id'), approve: approve, resumeDate: approve ? el.querySelector('.sb-resume').value : '', note: el.querySelector('.sb-note').value.trim() });
+  }
+
+  function load() {
+    authRun()
+      .withSuccessHandler(render)
+      .withFailureHandler(function (e) { var b = document.getElementById('sbPending'); b.className = 'empty'; b.textContent = 'Could not load standby requests: ' + e.message; })
+      .getStandbyAdmin();
+  }
+  document.getElementById('sbRefresh').addEventListener('click', load);
+  var mainRefresh = document.getElementById('refreshBtn');
+  if (mainRefresh) mainRefresh.addEventListener('click', load);
+  var prevReload = window.ICF_RELOAD;
+  window.ICF_RELOAD = function () { if (typeof prevReload === 'function') prevReload(); load(); };
+  load();
+})();
+</script>
