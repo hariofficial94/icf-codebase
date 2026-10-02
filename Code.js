@@ -519,7 +519,13 @@ function doGet(e) {
 
 /** Used by the pages as <?!= include('auth'); ?> -- returns a file's raw content. */
 function include(name) {
-  return HtmlService.createHtmlOutputFromFile(name).getContent();
+  var html = HtmlService.createHtmlOutputFromFile(name).getContent();
+  // Every page includes 'auth', so the shared Refresh-button spinner (Oct 2026)
+  // rides along with it -- no page needed editing. See refresh_spinner.html.
+  if (name === 'auth') {
+    try { html += HtmlService.createHtmlOutputFromFile('refresh_spinner').getContent(); } catch (e) { /* page still works without it */ }
+  }
+  return html;
 }
 
 // ---------------- SHARED HELPERS ----------------

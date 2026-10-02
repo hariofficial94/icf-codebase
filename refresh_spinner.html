@@ -1,0 +1,97 @@
+<!--
+  Refresh-button spinner (Oct 2026). Not included by any page directly:
+  Code.js include('auth') appends it right after the sign-in code, so every
+  page that signs in gets it with no page edits.
+
+  How it works: any button whose text says "Refresh" (or "Reload") is
+  watched. During the click, every authRun() call the page starts is tagged
+  to that button -- and so is any call started while one of those calls'
+  results is being handled (e.g. the dashboard fetching standby data after
+  the main data arrives). The button shows a spinner and is disabled until
+  the last tagged call comes back, then returns to normal. A safety timer
+  restores it after 25 seconds no matter what (e.g. a session that expired
+  and is waiting for sign-in).
+-->
+<style>
+  .icf-spin { display: inline-block; width: 10px; height: 10px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: icfSpin 0.7s linear infinite; vertical-align: -1px; margin-right: 5px; }
+  @keyframes icfSpin { to { transform: rotate(360deg); } }
+  button.icf-busy { opacity: 0.75; cursor: progress !important; }
+</style>
+<script>
+(function () {
+  var MIN_MS = 500, MAX_MS = 25000;
+  var current = null; // the Refresh button whose click (or result) is running right now
+
+  function isRefreshButton(el) {
+    return el && el.tagName === 'BUTTON' && /\b(refresh|reload)\b/i.test(el.textContent || '');
+  }
+
+  function start(btn) {
+    if (!btn.__icfPending) {
+      btn.__icfPending = 0;
+      btn.__icfHtml = btn.innerHTML;
+      btn.__icfStarted = Date.now();
+      btn.__icfWasDisabled = btn.disabled;
+      btn.innerHTML = '<span class="icf-spin"></span>Refreshing\u2026';
+      btn.classList.add('icf-busy');
+      btn.disabled = true;
+      clearTimeout(btn.__icfSafety);
+      btn.__icfSafety = setTimeout(function () { btn.__icfPending = 1; finish(btn); }, MAX_MS);
+    }
+    btn.__icfPending++;
+  }
+
+  function finish(btn) {
+    btn.__icfPending = Math.max(0, (btn.__icfPending || 0) - 1);
+    if (btn.__icfPending) return;
+    var wait = Math.max(0, MIN_MS - (Date.now() - (btn.__icfStarted || 0)));
+    setTimeout(function () {
+      if (btn.__icfPending) return; // a new click started meanwhile
+      clearTimeout(btn.__icfSafety);
+      if (btn.__icfHtml !== undefined) btn.innerHTML = btn.__icfHtml;
+      btn.classList.remove('icf-busy');
+      btn.disabled = !!btn.__icfWasDisabled;
+      btn.__icfHtml = undefined;
+    }, wait);
+  }
+
+  // Capture phase runs before the page's own click handler, so the calls that
+  // handler makes are tagged; the tag is dropped once the click has finished.
+  document.addEventListener('click', function (e) {
+    var btn = e.target && e.target.closest ? e.target.closest('button') : null;
+    if (!isRefreshButton(btn) || btn.disabled) return;
+    current = btn;
+    setTimeout(function () { if (current === btn) current = null; }, 0);
+  }, true);
+
+  function runAs(btn, fn, arg) {
+    var prev = current;
+    current = btn;
+    try { if (fn) fn(arg); } finally { current = prev; }
+  }
+
+  var original = window.authRun;
+  if (typeof original !== 'function') return;
+  window.authRun = function () {
+    var inner = original();
+    var btn = current;
+    if (!btn) return inner; // not from a Refresh click: no change at all
+    var ok = null, fail = null;
+    var p = new Proxy({}, {
+      get: function (_, name) {
+        if (name === 'withSuccessHandler') return function (h) { ok = h; return p; };
+        if (name === 'withFailureHandler') return function (h) { fail = h; return p; };
+        return function () {
+          start(btn);
+          var settled = false;
+          var done = function () { if (!settled) { settled = true; finish(btn); } };
+          inner
+            .withSuccessHandler(function (res) { try { runAs(btn, ok, res); } finally { done(); } })
+            .withFailureHandler(function (err) { try { runAs(btn, fail, err); } finally { done(); } })[name].apply(null, arguments);
+        };
+      }
+    });
+    return p;
+  };
+})();
+</script>

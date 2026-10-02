@@ -49,6 +49,7 @@
 <script>
 (function () {
   var SB = { records: [], byId: {}, usage: null, pending: 0, withDirector: 0, loaded: false };
+  function isDirector() { return !!(window.ICF_STAFF && window.ICF_STAFF.role === 'Director'); }
   var DAY = 86400000;
   function esc(t) { return String(t == null ? '' : t).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
   function periodsFor(o) { return SB.byId[String(o.id).toLowerCase()] || []; }
@@ -91,8 +92,9 @@
         SB.loaded = true;
         adjustOrders();
         origRenderAll();
+        if (isDirector()) loadDirector(); // so the dashboard's Refresh also refreshes "Waiting for a director"
       })
-      .withFailureHandler(function () { SB.loaded = false; origRenderAll(); })
+      .withFailureHandler(function () { SB.loaded = false; origRenderAll(); if (isDirector()) loadDirector(); })
       .getStandbyDashboard();
   };
 
@@ -267,8 +269,10 @@
       });
     if (isSb) runner.decideStandbyDirector(form); else runner.decidePaymentAsDirector(form);
   }
+  // The pane loads with the dashboard data (see renderAll above). Signing in as
+  // someone who isn't a Director just hides it.
   document.addEventListener('icf-signed-in', function (e) {
-    if (e.detail && e.detail.role === 'Director') loadDirector(); else panel.classList.remove('show');
+    if (!(e.detail && e.detail.role === 'Director')) { panel.classList.remove('show'); panel.innerHTML = ''; }
   });
   var prevClear = window.ICF_CLEAR;
   window.ICF_CLEAR = function () { if (typeof prevClear === 'function') prevClear(); panel.classList.remove('show'); panel.innerHTML = ''; };
