@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: 'Segoe UI', Arial, sans-serif; background: #f4f6f8; margin: 0; padding: 24px; color: #222; }
+    .wrap { max-width: 900px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; }
+    .card { background: #fff; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.08); padding: 24px 28px; }
+    h1 { font-size: 20px; color: #1F3864; margin: 0 0 4px 0; border-bottom: 2px solid #1F3864; padding-bottom: 10px; }
+    h2 { font-size: 16px; color: #1F3864; margin: 0 0 4px 0; }
+    .subtitle { font-size: 12px; color: #595959; font-style: italic; margin: 6px 0 14px 0; }
+    label { display: block; font-size: 13px; font-weight: 600; color: #333; margin-top: 12px; margin-bottom: 4px; }
+    input, select { width: 100%; padding: 9px 10px; font-size: 14px; border: 1px solid #ccc; border-radius: 4px; background: #fff; }
+    input:focus, select:focus { outline: none; border-color: #2E74B5; }
+    .row3 { display: flex; gap: 12px; flex-wrap: wrap; }
+    .row3 > div { flex: 1 1 180px; }
+    button { padding: 10px 16px; background: #1F3864; color: #fff; border: none; border-radius: 4px; font-size: 13px; font-weight: 600; cursor: pointer; }
+    button:disabled { background: #9aa5b1; cursor: not-allowed; }
+    button.secondary { background: #eef1f4; color: #2E74B5; border: 1px solid #d5dbe0; }
+    button.decline { background: #fff; color: #B00020; border: 1px solid #e2a19a; }
+    .actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+    .msg { margin-top: 12px; font-size: 13px; display: none; }
+    .msg.show { display: block; }
+    .msg.err { color: #B00020; }
+    .msg.ok { color: #2c5a1e; }
+    .empty { font-size: 13px; color: #888; font-style: italic; padding: 6px 0; }
+
+    .req { border: 1px solid #e0e0e0; border-radius: 6px; padding: 14px 16px; margin-top: 10px; background: #fafafa; }
+    .req.focus { border: 2px solid #2E74B5; background: #f3f8fd; }
+    .req-top { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+    .req-title { font-size: 14px; font-weight: 700; color: #1F3864; }
+    .req-meta { font-size: 12px; color: #666; margin-top: 3px; }
+    .req-reason { font-size: 13px; color: #333; margin-top: 8px; padding: 8px 10px; background: #fff; border-left: 3px solid #2E74B5; }
+    .req-when { font-size: 11px; color: #888; white-space: nowrap; }
+
+    table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 8px; }
+    th { text-align: left; font-size: 12px; color: #666; font-weight: 600; padding: 8px 6px; border-bottom: 2px solid #e5e5e5; }
+    td { padding: 8px 6px; border-bottom: 1px solid #eee; vertical-align: top; }
+    td .sub { font-size: 11px; color: #888; }
+    .status { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 10px; }
+    .status.Approved { background: #e3f1dc; color: #2c5a1e; }
+    .status.Declined { background: #f8d7da; color: #B00020; }
+    .status.Expired { background: #eee; color: #666; }
+    .status.away { background: #fff1dc; color: #9a5b00; }
+    .table-scroll { overflow-x: auto; }
+    .link-btn { background: none; border: none; color: #2E74B5; padding: 0; font-size: 12px; font-weight: 600; cursor: pointer; }
+    details summary { cursor: pointer; font-size: 13px; color: #2E74B5; font-weight: 600; margin-top: 14px; }
+  </style>
+</head>
+<body>
+  <script>window.ICF_PAGE = 'admin'; window.ICF_REQ_ID = '<?= reqId ?>';</script>
+  <?!= include('auth'); ?>
+
+  <div class="wrap">
+    <div class="card">
+      <h1>ICF Admin</h1>
+      <div class="subtitle">Approve payment exceptions for Accounts and CREs' requests to update each other's orders, set up cover when a CRE is on leave, and move orders permanently when someone leaves.</div>
+      <button type="button" class="secondary" id="refreshBtn">&#8635; Refresh</button>
+      <div class="msg err" id="loadErr"></div>
+    </div>
+
+    <!-- 0. Payment approvals -->
+    <div class="card">
+      <h2>Payment approvals</h2>
+      <div class="subtitle">Accounts asking to go ahead on an end-customer order without the usual payment: verifying with no advance, or dispatching with a balance still due. Approved gate passes carry a note with your name.</div>
+      <div id="pxPendingList" class="empty">Loading...</div>
+      <details>
+        <summary>Recent decisions</summary>
+        <div class="table-scroll" id="pxHistoryBox"></div>
+      </details>
+    </div>
+
+    <!-- 1. Access requests -->
+    <div class="card">
+      <h2>Access requests</h2>
+      <div class="subtitle">Approving gives that CRE access to that one order for 24 hours. The order stays with its owner.</div>
+      <div id="pendingList" class="empty">Loading...</div>
+      <details>
+        <summary>Recent decisions</summary>
+        <div class="table-scroll" id="historyBox"></div>
+      </details>
+    </div>
+
+    <!-- 2. Leave cover -->
+    <div class="card">
+      <h2>Leave cover</h2>
+      <div class="subtitle">For planned leave. The covering CRE sees and can update all of the absent CRE's orders for these dates &ndash; no requests needed. Cover ends automatically after the last day.</div>
+      <div class="table-scroll" id="coverTable"></div>
+      <div class="row3" style="margin-top:6px;">
+        <div><label for="coverWho">CRE on leave</label><select id="coverWho"></select></div>
+        <div><label for="coverFrom">Away from</label><input type="date" id="coverFrom"></div>
+        <div><label for="coverTo">Away to (last day of leave)</label><input type="date" id="coverTo"></div>
+        <div><label for="coverBy">Covered by</label><select id="coverBy"></select></div>
+      </div>
+      <div class="actions"><button type="button" id="btnSaveCover">Save cover</button></div>
+      <div class="msg" id="coverMsg"></div>
+    </div>
+
+    <!-- 3. Reassign -->
+    <div class="card">
+      <h2>Reassign orders</h2>
+      <div class="subtitle">Permanent. Use this when a CRE leaves, or to move a single order for good. Moving everything moves only open orders &ndash; delivered and returned orders stay with whoever handled them.</div>
+      <div class="row3">
+        <div><label for="reFrom">From</label><select id="reFrom"></select></div>
+        <div><label for="reTo">To</label><select id="reTo"></select></div>
+        <div><label for="reTracker">Just one order (optional Tracker ID)</label><input type="text" id="reTracker" placeholder="Leave blank to move all open orders"></div>
+      </div>
+      <div class="actions"><button type="button" id="btnReassign">Reassign</button></div>
+      <div class="msg" id="reMsg"></div>
+    </div>
+  </div>
+
+  <script>
+    var focusReqId = window.ICF_REQ_ID || '';
+    var adminData = null;
+
+    function esc(t) { return String(t == null ? '' : t).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+    function showMsg(id, text, ok) { var el = document.getElementById(id); el.textContent = text; el.className = 'msg show ' + (ok ? 'ok' : 'err'); }
+    function hideMsg(id) { document.getElementById(id).className = 'msg'; }
+    function fmtYmd(ymd) {
+      if (!ymd) return '';
+      var p = ymd.split('-');
+      return new Date(+p[0], +p[1] - 1, +p[2]).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+    }
+
+    // ---------- Access requests ----------
+    function renderRequests(reqs) {
+      var pending = reqs.filter(function (r) { return r.status === 'Pending'; });
+      // the request the email linked to goes first
+      pending.sort(function (a, b) { return (b.requestId === focusReqId) - (a.requestId === focusReqId); });
+      var box = document.getElementById('pendingList');
+      if (!pending.length) {
+        box.className = 'empty';
+        var linked = focusReqId && reqs.filter(function (r) { return r.requestId === focusReqId; })[0];
+        box.textContent = linked
+          ? 'Request ' + linked.requestId + ' was already ' + linked.status.toLowerCase() + (linked.decidedBy ? ' by ' + linked.decidedBy : '') + '. Nothing waiting now.'
+          : 'No requests waiting.';
+      } else {
+        box.className = '';
+        box.innerHTML = pending.map(function (r) {
+          return '<div class="req' + (r.requestId === focusReqId ? ' focus' : '') + '" data-id="' + esc(r.requestId) + '">' +
+            '<div class="req-top"><div>' +
+              '<div class="req-title">' + esc(r.requestedByName) + ' (' + esc(r.requestedBy) + ') wants to update ' + esc(r.trackerId) + '</div>' +
+              '<div class="req-meta">' + esc(r.institution) + ' \u2013 owned by ' + esc(r.ownerName) + '</div>' +
+            '</div><div class="req-when">' + esc(r.requestedAt) + '</div></div>' +
+            '<div class="req-reason">' + esc(r.reason) + '</div>' +
+            '<div class="actions"><button type="button" class="approve">Approve for 24 hours</button>' +
+            '<button type="button" class="decline">Decline</button></div>' +
+            '<div class="msg"></div></div>';
+        }).join('');
+        Array.prototype.forEach.call(box.querySelectorAll('.req'), function (el) {
+          var id = el.getAttribute('data-id');
+          el.querySelector('.approve').addEventListener('click', function () { decide(el, id, true); });
+          el.querySelector('.decline').addEventListener('click', function () { decide(el, id, false); });
+        });
+      }
+
+      var decided = reqs.filter(function (r) { return r.status !== 'Pending'; }).slice(0, 20);
+      document.getElementById('historyBox').innerHTML = decided.length
+        ? '<table><tr><th>Order</th><th>Requested by</th><th>Owner</th><th>Status</th><th>Decided by</th></tr>' +
+          decided.map(function (r) {
+            return '<tr><td>' + esc(r.trackerId) + '<div class="sub">' + esc(r.reason) + '</div></td>' +
+              '<td>' + esc(r.requestedByName) + '<div class="sub">' + esc(r.requestedAt) + '</div></td>' +
+              '<td>' + esc(r.ownerName) + '</td>' +
+              '<td><span class="status ' + esc(r.status) + '">' + esc(r.status) + '</span>' +
+                (r.status === 'Approved' ? '<div class="sub">until ' + esc(r.accessUntil) + '</div>' : '') + '</td>' +
+              '<td>' + esc(r.decidedBy) + '<div class="sub">' + esc(r.decidedAt) + '</div></td></tr>';
+          }).join('') + '</table>'
+        : '<div class="empty">None yet.</div>';
+    }
+
+    function decide(el, requestId, approve) {
+      var btns = el.querySelectorAll('button');
+      Array.prototype.forEach.call(btns, function (b) { b.disabled = true; });
+      var msg = el.querySelector('.msg');
+      authRun()
+        .withSuccessHandler(function (res) {
+          msg.textContent = approve ? 'Approved \u2013 access for 24 hours.' : 'Declined.';
+          msg.className = 'msg show ok';
+          setTimeout(loadData, 900);
+          if (window.ICF_REFRESH_APPROVALS) window.ICF_REFRESH_APPROVALS();
+        })
+        .withFailureHandler(function (e) {
+          Array.prototype.forEach.call(btns, function (b) { b.disabled = false; });
+          msg.textContent = 'Error: ' + e.message;
+          msg.className = 'msg show err';
+          setTimeout(loadData, 1500); // e.g. another admin decided it first
+        })
+        .decideAccessRequest({ requestId: requestId, approve: approve });
+    }
+
+    // ---------- Payment approvals ----------
+    function renderPaymentExceptions(list) {
+      list = list || [];
+      var pending = list.filter(function (r) { return r.status === 'Pending'; });
+      pending.sort(function (a, b) { return (b.requestId === focusReqId) - (a.requestId === focusReqId); });
+      var box = document.getElementById('pxPendingList');
+      if (!pending.length) {
+        box.className = 'empty';
+        var linked = focusReqId && list.filter(function (r) { return r.requestId === focusReqId; })[0];
+        box.textContent = linked
+          ? 'Request ' + linked.requestId + ' was already ' + linked.status.toLowerCase() + (linked.decidedBy ? ' by ' + linked.decidedBy : '') + '. Nothing waiting now.'
+          : 'No payment approvals waiting.';
+      } else {
+        box.className = '';
+        box.innerHTML = pending.map(function (r) {
+          return '<div class="req' + (r.requestId === focusReqId ? ' focus' : '') + '" data-id="' + esc(r.requestId) + '">' +
+            '<div class="req-top"><div>' +
+              '<div class="req-title">' + esc(r.typeLabel) + ' – ' + esc(r.trackerId) + '</div>' +
+              '<div class="req-meta">' + esc(r.institution) + ' – ' + esc(r.amountNote) + '</div>' +
+              '<div class="req-meta">Asked by ' + esc(r.requestedByName) + ' (' + esc(r.requestedBy) + ')</div>' +
+            '</div><div class="req-when">' + esc(r.requestedAt) + '</div></div>' +
+            '<div class="req-reason">' + esc(r.reason) + '</div>' +
+            '<div class="actions"><button type="button" class="approve">Approve</button>' +
+            '<button type="button" class="decline">Decline</button></div>' +
+            '<div class="msg"></div></div>';
+        }).join('');
+        Array.prototype.forEach.call(box.querySelectorAll('.req'), function (el) {
+          var id = el.getAttribute('data-id');
+          el.querySelector('.approve').addEventListener('click', function () { decidePx(el, id, true); });
+          el.querySelector('.decline').addEventListener('click', function () { decidePx(el, id, false); });
+        });
+      }
+      var decided = list.filter(function (r) { return r.status !== 'Pending'; }).slice(0, 20);
+      document.getElementById('pxHistoryBox').innerHTML = decided.length
+        ? '<table><tr><th>Order</th><th>Request</th><th>Asked by</th><th>Status</th><th>Decided by</th></tr>' +
+          decided.map(function (r) {
+            return '<tr><td>' + esc(r.trackerId) + '<div class="sub">' + esc(r.amountNote) + '</div></td>' +
+              '<td>' + esc(r.typeLabel) + '<div class="sub">' + esc(r.reason) + '</div></td>' +
+              '<td>' + esc(r.requestedByName) + '<div class="sub">' + esc(r.requestedAt) + '</div></td>' +
+              '<td><span class="status ' + esc(r.status) + '">' + esc(r.status) + '</span></td>' +
+              '<td>' + esc(r.decidedBy) + '<div class="sub">' + esc(r.decidedAt) + '</div></td></tr>';
+          }).join('') + '</table>'
+        : '<div class="empty">None yet.</div>';
+    }
+
+    function decidePx(el, requestId, approve) {
+      var btns = el.querySelectorAll('button');
+      Array.prototype.forEach.call(btns, function (b) { b.disabled = true; });
+      var msg = el.querySelector('.msg');
+      authRun()
+        .withSuccessHandler(function (res) {
+          msg.textContent = approve ? ('Approved.' + (res.releasedToOps ? ' The courier order has been released to Ops.' : ' Accounts can now continue.')) : 'Declined.';
+          msg.className = 'msg show ok';
+          setTimeout(loadData, 1200);
+          if (window.ICF_REFRESH_APPROVALS) window.ICF_REFRESH_APPROVALS();
+        })
+        .withFailureHandler(function (e) {
+          Array.prototype.forEach.call(btns, function (b) { b.disabled = false; });
+          msg.textContent = 'Error: ' + e.message;
+          msg.className = 'msg show err';
+          setTimeout(loadData, 1500);
+        })
+        .decidePaymentException({ requestId: requestId, approve: approve });
+    }
+
+    // ---------- Leave cover ----------
+    function renderCover(data) {
+      var cres = data.staff.filter(function (s) { return s.role === 'CRE'; });
+      var active = cres.filter(function (s) { return s.active; });
+      var byCode = {}; data.staff.forEach(function (s) { byCode[s.code] = s; });
+
+      document.getElementById('coverTable').innerHTML = cres.length
+        ? '<table><tr><th>CRE</th><th>Open orders</th><th>Leave cover</th><th></th></tr>' +
+          cres.map(function (s) {
+            var cover = '';
+            if (s.coveredBy && s.awayTo) {
+              var state = s.awayTo < data.today ? 'Ended' : (s.awayFrom > data.today ? 'Scheduled' : 'On leave now');
+              cover = '<span class="status away">' + state + '</span> ' + fmtYmd(s.awayFrom) + ' \u2013 ' + fmtYmd(s.awayTo) +
+                '<div class="sub">covered by ' + esc((byCode[s.coveredBy] || {}).name || s.coveredBy) + '</div>';
+            }
+            return '<tr><td>' + esc(s.name) + '<div class="sub">' + esc(s.code) + (s.active ? '' : ' \u2013 inactive') + '</div></td>' +
+              '<td>' + s.openOrders + '</td><td>' + (cover || '<span class="sub">\u2013</span>') + '</td>' +
+              '<td>' + (s.coveredBy ? '<button type="button" class="link-btn clear-cover" data-code="' + esc(s.code) + '">Clear</button>' : '') + '</td></tr>';
+          }).join('') + '</table>'
+        : '<div class="empty">No CREs in the Staff tab.</div>';
+
+      Array.prototype.forEach.call(document.querySelectorAll('.clear-cover'), function (b) {
+        b.addEventListener('click', function () { saveCover(b.getAttribute('data-code'), '', '', ''); });
+      });
+
+      var opts = function (list) { return list.map(function (s) { return '<option value="' + esc(s.code) + '">' + esc(s.name) + ' (' + esc(s.code) + ')</option>'; }).join(''); };
+      document.getElementById('coverWho').innerHTML = opts(active);
+      document.getElementById('coverBy').innerHTML = opts(active);
+      if (active.length > 1) document.getElementById('coverBy').selectedIndex = 1;
+    }
+
+    function saveCover(code, from, to, by) {
+      hideMsg('coverMsg');
+      authRun()
+        .withSuccessHandler(function () {
+          showMsg('coverMsg', by ? 'Cover saved.' : 'Cover cleared.', true);
+          loadData();
+        })
+        .withFailureHandler(function (e) { showMsg('coverMsg', 'Error: ' + e.message); })
+        .setStaffCover({ staffCode: code, awayFrom: from, awayTo: to, coveredBy: by });
+    }
+    document.getElementById('btnSaveCover').addEventListener('click', function () {
+      var who = document.getElementById('coverWho').value;
+      var by = document.getElementById('coverBy').value;
+      var from = document.getElementById('coverFrom').value;
+      var to = document.getElementById('coverTo').value;
+      if (!who || !by || !from || !to) { showMsg('coverMsg', 'Choose the CRE, both dates and who covers.'); return; }
+      if (who === by) { showMsg('coverMsg', 'Someone can\u2019t cover for themselves.'); return; }
+      if (to < from) { showMsg('coverMsg', '"Away to" is before "Away from".'); return; }
+      saveCover(who, from, to, by);
+    });
+
+    // ---------- Reassign ----------
+    function renderReassign(data) {
+      var cres = data.staff.filter(function (s) { return s.role === 'CRE'; });
+      document.getElementById('reFrom').innerHTML = cres.map(function (s) {
+        return '<option value="' + esc(s.code) + '">' + esc(s.name) + ' (' + esc(s.code) + ') \u2013 ' + s.openOrders + ' open' + (s.active ? '' : ', inactive') + '</option>';
+      }).join('');
+      document.getElementById('reTo').innerHTML = cres.filter(function (s) { return s.active; }).map(function (s) {
+        return '<option value="' + esc(s.code) + '">' + esc(s.name) + ' (' + esc(s.code) + ')</option>';
+      }).join('');
+    }
+    document.getElementById('btnReassign').addEventListener('click', function () {
+      var btn = this;
+      hideMsg('reMsg');
+      var from = document.getElementById('reFrom').value;
+      var to = document.getElementById('reTo').value;
+      var tid = document.getElementById('reTracker').value.trim();
+      if (!to) { showMsg('reMsg', 'Choose who to move the orders to.'); return; }
+      if (!tid && from === to) { showMsg('reMsg', 'Choose two different CREs.'); return; }
+      var toName = document.getElementById('reTo').selectedOptions[0].textContent;
+      var question = tid
+        ? 'Move order ' + tid + ' to ' + toName + ' permanently?'
+        : 'Move ALL open orders from ' + document.getElementById('reFrom').selectedOptions[0].textContent.split(' \u2013 ')[0] + ' to ' + toName + ' permanently?';
+      if (!window.confirm(question)) return;
+      btn.disabled = true; btn.textContent = 'Reassigning...';
+      authRun()
+        .withSuccessHandler(function (res) {
+          btn.disabled = false; btn.textContent = 'Reassign';
+          showMsg('reMsg', res.moved ? 'Moved ' + res.moved + ' order' + (res.moved === 1 ? '' : 's') + '.' : 'No open orders to move.', true);
+          document.getElementById('reTracker').value = '';
+          loadData();
+        })
+        .withFailureHandler(function (e) {
+          btn.disabled = false; btn.textContent = 'Reassign';
+          showMsg('reMsg', 'Error: ' + e.message);
+        })
+        .reassignOrders({ fromCode: from, toCode: to, trackerId: tid });
+    });
+
+    // ---------- Load ----------
+    function loadData() {
+      hideMsg('loadErr');
+      authRun()
+        .withSuccessHandler(function (data) {
+          adminData = data;
+          renderPaymentExceptions(data.paymentExceptions);
+          renderRequests(data.requests);
+          renderCover(data);
+          renderReassign(data);
+          if (data.unownedOpen) showMsg('loadErr', data.unownedOpen + ' open order(s) have no CRE on record \u2013 assign them one at a time under Reassign orders (enter the Tracker ID).');
+        })
+        .withFailureHandler(function (e) { showMsg('loadErr', 'Could not load: ' + e.message); })
+        .getAdminData();
+    }
+    document.getElementById('refreshBtn').addEventListener('click', loadData);
+    window.ICF_RELOAD = loadData;
+    loadData();
+  </script>
+</body>
+</html>

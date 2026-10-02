@@ -1,0 +1,362 @@
+<!--
+  Shared staff sign-in for all three pages. Included by each page with
+  <?!= include('auth'); ?> right after <body>, after the page sets
+  window.ICF_PAGE ('cre' | 'accounts' | 'dashboard').
+
+  What it gives each page:
+    authRun()  -- a drop-in replacement for google.script.run. Same chain
+                  (.withSuccessHandler(...).withFailureHandler(...).fnName(args)),
+                  but every call goes through the server's callApi() with the
+                  session token attached. Calls made before sign-in (the page's
+                  own start-up loads) wait in a queue and run the moment the
+                  person signs in -- so the pages' existing start-up code didn't
+                  need restructuring. If a session expires mid-use, the call is
+                  put back in the queue, the sign-in screen comes up, and the
+                  call runs once they sign back in -- nothing typed is lost.
+    window.ICF_STAFF  -- { code, name, role } once signed in.
+    'icf-signed-in' event on document -- fired after every sign-in, so a page
+                  can show the person's name where it needs to.
+-->
+<style>
+  .auth-overlay { position: fixed; inset: 0; z-index: 5000; background: #f4f6f8; display: flex; align-items: flex-start; justify-content: center; padding: 12vh 16px 16px; overflow-y: auto; }
+  .auth-overlay.hidden { display: none; }
+  .auth-card { width: 100%; max-width: 360px; background: #fff; border-radius: 8px; box-shadow: 0 2px 14px rgba(0,0,0,0.10); overflow: hidden; }
+  .auth-head { background: #1F3864; color: #fff; padding: 18px 22px; }
+  .auth-head .auth-brand { font-size: 12px; font-weight: 700; letter-spacing: 0.04em; opacity: 0.8; }
+  .auth-head .auth-title { font-size: 18px; font-weight: 700; margin-top: 2px; }
+  .auth-body { padding: 18px 22px 22px; }
+  .auth-body label { display: block; font-size: 13px; font-weight: 600; color: #333; margin-top: 12px; margin-bottom: 4px; }
+  .auth-body input { width: 100%; padding: 10px; font-size: 15px; border: 1px solid #ccc; border-radius: 4px; }
+  .auth-body input:focus { outline: none; border-color: #2E74B5; box-shadow: 0 0 0 2px rgba(46,116,181,0.15); }
+  .auth-body input.pin { letter-spacing: 0.3em; }
+  .auth-body button.auth-primary { width: 100%; margin-top: 16px; padding: 11px; background: #1F3864; color: #fff; border: none; border-radius: 4px; font-size: 14px; font-weight: 600; cursor: pointer; }
+  .auth-body button.auth-primary:disabled { background: #9aa5b1; cursor: not-allowed; }
+  .auth-body button.auth-link { width: auto; margin-top: 12px; padding: 0; background: none; border: none; color: #2E74B5; font-size: 12px; font-weight: 600; cursor: pointer; }
+  .auth-msg { margin-top: 12px; font-size: 13px; color: #B00020; display: none; }
+  .auth-msg.show { display: block; }
+  .auth-msg.ok { color: #2c5a1e; }
+  .auth-note { font-size: 12px; color: #595959; margin-top: 2px; }
+  .auth-bar { display: flex; justify-content: flex-end; align-items: center; gap: 14px; max-width: 1180px; margin: -8px auto 12px; font-size: 12px; color: #595959; }
+  .auth-bar b { color: #1F3864; }
+  .auth-bar button { width: auto; margin: 0; padding: 4px 10px; font-size: 12px; font-weight: 600; background: #eef1f4; color: #2E74B5; border: 1px solid #d5dbe0; border-radius: 4px; cursor: pointer; }
+  .auth-bar button:hover { background: #e4ebf2; }
+  .auth-bar.hidden { display: none; }
+  .auth-nav { display: flex; gap: 4px; margin-right: auto; flex-wrap: wrap; }
+  .auth-nav a, .auth-nav span { font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 4px; text-decoration: none; }
+  .auth-nav a { color: #2E74B5; }
+  .auth-nav a:hover { background: #e4ebf2; }
+  .auth-nav span { background: #1F3864; color: #fff; }
+  .auth-appr { display: none; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; padding: 4px 10px; border-radius: 12px;
+               text-decoration: none; background: #eef1f4; color: #595959; border: 1px solid #d5dbe0; cursor: pointer; }
+  .auth-appr.waiting { background: #fff1dc; color: #9a5b00; border-color: #f0c98a; }
+  .auth-appr.overdue { background: #f8d7da; color: #B00020; border-color: #e2a19a; }
+  .auth-appr .n { display: inline-block; min-width: 18px; text-align: center; padding: 0 5px; border-radius: 9px; background: currentColor; }
+  .auth-appr .n b { color: #fff; }
+  @keyframes authPulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.12); } }
+  .auth-appr.pulse { animation: authPulse 0.6s ease-in-out 3; }
+  @media (max-width: 700px) { .auth-bar { flex-wrap: wrap; } .auth-nav { width: 100%; } }
+</style>
+
+<div class="auth-overlay" id="authOverlay">
+  <div class="auth-card">
+    <div class="auth-head">
+      <div class="auth-brand">ICF GROUP</div>
+      <div class="auth-title" id="authTitle">Sign in</div>
+    </div>
+
+    <!-- Sign-in form -->
+    <div class="auth-body" id="authLoginView">
+      <div class="auth-note" id="authPageNote"></div>
+      <label for="authCode">Staff code</label>
+      <input type="text" id="authCode" autocomplete="username" autocapitalize="characters" spellcheck="false" placeholder="e.g. CRE001">
+      <label for="authPin">PIN</label>
+      <input type="password" id="authPin" class="pin" inputmode="numeric" autocomplete="current-password" maxlength="6">
+      <button type="button" class="auth-primary" id="authLoginBtn">Sign in</button>
+      <div class="auth-msg" id="authLoginMsg"></div>
+    </div>
+
+    <!-- Change PIN form -->
+    <div class="auth-body" id="authChangeView" style="display:none;">
+      <div class="auth-note">Choose a 4 to 6 digit PIN only you know.</div>
+      <label for="authCurPin">Current PIN</label>
+      <input type="password" id="authCurPin" class="pin" inputmode="numeric" maxlength="6">
+      <label for="authNewPin">New PIN</label>
+      <input type="password" id="authNewPin" class="pin" inputmode="numeric" maxlength="6">
+      <label for="authNewPin2">New PIN again</label>
+      <input type="password" id="authNewPin2" class="pin" inputmode="numeric" maxlength="6">
+      <button type="button" class="auth-primary" id="authChangeBtn">Change PIN</button>
+      <button type="button" class="auth-link" id="authChangeCancel">Back</button>
+      <div class="auth-msg" id="authChangeMsg"></div>
+    </div>
+  </div>
+</div>
+
+<div class="auth-bar hidden" id="authBar">
+  <nav class="auth-nav" id="authNav"></nav>
+  <span>Signed in as <b id="authBarName"></b> (<span id="authBarRole"></span>)</span>
+  <a class="auth-appr" id="authAppr" href="#" target="_top" title="Requests waiting for an admin decision"></a>
+  <button type="button" id="authBarChangePin">Change PIN</button>
+  <button type="button" id="authBarSignOut">Sign out</button>
+</div>
+
+<script>
+  (function () {
+    var PAGE = window.ICF_PAGE || 'cre';
+    var PAGE_NOTES = {
+      cre: 'CRE workspace \u2013 order intake and delivery updates.',
+      accounts: 'Accounts \u2013 payment verification and dispatch.',
+      dashboard: 'Owner dashboard.',
+      admin: 'Admin – access requests, leave cover and reassignment.'
+    };
+    var STORE_KEY = 'icf_session_token';
+    var token = null;
+    var queue = [];
+
+    // sessionStorage = one sign-in per browser tab, gone when the tab closes.
+    // Deliberately not localStorage: on a shared office PC, the next person
+    // must not inherit the last person's identity.
+    function saveToken(t) { token = t; try { if (t) sessionStorage.setItem(STORE_KEY, t); else sessionStorage.removeItem(STORE_KEY); } catch (e) {} }
+    function loadToken() { try { return sessionStorage.getItem(STORE_KEY); } catch (e) { return null; } }
+
+    var overlay = document.getElementById('authOverlay');
+    var loginView = document.getElementById('authLoginView');
+    var changeView = document.getElementById('authChangeView');
+    var loginMsg = document.getElementById('authLoginMsg');
+    var codeInput = document.getElementById('authCode');
+    var pinInput = document.getElementById('authPin');
+    var loginBtn = document.getElementById('authLoginBtn');
+    document.getElementById('authPageNote').textContent = PAGE_NOTES[PAGE] || '';
+
+    function showMsg(el, text, ok) { el.textContent = text; el.classList.toggle('ok', !!ok); el.classList.add('show'); }
+    function hideMsg(el) { el.classList.remove('show'); }
+
+    function showLogin(message) {
+      document.getElementById('authTitle').textContent = 'Sign in';
+      loginView.style.display = 'block';
+      changeView.style.display = 'none';
+      overlay.classList.remove('hidden');
+      document.getElementById('authBar').classList.add('hidden');
+      pinInput.value = '';
+      if (message) showMsg(loginMsg, message); else hideMsg(loginMsg);
+      setTimeout(function () { (codeInput.value ? pinInput : codeInput).focus(); }, 50);
+    }
+
+    function signedIn(staff) {
+      window.ICF_STAFF = staff;
+      overlay.classList.add('hidden');
+      document.getElementById('authBarName').textContent = staff.name;
+      document.getElementById('authBarRole').textContent = staff.role;
+      document.getElementById('authBar').classList.remove('hidden');
+      renderAdminNav(staff);
+      try { document.dispatchEvent(new CustomEvent('icf-signed-in', { detail: staff })); } catch (e) {}
+      // First sign-in on this page: the page's start-up loads are waiting in
+      // the queue -- run them. A later sign-in (after Sign out, or a session
+      // that expired while idle) has nothing queued, so ask the page to
+      // reload everything for whoever is signed in NOW -- otherwise the
+      // previous person's tiles and lists would stay on screen.
+      if (queue.length) flushQueue();
+      else if (typeof window.ICF_RELOAD === 'function') window.ICF_RELOAD();
+    }
+
+    // ---- Admin extras: page links + approvals counter (every page) ----
+    var PAGES = [['dashboard', 'Dashboard'], ['cre', 'CRE page'], ['accounts', 'Accounts'], ['admin', 'Admin']];
+    var apprTimer = null, lastApprTotal = null, lastNewestId = null;
+
+    function pageUrl(base, key) { return key === 'cre' ? base : base + '?page=' + key; }
+
+    function renderAdminNav(staff) {
+      var nav = document.getElementById('authNav');
+      var appr = document.getElementById('authAppr');
+      nav.innerHTML = '';
+      if (apprTimer) { clearInterval(apprTimer); apprTimer = null; }
+      if (staff.role !== 'Admin' || !staff.appUrl) { appr.style.display = 'none'; return; }
+      nav.innerHTML = PAGES.map(function (p) {
+        return p[0] === PAGE ? '<span>' + p[1] + '</span>'
+          : '<a href="' + pageUrl(staff.appUrl, p[0]) + '" target="_top">' + p[1] + '</a>';
+      }).join('');
+      appr.href = pageUrl(staff.appUrl, 'admin');
+      if (PAGE === 'admin') {
+        // Already on the Admin page: the counter refreshes its lists instead of reloading.
+        appr.removeAttribute('href');
+        appr.onclick = function () { if (typeof window.ICF_RELOAD === 'function') window.ICF_RELOAD(); };
+      }
+      lastApprTotal = null; lastNewestId = null;
+      refreshApprovalBadge();
+      apprTimer = setInterval(refreshApprovalBadge, 60000);
+    }
+
+    function fmtAge(min) {
+      if (min === null || min === undefined) return '';
+      if (min < 60) return min + ' min';
+      var h = Math.floor(min / 60);
+      return h < 24 ? h + ' h ' + (min % 60) + ' min' : Math.floor(h / 24) + ' d';
+    }
+
+    function refreshApprovalBadge() {
+      if (!window.ICF_STAFF || window.ICF_STAFF.role !== 'Admin' || !token) return;
+      window.authRun()
+        .withSuccessHandler(function (s) {
+          var appr = document.getElementById('authAppr');
+          appr.style.display = 'inline-flex';
+          appr.classList.remove('waiting', 'overdue');
+          if (!s.total) {
+            appr.innerHTML = 'No approvals waiting';
+          } else {
+            // Red only when something is past its target in OFFICE time (see Settings tab),
+            // so a request left overnight isn't flagged the moment the office opens.
+            appr.classList.add(s.overdue ? 'overdue' : 'waiting');
+            appr.innerHTML = '<span class="n"><b>' + s.total + '</b></span> waiting for approval' +
+              (s.overdue ? ' \u2013 ' + s.overdue + ' overdue' : ' \u2013 oldest ' + fmtAge(s.oldestMinutes));
+            appr.title = s.payments + ' payment approval(s), ' + s.access + ' CRE access request(s)' + (s.overdue ? ', ' + s.overdue + ' past the target' : '');
+          }
+          // A new request since the last check: pulse to catch the eye.
+          var newest = s.newestId ? s.newestId.id : null;
+          if (lastApprTotal !== null && newest && newest !== lastNewestId) {
+            appr.classList.remove('pulse'); void appr.offsetWidth; appr.classList.add('pulse');
+          }
+          lastApprTotal = s.total; lastNewestId = newest;
+        })
+        .withFailureHandler(function () { /* keep the last value; try again next minute */ })
+        .getApprovalSummary();
+    }
+    window.ICF_REFRESH_APPROVALS = refreshApprovalBadge;
+
+    function flushQueue() {
+      var pending = queue; queue = [];
+      pending.forEach(send);
+    }
+
+    function send(call) {
+      if (!token) { queue.push(call); return; }
+      google.script.run
+        .withSuccessHandler(function (res) {
+          // The server never legitimately returns null (see callApi), so a
+          // null here means the reply was lost in transit. Treat it as an
+          // error so the page says "could not load" instead of showing an
+          // empty list that looks like real data.
+          if (res === null || res === undefined) {
+            if (call.fail) call.fail(new Error('No data came back from the server. Click Refresh, or reload the page.'));
+            return;
+          }
+          if (call.ok) call.ok(res);
+        })
+        .withFailureHandler(function (err) {
+          var msg = (err && err.message) || '';
+          if (msg.indexOf('SESSION_EXPIRED') !== -1) {
+            saveToken(null);
+            queue.push(call); // retried automatically after signing back in
+            showLogin(msg.replace(/^.*SESSION_EXPIRED:\s*/, ''));
+            return;
+          }
+          if (call.fail) call.fail(err);
+        })
+        .callApi(token, call.name, call.args);
+    }
+
+    // Drop-in for google.script.run -- see the note at the top of this file.
+    window.authRun = function () {
+      var ok = null, fail = null;
+      var p = new Proxy({}, {
+        get: function (_, name) {
+          if (name === 'withSuccessHandler') return function (h) { ok = h; return p; };
+          if (name === 'withFailureHandler') return function (h) { fail = h; return p; };
+          return function () {
+            send({ name: String(name), args: Array.prototype.slice.call(arguments), ok: ok, fail: fail });
+          };
+        }
+      });
+      return p;
+    };
+
+    function doLogin() {
+      hideMsg(loginMsg);
+      var code = codeInput.value.trim();
+      var pin = pinInput.value.trim();
+      if (!code || !pin) { showMsg(loginMsg, 'Enter your staff code and PIN.'); return; }
+      loginBtn.disabled = true; loginBtn.textContent = 'Signing in...';
+      google.script.run
+        .withSuccessHandler(function (res) {
+          loginBtn.disabled = false; loginBtn.textContent = 'Sign in';
+          saveToken(res.token);
+          signedIn({ code: res.code, name: res.name, role: res.role, appUrl: res.appUrl });
+        })
+        .withFailureHandler(function (err) {
+          loginBtn.disabled = false; loginBtn.textContent = 'Sign in';
+          pinInput.value = '';
+          showMsg(loginMsg, (err && err.message) || 'Could not sign in.');
+          pinInput.focus();
+        })
+        .staffLogin(code, pin, PAGE);
+    }
+    loginBtn.addEventListener('click', doLogin);
+    [codeInput, pinInput].forEach(function (el) {
+      el.addEventListener('keydown', function (e) { if (e.key === 'Enter') doLogin(); });
+    });
+
+    document.getElementById('authBarSignOut').addEventListener('click', function () {
+      var t = token;
+      saveToken(null);
+      window.ICF_STAFF = null;
+      if (apprTimer) { clearInterval(apprTimer); apprTimer = null; }
+      document.getElementById('authNav').innerHTML = '';
+      document.getElementById('authAppr').style.display = 'none';
+      if (typeof window.ICF_CLEAR === 'function') { try { window.ICF_CLEAR(); } catch (e) {} } // don't leave this person's data behind the sign-in screen
+      codeInput.value = '';
+      showLogin('Signed out.');
+      loginMsg.classList.add('ok');
+      if (t) google.script.run.staffLogout(t);
+    });
+
+    // ---- Change PIN ----
+    var changeMsg = document.getElementById('authChangeMsg');
+    document.getElementById('authBarChangePin').addEventListener('click', function () {
+      document.getElementById('authTitle').textContent = 'Change your PIN';
+      ['authCurPin', 'authNewPin', 'authNewPin2'].forEach(function (id) { document.getElementById(id).value = ''; });
+      hideMsg(changeMsg);
+      loginView.style.display = 'none';
+      changeView.style.display = 'block';
+      overlay.classList.remove('hidden');
+      document.getElementById('authCurPin').focus();
+    });
+    document.getElementById('authChangeCancel').addEventListener('click', function () {
+      overlay.classList.add('hidden');
+    });
+    document.getElementById('authChangeBtn').addEventListener('click', function () {
+      var btn = this;
+      hideMsg(changeMsg);
+      var cur = document.getElementById('authCurPin').value.trim();
+      var n1 = document.getElementById('authNewPin').value.trim();
+      var n2 = document.getElementById('authNewPin2').value.trim();
+      if (!/^\d{4,6}$/.test(n1)) { showMsg(changeMsg, 'New PIN must be 4 to 6 digits.'); return; }
+      if (n1 !== n2) { showMsg(changeMsg, 'The two new PINs don\u2019t match.'); return; }
+      btn.disabled = true; btn.textContent = 'Changing...';
+      google.script.run
+        .withSuccessHandler(function () {
+          btn.disabled = false; btn.textContent = 'Change PIN';
+          showMsg(changeMsg, 'PIN changed. Use the new PIN next time you sign in.', true);
+          setTimeout(function () { overlay.classList.add('hidden'); }, 1400);
+        })
+        .withFailureHandler(function (err) {
+          btn.disabled = false; btn.textContent = 'Change PIN';
+          var msg = (err && err.message) || 'Could not change PIN.';
+          if (msg.indexOf('SESSION_EXPIRED') !== -1) { saveToken(null); showLogin(msg.replace(/^.*SESSION_EXPIRED:\s*/, '')); return; }
+          showMsg(changeMsg, msg);
+        })
+        .changeMyPin(token, cur, n1);
+    });
+
+    // ---- On load: resume this tab's session if it's still good ----
+    var saved = loadToken();
+    if (saved) {
+      google.script.run
+        .withSuccessHandler(function (staff) {
+          if (staff) { token = saved; signedIn(staff); }
+          else { saveToken(null); showLogin(); }
+        })
+        .withFailureHandler(function () { saveToken(null); showLogin(); })
+        .checkSession(saved, PAGE);
+    } else {
+      showLogin();
+    }
+  })();
+</script>

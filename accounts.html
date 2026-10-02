@@ -1,0 +1,1161 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: 'Segoe UI', Arial, sans-serif; background: #f4f6f8; margin: 0; padding: 24px; color: #222; }
+    .page-flex { display: flex; gap: 20px; max-width: 1180px; margin: 0 auto; align-items: flex-start; }
+    .left-col { flex: 0 0 240px; display: flex; flex-direction: column; gap: 16px; }
+    .side-panel.approvals-panel { border-left: 4px solid #2E74B5; }
+    .appr-status { display: inline-block; font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 10px; margin-top: 5px; }
+    .appr-status.Approved { background: #e3f1dc; color: #2c5a1e; }
+    .appr-status.Declined { background: #f8d7da; color: #B00020; }
+    .appr-status.Pending { background: #fff1dc; color: #9a5b00; }
+    .pending-item .pi-label { font-size: 11px; color: #555; margin-top: 2px; }
+    .appr-count { display: none; background: #2E74B5; color: #fff; font-size: 11px; font-weight: 700; border-radius: 10px; padding: 1px 8px; margin-left: 6px; vertical-align: middle; }
+    .link-btn { width: auto; margin-top: 10px; padding: 0; background: none; border: none; color: #2E74B5; font-size: 12px; font-weight: 600; cursor: pointer; text-align: left; }
+    .card { flex: 1 1 500px; min-width: 0; background: #fff; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.08); padding: 28px; }
+    .side-col { flex: 0 0 260px; display: flex; flex-direction: column; gap: 16px; }
+    .side-panel { background: #fff; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.08); padding: 18px; }
+    .side-panel.new-enquiries { border-left: 4px solid #C77700; background: #FFF8EC; }
+    .new-count-badge { display: none; background: #C77700; color: #fff; font-size: 11px; font-weight: 700; border-radius: 10px; padding: 1px 8px; margin-left: 6px; vertical-align: middle; }
+    .stat-strip { display: flex; gap: 12px; max-width: 1180px; margin: 0 auto 16px; flex-wrap: wrap; }
+    .stat-card { flex: 1 1 130px; background: #fff; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.08); padding: 14px 12px; text-align: center; }
+    .stat-value { font-size: 22px; font-weight: 700; color: #1F3864; }
+    .stat-card.alert .stat-value { color: #B00020; }
+    .stat-label { font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: 0.03em; margin-top: 4px; }
+    @media (max-width: 840px) {
+      .page-flex { flex-direction: column; }
+      .side-col { flex: 1 1 auto; width: 100%; }
+      .left-col { flex: 1 1 auto; width: 100%; }
+    }
+    h1 { font-size: 20px; color: #1F3864; margin: 0 0 4px 0; border-bottom: 2px solid #1F3864; padding-bottom: 10px; }
+    .subtitle { font-size: 12px; color: #595959; font-style: italic; margin: 8px 0 20px 0; }
+    label { display: block; font-size: 13px; font-weight: 600; color: #333; margin-top: 14px; margin-bottom: 4px; }
+    input, select { width: 100%; padding: 9px 10px; font-size: 14px; border: 1px solid #ccc; border-radius: 4px; background: #fff; }
+    button { width: 100%; margin-top: 14px; padding: 11px; border: none; border-radius: 4px; font-size: 14px; font-weight: 600; cursor: pointer; }
+    .btn-lookup { background: #2E74B5; color: #fff; }
+    .stage-btn { background: #1F3864; color: #fff; }
+    .hold-btn { background: #b06e00; color: #fff; }
+    button:disabled { background: #9aa5b1; cursor: not-allowed; }
+    .details { margin-top: 16px; padding: 14px; background: #F2F2F2; border-radius: 6px; font-size: 13px; display: none; }
+    .details.show { display: block; }
+    .details div { margin-bottom: 4px; }
+    .details b { color: #1F3864; }
+    .timeline-box { margin-top: 12px; padding: 14px; background: #fff; border: 1px solid #e0e0e0; border-radius: 6px; display: none; }
+    .timeline-box.show { display: block; }
+    .timeline-title { font-size: 11px; text-transform: uppercase; letter-spacing: 0.03em; color: #888; font-weight: 700; margin-bottom: 8px; }
+    .timeline-row { display: flex; justify-content: space-between; gap: 10px; padding: 5px 0; border-bottom: 1px dashed #eee; font-size: 13px; }
+    .timeline-row:last-child { border-bottom: none; }
+    .timeline-row .tl-label { color: #555; }
+    .timeline-row .tl-value { color: #1F3864; font-weight: 600; text-align: right; }
+    .stage { display: none; margin-top: 22px; padding-top: 18px; border-top: 1px solid #e0e0e0; }
+    .stage.show { display: block; }
+    .stage h2 { font-size: 15px; color: #2E74B5; margin: 0 0 8px 0; }
+    .hint { font-size: 11px; color: #888; margin-top: 4px; }
+    .hold-box { margin-top: 8px; padding: 12px; background: #fff4e5; border: 1px solid #f0c98a; border-radius: 6px; font-size: 13px; color: #7a5300; }
+    .warn-box { margin-top: 8px; padding: 12px; background: #fdeceb; border: 1px solid #f0a9a3; border-radius: 6px; font-size: 13px; color: #8a1c14; font-weight: 600; }
+    .ok-box { margin-top: 8px; padding: 12px; background: #e9f4e3; border: 1px solid #b7d9a6; border-radius: 6px; font-size: 13px; color: #2c5a1e; }
+    .ex-box { margin-top: 12px; }
+    .ex-box textarea { width: 100%; padding: 9px 10px; font-size: 14px; border: 1px solid #ccc; border-radius: 4px; font-family: inherit; resize: vertical; }
+    .ex-box .ex-btn { margin-top: 8px; padding: 10px 14px; background: #fff; color: #1F3864; border: 1px solid #1F3864; border-radius: 4px; font-size: 13px; font-weight: 600; cursor: pointer; width: auto; }
+    .ex-box .ex-btn:disabled { color: #999; border-color: #ccc; cursor: not-allowed; }
+    .note-box { margin-top: 8px; padding: 12px; background: #fff4e5; border: 1px solid #f0c98a; border-radius: 6px; font-size: 12px; color: #7a5300; }
+    .signed-as { margin-top: 10px; font-size: 13px; color: #555; }
+    .signed-as b { color: #1F3864; }
+    .pi-tag { display: inline-block; font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 8px; background: #e3edf7; color: #2E74B5; margin-left: 4px; }
+    .closed-box { margin-top: 16px; padding: 14px; background: #eef4ea; border: 1px solid #b7d9a3; border-radius: 6px; font-size: 13px; color: #2c5a1e; }
+    .result { margin-top: 14px; padding: 12px; background: #eef4ea; border: 1px solid #b7d9a3; border-radius: 6px; font-size: 13px; display: none; }
+    .result.show { display: block; }
+    .result .code { font-size: 20px; font-weight: 700; color: #1F3864; letter-spacing: 1px; }
+    .result a { display: inline-block; margin-top: 8px; background: #2E74B5; color: #fff; text-decoration: none; padding: 8px 14px; border-radius: 4px; font-size: 13px; font-weight: 600; }
+    .pdf-link { display: inline-block; margin-top: 10px; background: #2E74B5; color: #fff; text-decoration: none; padding: 8px 14px; border-radius: 4px; font-size: 12px; font-weight: 600; }
+    .pdf-link:hover { background: #245d92; }
+    .error { margin-top: 14px; color: #B00020; font-size: 13px; display: none; }
+    .error.show { display: block; }
+    .side-panel-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+    .side-panel-header h3 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.03em; color: #888; margin: 0; }
+    .refresh-btn { width: auto; margin: 0; padding: 3px 8px; font-size: 11px; font-weight: 600; background: #eef1f4; color: #2E74B5; border: 1px solid #d5dbe0; border-radius: 4px; cursor: pointer; }
+    .refresh-btn:hover { background: #e4ebf2; }
+    .pending-item { padding: 9px 10px; border: 1px solid #e0e0e0; border-radius: 4px; margin-bottom: 6px; cursor: pointer; background: #fafafa; }
+    .pending-item:hover { background: #eef4fa; border-color: #2E74B5; }
+    .pending-item.active { border-color: #1F3864; background: #eaf0f7; }
+    .pending-item .pi-row { display: flex; justify-content: space-between; align-items: center; }
+    .pending-item .pi-inst { font-size: 13px; font-weight: 600; color: #1F3864; }
+    .pending-item .pi-id { font-size: 11px; color: #888; }
+    .pending-item .pi-badge { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 10px; background: #ddd; color: #555; }
+    .pending-item .pi-badge.high { background: #f8d7da; color: #B00020; }
+    .payment-item { padding: 9px 10px; border: 1px solid #e0e0e0; border-radius: 4px; margin-bottom: 8px; background: #fafafa; cursor: default; }
+    .payment-item.urgent { border-color: #e2a19a; background: #fdf1f0; }
+    .payment-item .pi-inst { font-size: 13px; font-weight: 600; color: #1F3864; }
+    .payment-item .pi-id { font-size: 11px; color: #888; }
+    .payment-item .pi-balance { font-size: 12px; font-weight: 700; color: #B06E00; margin: 3px 0; }
+    .payment-item .pi-terms { font-size: 10px; color: #888; margin-bottom: 6px; }
+    .payment-item .pi-due { font-size: 11px; font-weight: 700; margin: 3px 0; }
+    .payment-item .pi-due.urgent-text { color: #B00020; }
+    .payment-item input { padding: 6px 8px; font-size: 12px; margin-top: 4px; }
+    .payment-item button { margin-top: 6px; padding: 7px; font-size: 12px; background: #1F3864; color: #fff; }
+    .payment-item .pi-error { color: #B00020; font-size: 11px; margin-top: 4px; display: none; }
+    .payment-item .pi-error.show { display: block; }
+    .pending-empty { font-size: 12px; color: #888; font-style: italic; }
+
+    .show-more-btn { width: 100%; margin-top: 4px; padding: 7px; font-size: 11px; font-weight: 600; background: #eef1f4; color: #2E74B5; border: 1px dashed #b9c4cf; border-radius: 4px; cursor: pointer; display: none; }
+    .show-more-btn:hover { background: #e4ebf2; }
+
+    /* Modal (comprehensive list popup) */
+    .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(20, 30, 45, 0.45); z-index: 1000; align-items: flex-start; justify-content: center; padding: 40px 16px; overflow-y: auto; }
+    .modal-overlay.show { display: flex; }
+    .modal-box { background: #fff; border-radius: 8px; width: 100%; max-width: 480px; max-height: 85vh; display: flex; flex-direction: column; box-shadow: 0 8px 30px rgba(0,0,0,0.25); }
+    .modal-header { display: flex; justify-content: space-between; align-items: center; padding: 16px 18px; border-bottom: 1px solid #e5e5e5; }
+    .modal-header h3 { margin: 0; font-size: 14px; color: #1F3864; text-transform: uppercase; letter-spacing: 0.03em; }
+    .modal-close { width: auto; margin: 0; padding: 2px 8px; background: transparent; color: #888; font-size: 18px; line-height: 1; border: none; cursor: pointer; }
+    .modal-close:hover { color: #1F3864; }
+    .modal-body { padding: 16px 18px; overflow-y: auto; }
+  </style>
+</head>
+<body>
+  <script>window.ICF_PAGE = 'accounts';</script>
+  <?!= include('auth'); ?>
+  <div class="stat-strip" id="statStrip">
+    <div class="stat-card" id="statNewEnquiriesCard">
+      <div class="stat-value" id="statNewEnquiries">&ndash;</div>
+      <div class="stat-label">Awaiting Verification</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value" id="statOutstanding">&ndash;</div>
+      <div class="stat-label">Total Outstanding</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value" id="statReadyDispatch">&ndash;</div>
+      <div class="stat-label">Ready to Dispatch</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value" id="statPaymentsToday">&ndash;</div>
+      <div class="stat-label">Payments Recorded Today</div>
+    </div>
+  </div>
+
+  <div class="page-flex">
+    <div class="left-col">
+      <div class="side-panel approvals-panel">
+        <div class="side-panel-header">
+          <h3>Awaiting approval<span class="appr-count" id="approvalsCount">0</span></h3>
+          <button class="refresh-btn" id="refreshApprovalsBtn" type="button">&#8635; Refresh</button>
+        </div>
+        <div class="hint" style="margin-top:0; margin-bottom:8px;">Orders sent to an admin for a payment decision. They stay here until the approved step is done.</div>
+        <div id="approvalsList" class="pending-empty">Loading...</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h1>ICF Accounts</h1>
+      <div class="subtitle">Look up an order to verify payment, log ops personnel's pickup/vehicle details, or generate the gate pass – all from this one page. Delivery status updates are now handled by the CRE on the PO Generator page.</div>
+
+      <label for="trackerId">Tracker ID (CRM Quotation No.) or Customer Phone Number</label>
+      <input type="text" id="trackerId" placeholder="e.g. ICESPL-123-26-27, last few digits, or the customer's phone number">
+      <button class="btn-lookup" id="lookupBtn">Look Up Order</button>
+
+      <div class="error" id="lookupError"></div>
+      <div class="details" id="details"></div>
+      <div class="timeline-box" id="timelineBox">
+        <div class="timeline-title">Order Timeline</div>
+        <div id="timelineList"></div>
+      </div>
+
+      <!-- Stage: Verify payment (status = Logged) -->
+      <div class="stage" id="stageVerify">
+        <h2>Confirm Payment Verification</h2>
+        <div class="signed-as">Verified by: <b id="accountsNameDisplay">&ndash;</b> <span style="color:#888;">(from your sign-in)</span></div>
+        <label for="amountReceived">Amount received (as per bank statement)</label>
+        <input type="number" id="amountReceived" min="0" step="0.01" placeholder="Enter the amount, or 0 if nothing has come in">
+        <div class="hint" id="amountHint"></div>
+        <div id="verifyNote"></div>
+        <div id="utrBlock">
+          <label for="bankReference">Bank Reference / UTR No.</label>
+          <input type="text" id="bankReference">
+        </div>
+        <div class="ex-box" id="verifyExBox"></div>
+        <button class="stage-btn" id="btnVerify">Confirm Verification</button>
+        <button type="button" class="link-btn" id="noAdvanceLink">Customer hasn’t paid anything? Request approval to proceed without an advance</button>
+        <div class="error" id="errVerify"></div>
+        <div class="result" id="resultVerify">
+          <div style="font-size:13px; color:#333;">Verification Code – write this on the physical PO:</div>
+          <div class="code" id="resultCode"></div>
+          <div style="font-size:12px; color:#595959; margin-top:6px;" id="resultVerifyNote"></div>
+        </div>
+      </div>
+
+      <!-- Stage: Courier order held for balance (status = On Hold - Balance Due) -->
+      <div class="stage" id="stageHoldBalance">
+        <h2>On Hold – Balance Due</h2>
+        <div class="hold-box" id="holdBalanceMsg"></div>
+        <div class="ex-box" id="holdExBox"></div>
+      </div>
+
+      <!-- Stage: Pickup & Vehicle (status = Sent to Ops) -->
+      <div class="stage" id="stagePickupVehicle">
+        <h2>Pickup &amp; Vehicle Details</h2>
+        <div class="hint">Enter everything ops personnel have written on the returned paper in one go: when it was picked up, the vehicle, and whether the site is confirmed ready.</div>
+        <label for="receivedTimestamp">Time ops personnel noted for pickup</label>
+        <input type="datetime-local" id="receivedTimestamp">
+        <label for="vehicleNo">Vehicle No.</label>
+        <input type="text" id="vehicleNo">
+        <label for="siteReadiness">Site Readiness Confirmed with Customer</label>
+        <select id="siteReadiness">
+          <option value="">-- select --</option>
+          <option value="Y">Yes</option>
+          <option value="N">No – hold dispatch</option>
+        </select>
+        <button class="stage-btn" id="btnPickupVehicle">Save Details</button>
+        <div class="error" id="errPickupVehicle"></div>
+      </div>
+
+      <!-- Stage: On hold, site not ready -->
+      <div class="stage" id="stageHold">
+        <h2>On Hold – Site Not Ready</h2>
+        <div class="hold-box">Vehicle and pickup details are saved. Dispatch is on hold because the site was not confirmed ready. Once the customer confirms, click below – there is no need to re-enter the vehicle details.</div>
+        <button class="hold-btn" id="btnConfirmReady">Site Confirmed Ready Now</button>
+        <div class="error" id="errHold"></div>
+      </div>
+
+      <!-- Stage: Dispatch / Gate Pass (status = Vehicle Confirmed) -->
+      <div class="stage" id="stageDispatch">
+        <h2>Generate E-way Bill &amp; Gate Pass</h2>
+        <div class="warn-box" id="dispatchBlockWarning" style="display:none;"></div>
+        <div class="note-box" id="dispatchDeferredNote" style="display:none;"></div>
+        <div class="ex-box" id="dispatchExBox"></div>
+        <label for="ewayBillNo">E-way Bill No.</label>
+        <input type="text" id="ewayBillNo">
+        <label for="itemDescription">Item Description</label>
+        <input type="text" id="itemDescription">
+        <label for="itemQty">Quantity</label>
+        <input type="text" id="itemQty">
+        <label for="transportMode">Transport Mode</label>
+        <select id="transportMode">
+          <option value="ICF Vehicle">ICF Vehicle</option>
+          <option value="Third-Party Courier">Third-Party Courier</option>
+        </select>
+        <label for="courierName">Courier / Transport Name (if third-party)</label>
+        <input type="text" id="courierName">
+        <label for="trackingNo">Tracking / Consignment No. (if known now)</label>
+        <input type="text" id="trackingNo">
+        <div class="hint">Delivery Status will be set to "Pending" automatically.</div>
+        <button class="stage-btn" id="btnDispatch">Generate Gate Pass</button>
+        <div class="error" id="errDispatch"></div>
+        <div class="result" id="resultDispatch"></div>
+      </div>
+
+      <!-- Closed / no action -->
+      <div class="stage" id="stageClosed">
+        <div class="closed-box" id="closedMessage"></div>
+      </div>
+
+      <button type="button" id="btnDone" class="btn-lookup" style="display:none;">Okay</button>
+    </div>
+
+    <div class="side-col">
+      <div class="side-panel new-enquiries">
+        <div class="side-panel-header">
+          <h3>New Enquiries<span class="new-count-badge" id="newCountBadge">0</span></h3>
+          <button class="refresh-btn" id="refreshNewBtn" type="button">&#8635; Refresh</button>
+        </div>
+        <div id="newEnquiriesList" class="pending-empty">Loading...</div>
+        <button type="button" class="show-more-btn" id="newEnquiriesShowMore">Show all</button>
+      </div>
+
+      <div class="side-panel">
+        <div class="side-panel-header">
+          <h3>Needs Action</h3>
+          <button class="refresh-btn" id="refreshActionBtn" type="button">&#8635; Refresh</button>
+        </div>
+        <div id="actionList" class="pending-empty">Loading...</div>
+        <button type="button" class="show-more-btn" id="actionShowMore">Show all</button>
+      </div>
+
+      <div class="side-panel">
+        <div class="side-panel-header">
+          <h3>Pending Payments</h3>
+          <button class="refresh-btn" id="refreshPaymentsBtn" type="button">&#8635; Refresh</button>
+        </div>
+        <div id="paymentsList" class="pending-empty">Loading...</div>
+        <button type="button" class="show-more-btn" id="paymentsShowMore">Show all</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="modalOverlay">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3 id="modalTitle"></h3>
+        <button type="button" class="modal-close" id="modalCloseBtn">&times;</button>
+      </div>
+      <div class="modal-body" id="modalBody"></div>
+    </div>
+  </div>
+
+  <script>
+    var trackerIdInput = document.getElementById('trackerId');
+    var lookupBtn = document.getElementById('lookupBtn');
+    var lookupError = document.getElementById('lookupError');
+    var details = document.getElementById('details');
+    var actionList = document.getElementById('actionList');
+    var newEnquiriesList = document.getElementById('newEnquiriesList');
+    var paymentsList = document.getElementById('paymentsList');
+    var currentOrder = null;
+    var PANEL_LIMIT = 5;
+    var allActionItems = [];
+    var allNewEnquiries = [];
+    var allPaymentItems = [];
+
+    document.addEventListener('icf-signed-in', function (e) {
+      document.getElementById('accountsNameDisplay').textContent = e.detail.name;
+    });
+
+    // ---------- At-a-glance stat strip ----------
+    function loadAccountsSummary() {
+      authRun()
+        .withSuccessHandler(function (s) {
+          document.getElementById('statNewEnquiries').textContent = s.newEnquiries;
+          document.getElementById('statNewEnquiriesCard').classList.toggle('alert', s.newEnquiries > 0);
+          document.getElementById('statOutstanding').textContent = '\u20b9' + Number(s.outstandingTotal).toLocaleString('en-IN');
+          document.getElementById('statReadyDispatch').textContent = s.readyToDispatch;
+          document.getElementById('statPaymentsToday').textContent = s.paymentsToday;
+        })
+        .withFailureHandler(function () {
+          Array.prototype.forEach.call(document.querySelectorAll('#statStrip .stat-value'), function (el) { el.textContent = '?'; });
+        })
+        .getAccountsSummary();
+    }
+    loadAccountsSummary();
+
+    // ---------- Generic "show all" modal ----------
+    var modalOverlay = document.getElementById('modalOverlay');
+    var modalTitle = document.getElementById('modalTitle');
+    var modalBody = document.getElementById('modalBody');
+    var modalContext = null; // 'action' | 'payments' | null -- lets a refresh update an open modal too
+    function openModal(context, title, bodyHtml, bindFn) {
+      modalContext = context;
+      modalTitle.textContent = title;
+      modalBody.innerHTML = bodyHtml;
+      if (bindFn) bindFn(modalBody);
+      modalOverlay.classList.add('show');
+    }
+    function closeModal() {
+      modalContext = null;
+      modalOverlay.classList.remove('show');
+      modalBody.innerHTML = '';
+    }
+    document.getElementById('modalCloseBtn').addEventListener('click', closeModal);
+    modalOverlay.addEventListener('click', function (e) {
+      if (e.target === modalOverlay) closeModal();
+    });
+
+    var STAGE_IDS = ['stageVerify', 'stageHoldBalance', 'stagePickupVehicle', 'stageHold', 'stageDispatch', 'stageClosed'];
+    function hideAllStages() {
+      STAGE_IDS.forEach(function (id) { document.getElementById(id).classList.remove('show'); });
+      ['resultVerify', 'resultDispatch'].forEach(function (id) {
+        document.getElementById(id).classList.remove('show');
+      });
+      document.getElementById('timelineBox').classList.remove('show');
+      document.getElementById('btnDone').style.display = 'none';
+      // Clear dispatch fields so a previous order's typed-in (or product-prefilled)
+      // values can't linger onto whatever order is looked up next.
+      document.getElementById('itemDescription').value = '';
+      document.getElementById('itemQty').value = '';
+    }
+
+    // ---------- Order Timeline ----------
+    function renderTimeline(t) {
+      var rows = [];
+      if (t.enquiryDate) rows.push(['Date of Enquiry', t.enquiryDate]);
+      if (t.advancePaymentVerifiedDate) rows.push(['Advance Payment Verified', t.advancePaymentVerifiedDate]);
+      rows.push(['Total Order Value', '\u20b9' + Number(t.totalOrderValue).toLocaleString('en-IN')]);
+      rows.push(['Advance Received', '\u20b9' + Number(t.advanceReceived).toLocaleString('en-IN')]);
+      if (t.fullPaymentDate) {
+        rows.push(['Full Payment Received', t.fullPaymentDate]);
+      } else if (t.balanceDue > 0) {
+        rows.push(['Balance Outstanding', '\u20b9' + Number(t.balanceDue).toLocaleString('en-IN') +
+          (t.paymentTermsType === 'PO Customer' ? ' (PO Customer terms)' : '')]);
+      }
+      if (t.handoverToOpsDate) rows.push(['Handed to Ops Personnel', t.handoverToOpsDate]);
+      if (t.pickupByOpsDate) rows.push(['Pickup Noted by Ops', t.pickupByOpsDate]);
+      if (t.dispatchDate) rows.push([t.dispatchType === 'Courier' ? 'Date Posted' : 'Date of Dispatch', t.dispatchDate]);
+      if (t.ewayBillNo) rows.push(['E-way Bill No.', t.ewayBillNo]);
+      if (t.transportMode) rows.push(['Mode of Dispatch', t.transportMode + (t.courierName ? ' \u2013 ' + t.courierName : '')]);
+      if (t.dispatchType === 'Courier' && t.trackingNo) rows.push(['Tracking No.', t.trackingNo]);
+      if (t.deliveryDate) {
+        rows.push(['Date of Delivery', t.deliveryDate]);
+      } else if (t.deliveryStatus) {
+        rows.push(['Current Delivery Status', t.deliveryStatus]);
+      }
+
+      document.getElementById('timelineList').innerHTML = rows.map(function (r) {
+        return '<div class="timeline-row"><span class="tl-label">' + r[0] + '</span><span class="tl-value">' + r[1] + '</span></div>';
+      }).join('');
+      document.getElementById('timelineBox').classList.add('show');
+    }
+
+    function loadTimeline(trackerId) {
+      authRun()
+        .withSuccessHandler(renderTimeline)
+        .withFailureHandler(function (err) {
+          document.getElementById('timelineList').innerHTML =
+            '<div class="timeline-row"><span class="tl-label" style="color:#B00020;">Could not load timeline: ' +
+            (err && err.message ? err.message : 'unknown error') + '</span></div>';
+          document.getElementById('timelineBox').classList.add('show');
+        })
+        .getOrderTimeline(trackerId);
+    }
+
+    /**
+     * Loads this order's product lines for the details panel, and -- when
+     * prefillDispatch is true (order is at "Vehicle Confirmed", the Gate
+     * Pass stage is showing) -- also pre-fills Item Description/Quantity on
+     * the dispatch form from them, so Accounts isn't re-typing what the CRE
+     * already captured at intake. Only pre-fills if those fields are still
+     * empty, so it never clobbers something Accounts already typed.
+     */
+    function loadOrderProducts(trackerId, prefillDispatch) {
+      authRun()
+        .withSuccessHandler(function (items) {
+          var el = document.getElementById('detailsProducts');
+          if (el) {
+            if (!items || !items.length) {
+              el.innerHTML = '<b>Products:</b> <span style="color:#888;">none recorded</span>';
+            } else {
+              el.innerHTML = '<b>Products:</b><br>' + items.map(function (it) {
+                return '\u2022 ' + it.product + ' \u2013 ' + it.quantity + (Number(it.quantity) === 1 ? ' unit' : ' units');
+              }).join('<br>');
+            }
+          }
+          if (prefillDispatch && items && items.length) {
+            var descField = document.getElementById('itemDescription');
+            var qtyField = document.getElementById('itemQty');
+            if (descField && !descField.value) {
+              descField.value = items.map(function (it) { return it.product; }).join('; ');
+            }
+            if (qtyField && !qtyField.value) {
+              qtyField.value = items.map(function (it) { return it.quantity; }).join(', ');
+            }
+          }
+        })
+        .withFailureHandler(function () {
+          var el = document.getElementById('detailsProducts');
+          if (el) el.innerHTML = '<b>Products:</b> <span style="color:#888;">could not load</span>';
+        })
+        .getOrderLineItems(trackerId);
+    }
+
+    // ---------- New Enquiries panel + Needs Action panel ----------
+    // Both share the same {trackerId, institution, status, priority} shape
+    // and the same click-to-lookup behavior, just from different server
+    // calls and into different list containers -- see getNewEnquiries vs
+    // getPendingOrders in code.gs for why they're split.
+    function highlightActiveAction(trackerId) {
+      [actionList, newEnquiriesList].forEach(function (container) {
+        Array.prototype.forEach.call(container.querySelectorAll('.pending-item'), function (el) {
+          el.classList.toggle('active', el.getAttribute('data-id') === trackerId);
+        });
+      });
+    }
+
+    function buildActionItemsHtml(items) {
+      return items.map(function (it) {
+        var badgeClass = it.priority === 'High' ? 'pi-badge high' : 'pi-badge';
+        return '<div class="pending-item" data-id="' + it.trackerId + '">' +
+          '<div class="pi-row"><div><div class="pi-inst">' + it.institution +
+          (it.dispatchType === 'Courier' ? '<span class="pi-tag">Courier</span>' : '') + '</div>' +
+          '<div class="pi-id">' + it.trackerId + ' \u2013 ' + it.status + '</div></div>' +
+          '<div class="' + badgeClass + '">' + it.priority + '</div></div>' +
+          '</div>';
+      }).join('');
+    }
+
+    function bindActionItemClicks(container, closeAfter) {
+      Array.prototype.forEach.call(container.querySelectorAll('.pending-item'), function (el) {
+        el.addEventListener('click', function () {
+          trackerIdInput.value = el.getAttribute('data-id');
+          highlightActiveAction(el.getAttribute('data-id'));
+          if (closeAfter) closeModal();
+          lookupBtn.click();
+        });
+      });
+    }
+
+    function renderNewEnquiries(items) {
+      allNewEnquiries = items || [];
+      var moreBtn = document.getElementById('newEnquiriesShowMore');
+      var badge = document.getElementById('newCountBadge');
+      if (allNewEnquiries.length === 0) {
+        newEnquiriesList.className = 'pending-empty';
+        newEnquiriesList.textContent = 'No new enquiries waiting on verification.';
+        moreBtn.style.display = 'none';
+        badge.style.display = 'none';
+      } else {
+        newEnquiriesList.className = '';
+        newEnquiriesList.innerHTML = buildActionItemsHtml(allNewEnquiries.slice(0, PANEL_LIMIT));
+        bindActionItemClicks(newEnquiriesList, false);
+        badge.style.display = 'inline-block';
+        badge.textContent = allNewEnquiries.length;
+        if (allNewEnquiries.length > PANEL_LIMIT) {
+          moreBtn.style.display = 'block';
+          moreBtn.textContent = 'Show all ' + allNewEnquiries.length;
+        } else {
+          moreBtn.style.display = 'none';
+        }
+      }
+      if (modalContext === 'newEnquiries') {
+        modalBody.innerHTML = buildActionItemsHtml(allNewEnquiries);
+        bindActionItemClicks(modalBody, true);
+      }
+    }
+
+    function loadNewEnquiries() {
+      authRun()
+        .withSuccessHandler(renderNewEnquiries)
+        .withFailureHandler(function () {
+          newEnquiriesList.className = 'pending-empty';
+          newEnquiriesList.textContent = 'Could not load the list.';
+          document.getElementById('newEnquiriesShowMore').style.display = 'none';
+        })
+        .getNewEnquiries();
+    }
+    loadNewEnquiries();
+    document.getElementById('refreshNewBtn').addEventListener('click', loadNewEnquiries);
+    document.getElementById('newEnquiriesShowMore').addEventListener('click', function () {
+      openModal('newEnquiries', 'All New Enquiries (' + allNewEnquiries.length + ')', buildActionItemsHtml(allNewEnquiries), function (container) {
+        bindActionItemClicks(container, true);
+      });
+    });
+
+    function renderActionList(items) {
+      allActionItems = items || [];
+      var moreBtn = document.getElementById('actionShowMore');
+      if (allActionItems.length === 0) {
+        actionList.className = 'pending-empty';
+        actionList.textContent = 'Nothing needs action right now.';
+        moreBtn.style.display = 'none';
+      } else {
+        actionList.className = '';
+        actionList.innerHTML = buildActionItemsHtml(allActionItems.slice(0, PANEL_LIMIT));
+        bindActionItemClicks(actionList, false);
+        if (allActionItems.length > PANEL_LIMIT) {
+          moreBtn.style.display = 'block';
+          moreBtn.textContent = 'Show all ' + allActionItems.length;
+        } else {
+          moreBtn.style.display = 'none';
+        }
+      }
+      if (modalContext === 'action') {
+        modalBody.innerHTML = buildActionItemsHtml(allActionItems);
+        bindActionItemClicks(modalBody, true);
+      }
+    }
+
+    function loadActionList() {
+      authRun()
+        .withSuccessHandler(renderActionList)
+        .withFailureHandler(function () {
+          actionList.className = 'pending-empty';
+          actionList.textContent = 'Could not load the list.';
+          document.getElementById('actionShowMore').style.display = 'none';
+        })
+        .getPendingOrders();
+    }
+    loadActionList();
+    document.getElementById('refreshActionBtn').addEventListener('click', loadActionList);
+    document.getElementById('actionShowMore').addEventListener('click', function () {
+      openModal('action', 'All Needs Action (' + allActionItems.length + ')', buildActionItemsHtml(allActionItems), function (container) {
+        bindActionItemClicks(container, true);
+      });
+    });
+
+    // ---------- Pending Payments panel (actionable) ----------
+    function formatDueLabel(daysUntil) {
+      if (daysUntil === null || daysUntil === undefined) return '';
+      if (daysUntil < 0) return 'Delivery date passed ' + Math.abs(daysUntil) + ' day' + (Math.abs(daysUntil) === 1 ? '' : 's') + ' ago';
+      if (daysUntil === 0) return 'Delivery due today';
+      return 'Delivery due in ' + daysUntil + ' day' + (daysUntil === 1 ? '' : 's');
+    }
+
+    // Pending Payments items can be Delivered or Returned and still carry a
+    // balance -- "delivery date passed" reads as a data error on those, so
+    // this checks Delivery Status first and only falls back to the requested
+    // -date wording for orders that genuinely haven't been delivered yet.
+    function formatPaymentDueLabel(item) {
+      if (item.deliveryStatus === 'Delivered' || item.deliveryStatus === 'Returned') {
+        return item.deliveryStatus + ' \u2013 balance still pending';
+      }
+      return formatDueLabel(item.daysUntilDelivery);
+    }
+
+    function buildPaymentItemsHtml(items) {
+      return items.map(function (it, idx) {
+        var dueLabel = formatPaymentDueLabel(it);
+        var notVerified = it.workflowStatus === 'Logged';
+        return '<div class="payment-item' + (it.isUrgent ? ' urgent' : '') + '" data-id="' + it.trackerId + '" data-idx="' + idx + '">' +
+          '<div class="pi-inst">' + it.institution + '</div>' +
+          '<div class="pi-id">' + it.trackerId + '</div>' +
+          '<div class="pi-balance">\u20b9' + it.balanceDue.toLocaleString('en-IN') + ' due</div>' +
+          (dueLabel ? '<div class="pi-due' + (it.isUrgent ? ' urgent-text' : '') + '">' + dueLabel + '</div>' : '') +
+          '<div class="pi-terms">' + it.paymentTermsType + '</div>' +
+          (notVerified
+            ? '<div class="pi-error show" style="margin-top:6px;">Verify the initial advance first (still at "Logged") before recording a further payment.</div>'
+            : '<input type="number" class="pi-amount" placeholder="Amount received" min="0" step="0.01">' +
+              '<input type="text" class="pi-bankref" placeholder="Bank Ref / UTR (required)">' +
+              '<button type="button" class="pi-save-btn">Record Payment</button>' +
+              '<div class="pi-error"></div>') +
+          '</div>';
+      }).join('');
+    }
+
+    function bindPaymentItemHandlers(container) {
+      Array.prototype.forEach.call(container.querySelectorAll('.payment-item'), function (item) {
+        var trackerId = item.getAttribute('data-id');
+        var amountInput = item.querySelector('.pi-amount');
+        var bankRefInput = item.querySelector('.pi-bankref');
+        var saveBtn = item.querySelector('.pi-save-btn');
+        if (!saveBtn) return; // not-yet-verified orders render a message instead of the form
+        var errBox = item.querySelector('.pi-error');
+
+        saveBtn.addEventListener('click', function () {
+          errBox.classList.remove('show');
+          var amount = parseFloat(amountInput.value);
+          if (!amount || amount <= 0) {
+            errBox.textContent = 'Enter the amount received.';
+            errBox.classList.add('show');
+            return;
+          }
+          var bankRef = bankRefInput.value.trim();
+          if (!bankRef) {
+            errBox.textContent = 'Bank Reference / UTR No. is required.';
+            errBox.classList.add('show');
+            return;
+          }
+          saveBtn.disabled = true; saveBtn.textContent = 'Saving...';
+          authRun()
+            .withSuccessHandler(function () {
+              saveBtn.disabled = false; saveBtn.textContent = 'Record Payment';
+              loadPaymentsList();
+              loadAccountsSummary();
+              loadActionList(); // a held courier order drops off Needs Action once released to Ops
+              loadApprovals();
+            })
+            .withFailureHandler(function (err) {
+              saveBtn.disabled = false; saveBtn.textContent = 'Record Payment';
+              errBox.textContent = 'Error: ' + err.message;
+              errBox.classList.add('show');
+            })
+            .recordBalancePayment({
+              trackerId: trackerId,
+              amountReceived: amount,
+              bankReference: bankRef
+            });
+        });
+      });
+    }
+
+    function renderPaymentsList(items) {
+      allPaymentItems = items || [];
+      var moreBtn = document.getElementById('paymentsShowMore');
+      if (allPaymentItems.length === 0) {
+        paymentsList.className = 'pending-empty';
+        paymentsList.textContent = 'No outstanding balances right now.';
+        moreBtn.style.display = 'none';
+      } else {
+        paymentsList.className = '';
+        paymentsList.innerHTML = buildPaymentItemsHtml(allPaymentItems.slice(0, PANEL_LIMIT));
+        bindPaymentItemHandlers(paymentsList);
+        if (allPaymentItems.length > PANEL_LIMIT) {
+          moreBtn.style.display = 'block';
+          moreBtn.textContent = 'Show all ' + allPaymentItems.length;
+        } else {
+          moreBtn.style.display = 'none';
+        }
+      }
+      if (modalContext === 'payments') {
+        modalBody.innerHTML = buildPaymentItemsHtml(allPaymentItems);
+        bindPaymentItemHandlers(modalBody);
+      }
+    }
+
+    function loadPaymentsList() {
+      authRun()
+        .withSuccessHandler(renderPaymentsList)
+        .withFailureHandler(function () {
+          paymentsList.className = 'pending-empty';
+          paymentsList.textContent = 'Could not load pending payments.';
+        })
+        .getPendingPayments();
+    }
+    loadPaymentsList();
+    document.getElementById('refreshPaymentsBtn').addEventListener('click', loadPaymentsList);
+    document.getElementById('paymentsShowMore').addEventListener('click', function () {
+      openModal('payments', 'All Pending Payments (' + allPaymentItems.length + ')', buildPaymentItemsHtml(allPaymentItems), bindPaymentItemHandlers);
+    });
+
+    // ---------- Main lookup ----------
+    lookupBtn.addEventListener('click', function () {
+      lookupError.classList.remove('show');
+      details.classList.remove('show');
+      hideAllStages();
+
+      var trackerId = trackerIdInput.value.trim();
+      if (!trackerId) {
+        lookupError.textContent = 'Enter a Tracker ID first.';
+        lookupError.classList.add('show');
+        return;
+      }
+
+      lookupBtn.disabled = true;
+      lookupBtn.textContent = 'Looking up...';
+
+      authRun()
+        .withSuccessHandler(function (order) {
+          lookupBtn.disabled = false;
+          lookupBtn.textContent = 'Look Up Order';
+          currentOrder = order;
+          trackerIdInput.value = order.trackerId; // normalize the box to the real Tracker ID, even if searched by phone
+          details.innerHTML =
+            '<div><b>Institution:</b> ' + order.institution + '</div>' +
+            (order.phoneNumber ? '<div><b>Phone:</b> ' + order.phoneNumber + '</div>' : '') +
+            ((order.district || order.state) ? '<div><b>Location:</b> ' + [order.district, order.state].filter(Boolean).join(', ') + (order.pincode ? ' \u2013 ' + order.pincode : '') + '</div>' : '') +
+            '<div><b>Priority:</b> ' + order.priority + '</div>' +
+            '<div><b>Workflow Stage:</b> ' + order.status + '</div>' +
+            '<div><b>Dispatch Type:</b> ' + (order.dispatchType === 'Courier' ? 'Courier (packet by post)' : 'Vehicle') + '</div>' +
+            (order.deliveryStatus ? '<div><b>Delivery Status:</b> ' + order.deliveryStatus + '</div>' : '') +
+            '<div><b>Payment Terms:</b> ' + order.paymentTermsType + '</div>' +
+            '<div><b>Balance Due:</b> \u20b9' + Number(order.balanceDue).toLocaleString('en-IN') + '</div>' +
+            '<div id="detailsProducts"><b>Products:</b> loading...</div>' +
+            (order.gatePassPdfUrl ? '<div><a class="pdf-link" href="' + order.gatePassPdfUrl + '" target="_blank">Reprint Gate Pass (PDF)</a></div>' : '');
+          details.classList.add('show');
+          loadTimeline(order.trackerId);
+          loadOrderProducts(order.trackerId, order.status === 'Vehicle Confirmed');
+          document.getElementById('btnDone').style.display = 'block';
+
+          var closedMsg = document.getElementById('closedMessage');
+          if (order.status === 'Logged') {
+            setupVerifyStage(order);
+            document.getElementById('stageVerify').classList.add('show');
+          } else if (order.status === 'On Hold - Balance Due') {
+            document.getElementById('holdBalanceMsg').textContent = 'Courier order on hold: this end customer still owes \u20b9' +
+              Number(order.balanceDue).toLocaleString('en-IN') + '. Record the payment under Pending Payments \u2013 the order goes to Ops for posting automatically once the balance is cleared. Or ask an admin to approve sending it now.';
+            renderExceptionBox('holdExBox', order, 'DISPATCH_WITH_BALANCE', 'Why should this go before the balance is paid?');
+            document.getElementById('stageHoldBalance').classList.add('show');
+          } else if (order.dispatchType === 'Courier' && order.status === 'Sent to Ops') {
+            closedMsg.textContent = 'Courier order with Ops for posting. The CRE records the postal receipt and follows up on delivery \u2013 nothing for Accounts here.';
+            document.getElementById('stageClosed').classList.add('show');
+          } else if (order.status === 'Posted') {
+            closedMsg.textContent = 'Posted' + (order.courierName ? ' via ' + order.courierName : '') + (order.trackingNo ? ' (tracking ' + order.trackingNo + ')' : '') +
+              ' \u2013 Delivery Status is "' + (order.deliveryStatus || 'In Transit') + '". The CRE owns delivery updates from here.';
+            document.getElementById('stageClosed').classList.add('show');
+          } else if (order.status === 'Sent to Ops') {
+            document.getElementById('stagePickupVehicle').classList.add('show');
+          } else if (order.status === 'On Hold - Site Not Ready') {
+            document.getElementById('stageHold').classList.add('show');
+          } else if (order.status === 'Vehicle Confirmed') {
+            var warnBox = document.getElementById('dispatchBlockWarning');
+            var noteBox = document.getElementById('dispatchDeferredNote');
+            var dispatchBtn = document.getElementById('btnDispatch');
+            warnBox.style.display = 'none';
+            noteBox.style.display = 'none';
+            dispatchBtn.disabled = false;
+            document.getElementById('dispatchExBox').innerHTML = '';
+            if (order.paymentTermsType === 'End Customer' && order.balanceDue > 0) {
+              var dx = order.paymentExceptions && order.paymentExceptions.dispatch;
+              if (dx && dx.status === 'Approved') {
+                noteBox.textContent = '\u20b9' + Number(order.balanceDue).toLocaleString('en-IN') + ' is still outstanding. Dispatch approved by ' + dx.decidedBy + ' (' + dx.requestId + ') \u2013 the gate pass will carry this note.';
+                noteBox.style.display = 'block';
+              } else {
+                warnBox.textContent = 'Blocked: End-customer order with \u20b9' + Number(order.balanceDue).toLocaleString('en-IN') + ' still outstanding. Record the payment, or ask an admin to approve dispatching with the balance due.';
+                warnBox.style.display = 'block';
+                dispatchBtn.disabled = true;
+                renderExceptionBox('dispatchExBox', order, 'DISPATCH_WITH_BALANCE', 'Why should this go before the balance is paid?');
+              }
+            } else if (order.paymentTermsType === 'PO Customer' && order.balanceDue > 0) {
+              noteBox.textContent = 'Note: \u20b9' + Number(order.balanceDue).toLocaleString('en-IN') + ' balance is outstanding, allowed under this customer\u2019s own PO terms. The Gate Pass will carry this note.';
+              noteBox.style.display = 'block';
+            }
+            document.getElementById('stageDispatch').classList.add('show');
+          } else {
+            document.getElementById('closedMessage').textContent =
+              order.status === 'Gate-Verified'
+                ? 'Dispatched \u2013 Delivery Status is "' + (order.deliveryStatus || 'Pending') + '". The CRE now owns delivery status updates from here.'
+                : 'No action available for status "' + order.status + '" on this page.';
+            document.getElementById('stageClosed').classList.add('show');
+          }
+        })
+        .withFailureHandler(function (err) {
+          lookupBtn.disabled = false;
+          lookupBtn.textContent = 'Look Up Order';
+          lookupError.textContent = 'Error: ' + err.message;
+          lookupError.classList.add('show');
+        })
+        .lookupOrder(trackerId);
+    });
+
+    // ---------- Verify stage ----------
+    // Accounts confirms the amount that actually reached the bank, which may
+    // differ from what the CRE logged:
+    //   matches the logged advance      -> verify normally (UTR if > 0)
+    //   CRE logged 0, bank shows money  -> recorded as the advance, no approval
+    //   CRE logged X, bank shows Y      -> "Request correction" (admin approval)
+    //   nothing received                -> PO customer: verify with no UTR.
+    //                                      End customer: special request to
+    //                                      proceed without an advance.
+    var amountInput = document.getElementById('amountReceived');
+    amountInput.addEventListener('input', updateVerifyState);
+    document.getElementById('noAdvanceLink').addEventListener('click', function () {
+      amountInput.value = '0';
+      updateVerifyState();
+    });
+
+    function setupVerifyStage(order) {
+      var logged = Number(order.advanceAmount) || 0;
+      var isPO = order.paymentTermsType === 'PO Customer';
+      var corrected = order.paymentExceptions && order.paymentExceptions.correction && order.paymentExceptions.correction.status === 'Approved';
+      // PO customer with nothing logged: pre-fill 0 -- no UTR, Confirm ready.
+      amountInput.value = logged > 0 ? String(logged) : (isPO ? '0' : '');
+      document.getElementById('bankReference').value = '';
+      document.getElementById('resultVerify').classList.remove('show');
+      document.getElementById('amountHint').textContent = logged > 0
+        ? (corrected ? 'Advance on record: \u20b9' + logged.toLocaleString('en-IN') + ' (corrected by an admin).'
+                     : 'The CRE logged \u20b9' + logged.toLocaleString('en-IN') + '. Change it only if the bank shows something different.')
+        : (isPO ? 'No advance logged \u2013 PO customer. If the customer has paid anyway, enter the amount.'
+                : 'The CRE logged no advance. If the customer has paid since, enter the amount.');
+      updateVerifyState();
+    }
+
+    function inr(n) { return '\u20b9' + Number(n).toLocaleString('en-IN'); }
+
+    function updateVerifyState() {
+      var o = currentOrder;
+      if (!o) return;
+      var ex = o.paymentExceptions || {};
+      var logged = Number(o.advanceAmount) || 0;
+      var total = Number(o.totalOrderValue) || 0;
+      var raw = amountInput.value.trim();
+      var amt = raw === '' ? null : Number(raw);
+      var note = document.getElementById('verifyNote');
+      var utr = document.getElementById('utrBlock');
+      var btn = document.getElementById('btnVerify');
+      var noAdvLink = document.getElementById('noAdvanceLink');
+      var exBox = document.getElementById('verifyExBox');
+      note.innerHTML = ''; exBox.innerHTML = '';
+      utr.style.display = 'none';
+      btn.style.display = 'block'; btn.disabled = false;
+      noAdvLink.style.display = 'none';
+      var box = function (cls, html) { note.innerHTML = '<div class="' + cls + '">' + html + '</div>'; };
+
+      // An approved correction has already updated the logged advance -- say so.
+      if (ex.correction && ex.correction.status === 'Approved' && amt === logged) {
+        box('ok-box', 'Advance corrected by ' + escapeHtml(ex.correction.decidedBy) + ' (' + escapeHtml(ex.correction.amountNote) + ').');
+      }
+
+      if (amt === null) {
+        btn.disabled = true;
+        if (logged === 0 && o.paymentTermsType !== 'PO Customer') noAdvLink.style.display = 'block';
+        return;
+      }
+      if (isNaN(amt) || amt < 0) { box('warn-box', 'Enter a valid amount (0 if nothing has come in).'); btn.disabled = true; return; }
+      if (total > 0 && amt > total) { box('warn-box', 'That\u2019s more than the order value (' + inr(total) + ').'); btn.disabled = true; return; }
+
+      if (logged > 0 && amt !== logged) {
+        btn.style.display = 'none';
+        box('warn-box', 'The bank amount (' + inr(amt) + ') differs from the ' + inr(logged) + ' the CRE logged. Changing it needs an admin\u2019s approval.');
+        renderExceptionBox('verifyExBox', o, 'ADVANCE_CORRECTION', 'What does the bank show, and why is it different?',
+          { correctedAdvance: amt, buttonText: 'Request correction to ' + inr(amt) });
+        return;
+      }
+      if (amt > 0) {
+        utr.style.display = 'block';
+        if (logged === 0) box('ok-box', 'New payment \u2013 ' + inr(amt) + ' will be recorded as this order\u2019s advance.');
+        return;
+      }
+      // Nothing received.
+      if (o.paymentTermsType === 'PO Customer') {
+        box('note-box', 'No advance \u2013 PO customer, so no UTR is needed. Confirm to send this to Ops.');
+        return;
+      }
+      var vx = ex.verify;
+      if (vx && vx.status === 'Approved') {
+        box('ok-box', 'No advance received. Approved to proceed by ' + escapeHtml(vx.decidedBy) + ' (' + escapeHtml(vx.requestId) + '). Confirm to send this to Ops.');
+        return;
+      }
+      btn.style.display = 'none';
+      box('warn-box', 'End customer, nothing received. If the customer has paid, enter the amount above. Otherwise, an admin must approve going ahead without an advance.');
+      renderExceptionBox('verifyExBox', o, 'VERIFY_NO_ADVANCE', 'Why should this proceed without an advance?');
+    }
+
+    /**
+     * The "Request admin approval" box. Shows the state of the latest request
+     * of this type for the order: none/declined -> reason + button;
+     * pending -> "waiting"; approved -> nothing (the stage handles it).
+     */
+    var EX_KEYS = { VERIFY_NO_ADVANCE: 'verify', DISPATCH_WITH_BALANCE: 'dispatch', ADVANCE_CORRECTION: 'correction' };
+    function renderExceptionBox(boxId, order, type, prompt, extra) {
+      extra = extra || {};
+      var box = document.getElementById(boxId);
+      var ex = order.paymentExceptions && order.paymentExceptions[EX_KEYS[type]];
+      if (ex && ex.status === 'Approved') { box.innerHTML = ''; return; }
+      if (ex && ex.status === 'Pending') {
+        box.innerHTML = '<div class="note-box">Waiting for an admin to approve (' + escapeHtml(ex.requestId) + ', requested by ' + escapeHtml(ex.requestedByName) +
+          (ex.amountNote && type === 'ADVANCE_CORRECTION' ? ': ' + escapeHtml(ex.amountNote) : '') +
+          '). It\u2019s in <b>Awaiting approval</b> on the left \u2013 click it there once it\u2019s approved.</div>';
+        return;
+      }
+      box.innerHTML =
+        (ex && ex.status === 'Declined' ? '<div class="warn-box">The last request was declined by ' + escapeHtml(ex.decidedBy) + '. You can ask again with more detail.</div>' : '') +
+        '<label>' + escapeHtml(prompt) + '</label>' +
+        '<textarea rows="2" class="ex-reason" placeholder="e.g. Government hospital \u2013 pays within 30 days of delivery, confirmed by Sambhu"></textarea>' +
+        '<button type="button" class="ex-btn">' + escapeHtml(extra.buttonText || 'Request admin approval') + '</button>' +
+        '<div class="error ex-err"></div>';
+      var btn = box.querySelector('.ex-btn');
+      btn.addEventListener('click', function () {
+        var reason = box.querySelector('.ex-reason').value.trim();
+        var err = box.querySelector('.ex-err');
+        err.classList.remove('show');
+        if (!reason) { err.textContent = 'Add a short reason for the admin.'; err.classList.add('show'); return; }
+        btn.disabled = true; btn.textContent = 'Sending...';
+        authRun()
+          .withSuccessHandler(function (res) {
+            // Remember it on the open order, so editing the amount doesn't offer the button again.
+            if (order.paymentExceptions) order.paymentExceptions[EX_KEYS[type]] = { status: 'Pending', requestId: res.requestId, requestedByName: (window.ICF_STAFF || {}).name || '' };
+            // Agreed process: ring the approver straight away, don't wait for the email.
+            var who = res.callName ? escapeHtml(res.callName) : 'the approver';
+            var phone = res.callPhone ? ' on <a href="tel:' + escapeHtml(res.callPhone.replace(/[^0-9+]/g, '')) + '" target="_top"><b>' + escapeHtml(res.callPhone) + '</b></a>' : '';
+            var callLine = res.officeOpen
+              ? '<div class="warn-box" style="margin-top:8px;">&#9742; Call ' + who + phone + ' now. Payment approvals should be answered within ' +
+                  Math.round((res.targetMinutes || 60) / 60 * 10) / 10 + ' hour' + ((res.targetMinutes || 60) === 60 ? '' : 's') + '.</div>'
+              : '<div class="note-box" style="margin-top:8px;">The office is closed now. The response clock starts when it opens \u2013 call ' + who + phone + ' first thing if it\u2019s urgent.</div>';
+            box.innerHTML = '<div class="note-box">' + (res.emailed
+              ? 'Request sent to the admin (' + escapeHtml(res.requestId) + ').'
+              : 'Request saved (' + escapeHtml(res.requestId) + '), but no admin has an email on file yet.') +
+              ' It\u2019s now in <b>Awaiting approval</b> on the left.</div>' + callLine;
+            loadApprovals();
+          })
+          .withFailureHandler(function (e) {
+            btn.disabled = false; btn.textContent = 'Request admin approval';
+            err.textContent = 'Error: ' + e.message; err.classList.add('show');
+          })
+          .requestPaymentException({ trackerId: order.trackerId, type: type, reason: reason, correctedAdvance: extra.correctedAdvance });
+      });
+    }
+
+    function escapeHtml(t) {
+      return String(t == null ? '' : t).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; });
+    }
+
+    // ---------- Stage: Verify ----------
+    document.getElementById('btnVerify').addEventListener('click', function () {
+      var btn = this;
+      var err = document.getElementById('errVerify');
+      err.classList.remove('show');
+      var bankReference = document.getElementById('bankReference').value.trim();
+      var amountRaw = amountInput.value.trim();
+      if (amountRaw === '') {
+        err.textContent = 'Enter the amount received (0 if nothing has come in).';
+        err.classList.add('show');
+        return;
+      }
+      var utrNeeded = Number(amountRaw) > 0;
+      if (utrNeeded && !bankReference) {
+        err.textContent = 'Enter the Bank Reference / UTR No.';
+        err.classList.add('show');
+        return;
+      }
+      btn.disabled = true; btn.textContent = 'Confirming...';
+      authRun()
+        .withSuccessHandler(function (result) {
+          btn.disabled = false; btn.textContent = 'Confirm Verification';
+          document.getElementById('resultCode').textContent = result.verificationCode;
+          document.getElementById('btnVerify').style.display = 'none';
+          document.getElementById('noAdvanceLink').style.display = 'none';
+          loadApprovals();
+          document.getElementById('resultVerifyNote').textContent = (result.newPaymentRecorded ? 'Advance of ' + inr(result.advanceAmount) + ' recorded. ' : '') + (result.noAdvance
+              ? (result.approvedBy ? 'Verified with no advance \u2013 approved by ' + result.approvedBy + '. ' : 'Verified with no advance (PO customer). ') : '') +
+            (result.heldForBalance
+            ? 'Courier order ON HOLD: \u20b9' + Number(result.balanceDue).toLocaleString('en-IN') + ' is still due from this end customer. Record it under Pending Payments; the order goes to Ops automatically once cleared.'
+            : (result.dispatchType === 'Courier'
+              ? 'Courier order \u2013 now "Sent to Ops." Hand the file to ops personnel to post the packet. No vehicle or gate pass needed; the CRE records the postal receipt.'
+              : 'This PO is now marked "Sent to Ops." Hand the physical file to ops personnel.'));
+          loadPaymentsList();
+          document.getElementById('resultVerify').classList.add('show');
+          loadActionList();
+          loadNewEnquiries();
+          loadAccountsSummary();
+        })
+        .withFailureHandler(function (e) {
+          btn.disabled = false; btn.textContent = 'Confirm Verification';
+          err.textContent = 'Error: ' + e.message; err.classList.add('show');
+        })
+        .submitVerification({ trackerId: trackerIdInput.value.trim(), bankReference: bankReference, amountReceived: amountRaw });
+    });
+
+    // ---------- Stage: Pickup & Vehicle ----------
+    document.getElementById('btnPickupVehicle').addEventListener('click', function () {
+      var btn = this;
+      var err = document.getElementById('errPickupVehicle');
+      err.classList.remove('show');
+      var ts = document.getElementById('receivedTimestamp').value;
+      var vehicleNo = document.getElementById('vehicleNo').value.trim();
+      var siteReadiness = document.getElementById('siteReadiness').value;
+      if (!ts || !vehicleNo || !siteReadiness) {
+        err.textContent = 'Enter the pickup time, vehicle number, and site readiness.';
+        err.classList.add('show');
+        return;
+      }
+      btn.disabled = true; btn.textContent = 'Saving...';
+      authRun()
+        .withSuccessHandler(function (res) {
+          btn.disabled = false; btn.textContent = 'Save Details';
+          document.getElementById('stagePickupVehicle').classList.remove('show');
+          if (res.siteReady) {
+            lookupBtn.click();
+          } else {
+            document.getElementById('stageHold').classList.add('show');
+          }
+          loadActionList();
+          loadAccountsSummary();
+        })
+        .withFailureHandler(function (e) {
+          btn.disabled = false; btn.textContent = 'Save Details';
+          err.textContent = 'Error: ' + e.message; err.classList.add('show');
+        })
+        .submitPickupAndVehicle({
+          trackerId: trackerIdInput.value.trim(),
+          receivedTimestamp: ts,
+          vehicleNo: vehicleNo,
+          siteReadiness: siteReadiness
+        });
+    });
+
+    // ---------- Stage: Hold ----------
+    document.getElementById('btnConfirmReady').addEventListener('click', function () {
+      var btn = this;
+      var err = document.getElementById('errHold');
+      err.classList.remove('show');
+      btn.disabled = true; btn.textContent = 'Confirming...';
+      authRun()
+        .withSuccessHandler(function () {
+          btn.disabled = false; btn.textContent = 'Site Confirmed Ready Now';
+          lookupBtn.click();
+          loadActionList();
+          loadAccountsSummary();
+        })
+        .withFailureHandler(function (e) {
+          btn.disabled = false; btn.textContent = 'Site Confirmed Ready Now';
+          err.textContent = 'Error: ' + e.message; err.classList.add('show');
+        })
+        .confirmSiteReady(trackerIdInput.value.trim());
+    });
+
+    // ---------- Stage: Dispatch ----------
+    document.getElementById('btnDispatch').addEventListener('click', function () {
+      var btn = this;
+      var err = document.getElementById('errDispatch');
+      var result = document.getElementById('resultDispatch');
+      err.classList.remove('show');
+      result.classList.remove('show');
+      var ewayBillNo = document.getElementById('ewayBillNo').value.trim();
+      if (!ewayBillNo) { err.textContent = 'Enter the E-way Bill No.'; err.classList.add('show'); return; }
+
+      btn.disabled = true; btn.textContent = 'Generating...';
+      authRun()
+        .withSuccessHandler(function (res) {
+          loadApprovals();
+          btn.disabled = false; btn.textContent = 'Generate Gate Pass';
+          result.innerHTML = 'Gate Pass No.: <b>' + res.gatePassNo + '</b><br><a href="' + res.pdfUrl + '" target="_blank">Open / Print Gate Pass (PDF)</a>';
+          result.classList.add('show');
+          loadActionList();
+          loadAccountsSummary();
+        })
+        .withFailureHandler(function (e) {
+          btn.disabled = false; btn.textContent = 'Generate Gate Pass';
+          err.textContent = 'Error: ' + e.message; err.classList.add('show');
+        })
+        .submitDispatch({
+          trackerId: trackerIdInput.value.trim(),
+          ewayBillNo: ewayBillNo,
+          itemDescription: document.getElementById('itemDescription').value.trim(),
+          itemQty: document.getElementById('itemQty').value.trim(),
+          transportMode: document.getElementById('transportMode').value,
+          courierName: document.getElementById('courierName').value.trim(),
+          trackingNo: document.getElementById('trackingNo').value.trim()
+        });
+    });
+
+    // ---------- Awaiting approval panel (left) ----------
+    var approvalsList = document.getElementById('approvalsList');
+    function loadApprovals() {
+      authRun()
+        .withSuccessHandler(renderApprovals)
+        .withFailureHandler(function () { approvalsList.className = 'pending-empty'; approvalsList.textContent = 'Could not load the list.'; })
+        .getPaymentApprovalsPanel();
+    }
+    function renderApprovals(items) {
+      items = items || [];
+      var badge = document.getElementById('approvalsCount');
+      var ready = items.filter(function (it) { return it.status !== 'Pending'; }).length;
+      badge.textContent = items.length; badge.style.display = items.length ? 'inline-block' : 'none';
+      badge.style.background = ready ? '#2c7a2c' : '#2E74B5';
+      if (!items.length) { approvalsList.className = 'pending-empty'; approvalsList.textContent = 'Nothing waiting on an admin.'; return; }
+      approvalsList.className = '';
+      approvalsList.innerHTML = items.map(function (it) {
+        return '<div class="pending-item" data-id="' + escapeHtml(it.trackerId) + '">' +
+          '<div class="pi-inst">' + escapeHtml(it.institution) + '</div>' +
+          '<div class="pi-id">' + escapeHtml(it.trackerId) + '</div>' +
+          '<div class="pi-label">' + escapeHtml(it.label) + '</div>' +
+          '<div><span class="appr-status ' + escapeHtml(it.status) + '">' + escapeHtml(it.statusText) + '</span></div>' +
+          '<div class="pi-id" style="margin-top:3px;">' + escapeHtml(it.when) + (it.decidedBy ? ' \u2013 ' + escapeHtml(it.decidedBy) : '') + '</div>' +
+          '</div>';
+      }).join('');
+      Array.prototype.forEach.call(approvalsList.querySelectorAll('.pending-item'), function (el) {
+        el.addEventListener('click', function () {
+          trackerIdInput.value = el.getAttribute('data-id');
+          lookupBtn.click();
+          window.scrollTo(0, 0);
+        });
+      });
+    }
+    document.getElementById('refreshApprovalsBtn').addEventListener('click', loadApprovals);
+    loadApprovals();
+    // Re-check every 2 minutes, so an approval shows up without anyone clicking Refresh.
+    setInterval(function () { if (window.ICF_STAFF) loadApprovals(); }, 120000);
+
+    // ---------- Hooks used by the sign-in screen (auth) ----------
+    window.ICF_CLEAR = function () {
+      approvalsList.className = 'pending-empty'; approvalsList.textContent = 'Loading...';
+      document.getElementById('approvalsCount').style.display = 'none';
+      trackerIdInput.value = '';
+      details.classList.remove('show');
+      hideAllStages();
+      closeModal();
+    };
+    window.ICF_RELOAD = function () {
+      loadApprovals();
+      loadAccountsSummary();
+      loadNewEnquiries();
+      loadActionList();
+      loadPaymentsList();
+    };
+
+    // ---------- Okay / Return (closes out the lookup and resets the page) ----------
+    // Apps Script pages run inside a sandboxed iframe, so a full location.reload()
+    // can fail silently and leave a blank white frame -- resetting the page's own
+    // state achieves the same "closure" without touching the browser location.
+    document.getElementById('btnDone').addEventListener('click', function () {
+      trackerIdInput.value = '';
+      lookupError.classList.remove('show');
+      details.classList.remove('show');
+      hideAllStages();
+      loadActionList();
+      loadNewEnquiries();
+      loadPaymentsList();
+      loadAccountsSummary();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,1373 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: 'Segoe UI', Arial, sans-serif; background: #f4f6f8; margin: 0; padding: 24px; color: #222; }
+    .page-flex { display: flex; gap: 20px; max-width: 1180px; margin: 0 auto; align-items: flex-start; }
+    .left-col { flex: 0 0 240px; display: flex; flex-direction: column; gap: 16px; }
+    .side-panel.approvals-panel { border-left: 4px solid #2E74B5; }
+    .appr-status { display: inline-block; font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 10px; margin-top: 5px; }
+    .appr-status.Approved { background: #e3f1dc; color: #2c5a1e; }
+    .appr-status.Declined { background: #f8d7da; color: #B00020; }
+    .appr-status.Pending { background: #fff1dc; color: #9a5b00; }
+    .pending-item .pi-label { font-size: 11px; color: #555; margin-top: 2px; }
+    .appr-count { display: none; background: #2E74B5; color: #fff; font-size: 11px; font-weight: 700; border-radius: 10px; padding: 1px 8px; margin-left: 6px; vertical-align: middle; }
+    .stat-strip { display: flex; gap: 12px; max-width: 1180px; margin: 0 auto 16px; flex-wrap: wrap; }
+    .stat-card { flex: 1 1 130px; background: #fff; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.08); padding: 14px 12px; text-align: center; }
+    .stat-value { font-size: 22px; font-weight: 700; color: #1F3864; }
+    .stat-card.alert .stat-value { color: #B00020; }
+    .stat-card.clickable { cursor: pointer; transition: box-shadow 0.15s ease, transform 0.15s ease; }
+    .stat-card.clickable:hover { box-shadow: 0 4px 16px rgba(31,56,100,0.18); transform: translateY(-1px); }
+
+    /* "My orders" pop-up (opened from the stat tiles) */
+    .orders-box { max-width: 900px !important; }
+    .orders-search { width: 100%; padding: 9px 10px; font-size: 14px; border: 1px solid #ccc; border-radius: 4px; margin-bottom: 10px; }
+    .orders-filters { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid #eee; }
+    .orders-filters div { display: flex; flex-direction: column; gap: 3px; }
+    .orders-filters label { font-size: 10.5px; font-weight: 700; color: #888; margin: 0; }
+    .orders-filters input, .orders-filters select { padding: 6px 8px; font-size: 12.5px; border: 1px solid #ccc; border-radius: 4px; min-width: 110px; }
+    .orders-filters .clear-btn { align-self: flex-end; width: auto; margin: 0; padding: 6px 10px; font-size: 11.5px; font-weight: 600; background: #f4f6f8; color: #2E74B5; border: 1px solid #d5dbe0; border-radius: 4px; cursor: pointer; }
+    .orders-summary { font-size: 12.5px; color: #555; margin-bottom: 8px; }
+    .orders-summary b { color: #1F3864; }
+    .orders-table-wrap { overflow-x: auto; }
+    .orders-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+    .orders-table th { text-align: left; font-size: 11px; color: #666; font-weight: 700; padding: 7px 6px; border-bottom: 2px solid #e5e5e5; white-space: nowrap; }
+    .orders-table td { padding: 8px 6px; border-bottom: 1px solid #eee; }
+    .orders-table td.num, .orders-table th.num { text-align: right; white-space: nowrap; }
+    .orders-table tbody tr { cursor: pointer; }
+    .orders-table tbody tr:hover { background: #eef4fa; }
+    .orders-empty { font-size: 12.5px; color: #888; font-style: italic; padding: 18px 0; text-align: center; }
+
+    /* Several lookup matches: pick one */
+    .match-list { display: none; margin-top: 12px; border: 1px solid #d5e3f1; border-radius: 6px; background: #f7fafd; }
+    .match-list.show { display: block; }
+    .match-head { font-size: 12.5px; color: #1F3864; font-weight: 600; padding: 10px 12px; border-bottom: 1px solid #d5e3f1; }
+    .match-row { padding: 9px 12px; border-bottom: 1px solid #e6eef6; cursor: pointer; }
+    .match-row:last-child { border-bottom: none; }
+    .match-row:hover { background: #eaf2fb; }
+    .match-row .m-top { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; }
+    .match-row .m-top b { color: #1F3864; }
+    .match-row .m-sub { font-size: 11.5px; color: #666; margin-top: 2px; }
+    .match-row .m-why { font-size: 10px; font-weight: 700; color: #2E74B5; background: #e3edf7; border-radius: 8px; padding: 1px 6px; margin-left: 6px; }
+    .stat-label { font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: 0.03em; margin-top: 4px; }
+    .main-col { flex: 1 1 480px; min-width: 0; display: flex; flex-direction: column; gap: 20px; }
+    .card { background: #fff; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.08); padding: 28px; }
+    .side-col { flex: 0 0 260px; display: flex; flex-direction: column; gap: 16px; }
+    .side-panel { background: #fff; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.08); padding: 18px; }
+    @media (max-width: 840px) {
+      .page-flex { flex-direction: column; }
+      .side-col { flex: 1 1 auto; width: 100%; }
+      .left-col { flex: 1 1 auto; width: 100%; }
+    }
+    h1 { font-size: 20px; color: #1F3864; margin: 0 0 4px 0; border-bottom: 2px solid #1F3864; padding-bottom: 10px; }
+    h2 { font-size: 15px; color: #2E74B5; margin: 0 0 8px 0; }
+    .subtitle { font-size: 12px; color: #595959; font-style: italic; margin: 8px 0 20px 0; }
+    label { display: block; font-size: 13px; font-weight: 600; color: #333; margin-top: 14px; margin-bottom: 4px; }
+    input, select { width: 100%; padding: 9px 10px; font-size: 14px; border: 1px solid #ccc; border-radius: 4px; background: #fff; }
+    input:focus, select:focus { outline: none; border-color: #2E74B5; }
+    .field-hint { font-size: 11px; color: #888; margin-top: 4px; }
+    .pct-preview { margin-top: 10px; font-size: 13px; color: #2E74B5; font-weight: 600; }
+    .row2 { display: flex; gap: 12px; }
+    .row2 > div { flex: 1; }
+    button { width: 100%; margin-top: 14px; padding: 11px; background: #1F3864; color: #fff; border: none; border-radius: 4px; font-size: 14px; font-weight: 600; cursor: pointer; }
+    .btn-lookup { background: #2E74B5; }
+    button:disabled { background: #9aa5b1; cursor: not-allowed; }
+    .result { margin-top: 14px; padding: 14px; background: #eef4ea; border: 1px solid #b7d9a3; border-radius: 6px; display: none; }
+    .result.show { display: block; }
+    .result .tid { font-size: 16px; font-weight: 700; color: #1F3864; }
+    .result a { display: inline-block; margin-top: 8px; background: #2E74B5; color: #fff; text-decoration: none; padding: 9px 16px; border-radius: 4px; font-size: 13px; font-weight: 600; }
+    .pdf-link { display: inline-block; margin-top: 10px; background: #2E74B5; color: #fff; text-decoration: none; padding: 8px 14px; border-radius: 4px; font-size: 12px; font-weight: 600; }
+    .pdf-link:hover { background: #245d92; }
+    .error { margin-top: 14px; color: #B00020; font-size: 13px; display: none; }
+    .error.show { display: block; }
+    .priority-badge { display: none; margin-top: 6px; font-size: 12px; font-weight: 700; color: #B00020; }
+    .priority-badge.show { display: block; }
+    .product-line { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
+    .product-line select { flex: 2 1 auto; }
+    .product-line input.product-qty { flex: 0 0 78px; }
+    .product-line .product-remove { width: auto; margin: 0; padding: 8px 12px; background: #f8d7da; color: #B00020; border: none; border-radius: 4px; cursor: pointer; font-weight: 700; font-size: 15px; line-height: 1; }
+    .product-line .product-remove:hover { background: #f3c1c6; }
+    .add-product-btn { width: auto; margin-top: 10px; padding: 8px 14px; background: #eef1f4; color: #2E74B5; border: 1px dashed #b9c4cf; font-size: 13px; }
+    .add-product-btn:hover { background: #e4ebf2; }
+    .side-panel-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+    .side-panel-header h3 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.03em; color: #888; margin: 0; }
+    .refresh-btn { width: auto; margin: 0; padding: 3px 8px; font-size: 11px; font-weight: 600; background: #eef1f4; color: #2E74B5; border: 1px solid #d5dbe0; border-radius: 4px; cursor: pointer; }
+    .refresh-btn:hover { background: #e4ebf2; }
+    .pending-empty { font-size: 12px; color: #888; font-style: italic; }
+
+    .show-more-btn { width: 100%; margin-top: 4px; padding: 7px; font-size: 11px; font-weight: 600; background: #eef1f4; color: #2E74B5; border: 1px dashed #b9c4cf; border-radius: 4px; cursor: pointer; display: none; }
+    .show-more-btn:hover { background: #e4ebf2; }
+
+    /* Modal (comprehensive list popup) */
+    .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(20, 30, 45, 0.45); z-index: 1000; align-items: flex-start; justify-content: center; padding: 40px 16px; overflow-y: auto; }
+    .modal-overlay.show { display: flex; }
+    .modal-box { background: #fff; border-radius: 8px; width: 100%; max-width: 480px; max-height: 85vh; display: flex; flex-direction: column; box-shadow: 0 8px 30px rgba(0,0,0,0.25); }
+    .modal-header { display: flex; justify-content: space-between; align-items: center; padding: 16px 18px; border-bottom: 1px solid #e5e5e5; }
+    .modal-header h3 { margin: 0; font-size: 14px; color: #1F3864; text-transform: uppercase; letter-spacing: 0.03em; }
+    .modal-close { width: auto; margin: 0; padding: 2px 8px; background: transparent; color: #888; font-size: 18px; line-height: 1; border: none; cursor: pointer; }
+    .modal-close:hover { color: #1F3864; }
+    .modal-body { padding: 16px 18px; overflow-y: auto; }
+
+    /* Needs Action (CRE) panel */
+    .pending-item { padding: 9px 10px; border: 1px solid #e0e0e0; border-radius: 4px; margin-bottom: 6px; cursor: pointer; background: #fafafa; }
+    .pending-item:hover { background: #eef4fa; border-color: #2E74B5; }
+    .pending-item.urgent { border-color: #e2a19a; background: #fdf1f0; }
+    .pending-item .pi-row { display: flex; justify-content: space-between; align-items: center; }
+    .pending-item .pi-inst { font-size: 13px; font-weight: 600; color: #1F3864; }
+    .pending-item .pi-id { font-size: 11px; color: #888; }
+    .pending-item .pi-badge { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 10px; background: #ddd; color: #555; }
+    .pending-item .pi-badge.high { background: #f8d7da; color: #B00020; }
+    .pending-item .pi-due { font-size: 11px; font-weight: 700; margin-top: 3px; }
+    .pending-item .pi-due.urgent-text { color: #B00020; }
+
+    /* Pending Payments panel */
+    .filter-tabs { display: flex; gap: 6px; margin-bottom: 10px; }
+    .filter-tab { flex: 1; text-align: center; padding: 6px 4px; font-size: 11px; font-weight: 600; border: 1px solid #d5dbe0; border-radius: 4px; background: #f4f6f8; color: #555; cursor: pointer; }
+    .filter-tab.active { background: #1F3864; color: #fff; border-color: #1F3864; }
+    .payment-item { padding: 9px 10px; border: 1px solid #e0e0e0; border-radius: 4px; margin-bottom: 6px; background: #fafafa; }
+    .payment-item.urgent { border-color: #e2a19a; background: #fdf1f0; }
+    .payment-item .pi-inst { font-size: 13px; font-weight: 600; color: #1F3864; }
+    .payment-item .pi-id { font-size: 11px; color: #888; }
+    .payment-item .pi-balance { font-size: 12px; font-weight: 700; color: #B06E00; margin-top: 2px; }
+    .payment-item .pi-terms { font-size: 10px; color: #888; margin-top: 2px; }
+    .payment-item .pi-due { font-size: 11px; font-weight: 700; margin-top: 3px; }
+    .payment-item .pi-due.urgent-text { color: #B00020; }
+
+    /* Look Up / Update Enquiry card */
+    .details { margin-top: 16px; padding: 14px; background: #F2F2F2; border-radius: 6px; font-size: 13px; display: none; }
+    .details.show { display: block; }
+    .details div { margin-bottom: 4px; }
+    .details b { color: #1F3864; }
+    .timeline-box { margin-top: 12px; padding: 14px; background: #fff; border: 1px solid #e0e0e0; border-radius: 6px; display: none; }
+    .timeline-box.show { display: block; }
+    .timeline-title { font-size: 11px; text-transform: uppercase; letter-spacing: 0.03em; color: #888; font-weight: 700; margin-bottom: 8px; }
+    .timeline-row { display: flex; justify-content: space-between; gap: 10px; padding: 5px 0; border-bottom: 1px dashed #eee; font-size: 13px; }
+    .timeline-row:last-child { border-bottom: none; }
+    .timeline-row .tl-label { color: #555; }
+    .timeline-row .tl-value { color: #1F3864; font-weight: 600; text-align: right; }
+    .stage { display: none; margin-top: 22px; padding-top: 18px; border-top: 1px solid #e0e0e0; }
+    .stage.show { display: block; }
+    .signed-as { margin-top: 14px; font-size: 13px; color: #555; }
+    .signed-as b { color: #1F3864; }
+    .dispatch-note { display: none; margin-top: 10px; padding: 10px 12px; background: #eef4fa; border: 1px solid #b9d0e8; border-radius: 6px; font-size: 12px; color: #1F3864; }
+    .dispatch-note.show { display: block; }
+    .pi-tag { display: inline-block; font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 8px; background: #e3edf7; color: #2E74B5; margin-left: 4px; }
+    .stage .hint { font-size: 12px; color: #595959; margin-top: 2px; }
+    .pi-tag.cover { background: #fff1dc; color: #9a5b00; }
+    .access-note { margin-top: 12px; padding: 10px 12px; background: #fff4e5; border: 1px solid #f0c98a; border-radius: 6px; font-size: 12px; color: #7a5300; display: none; }
+    .access-note.show { display: block; }
+    .locked-box { margin-top: 8px; padding: 12px; background: #F2F2F2; border-radius: 6px; font-size: 13px; color: #333; }
+    textarea { width: 100%; padding: 9px 10px; font-size: 14px; border: 1px solid #ccc; border-radius: 4px; font-family: inherit; resize: vertical; }
+    .closed-box { margin-top: 16px; padding: 14px; background: #eef4ea; border: 1px solid #b7d9a3; border-radius: 6px; font-size: 13px; color: #2c5a1e; }
+  </style>
+</head>
+<body>
+  <script>window.ICF_PAGE = 'cre';</script>
+  <?!= include('auth'); ?>
+  <div class="stat-strip" id="statStrip">
+    <div class="stat-card clickable" data-set="all" data-title="All my orders">
+      <div class="stat-value" id="statTotal">&ndash;</div>
+      <div class="stat-label">Total Logged</div>
+    </div>
+    <div class="stat-card clickable" data-set="today" data-title="Logged today">
+      <div class="stat-value" id="statLoggedToday">&ndash;</div>
+      <div class="stat-label">Logged Today</div>
+    </div>
+    <div class="stat-card clickable" data-set="week" data-title="Logged this week">
+      <div class="stat-value" id="statLoggedWeek">&ndash;</div>
+      <div class="stat-label">Logged This Week</div>
+    </div>
+    <div class="stat-card clickable" data-set="week" data-title="Logged this week">
+      <div class="stat-value" id="statValueWeek">&ndash;</div>
+      <div class="stat-label">Value This Week</div>
+    </div>
+    <div class="stat-card clickable" id="statHighPriorityCard" data-set="high" data-title="High-priority pending">
+      <div class="stat-value" id="statHighPriority">&ndash;</div>
+      <div class="stat-label">High-Priority Pending</div>
+    </div>
+    <div class="stat-card clickable" id="statAwaitingDeliveryCard" data-set="awaiting" data-title="Awaiting delivery update">
+      <div class="stat-value" id="statAwaitingDelivery">&ndash;</div>
+      <div class="stat-label">Awaiting Delivery Update</div>
+    </div>
+    <div class="stat-card clickable" data-set="transit" data-title="In transit">
+      <div class="stat-value" id="statInTransit">&ndash;</div>
+      <div class="stat-label">In Transit</div>
+    </div>
+  </div>
+
+  <div class="page-flex">
+    <div class="left-col">
+      <div class="side-panel approvals-panel">
+        <div class="side-panel-header">
+          <h3>Awaiting approval<span class="appr-count" id="approvalsCount">0</span></h3>
+          <button class="refresh-btn" id="refreshApprovalsBtn" type="button">&#8635; Refresh</button>
+        </div>
+        <div class="field-hint" style="margin-top:0; margin-bottom:8px;">Your requests to update another CRE’s order. Approved ones stay here for the 24 hours you have access.</div>
+        <div id="approvalsList" class="pending-empty">Loading...</div>
+      </div>
+    </div>
+
+    <div class="main-col">
+      <div class="card">
+        <h1>ICF Internal PO Generator</h1>
+        <div class="subtitle">Fill this at intake, once payment is confirmed by the customer. Advance % is calculated automatically.</div>
+
+        <form id="poForm">
+          <label for="trackerId">CRM Quotation / Reference No.</label>
+          <input type="text" id="trackerId" placeholder="e.g. ICESPL-123-26-27" required>
+
+          <label for="institution">Institution / Customer Name</label>
+          <input type="text" id="institution" required>
+
+          <label for="customerPhone">Customer Phone Number</label>
+          <input type="tel" id="customerPhone" placeholder="e.g. 9847012345">
+          <div class="field-hint">Lets Accounts and CRE search for this order later by phone number, not just the Tracker ID.</div>
+
+          <label for="pincode">Customer Pincode</label>
+          <input type="text" id="pincode" inputmode="numeric" maxlength="6" placeholder="e.g. 670001">
+          <div class="field-hint" id="pincodeHint">Enter the 6-digit pincode and State/District below fill in automatically.</div>
+
+          <div class="row2">
+            <div>
+              <label for="state">State</label>
+              <input type="text" id="state" placeholder="Auto-fills from pincode">
+            </div>
+            <div>
+              <label for="district">District</label>
+              <input type="text" id="district" placeholder="Auto-fills from pincode">
+            </div>
+          </div>
+          <div class="field-hint">Auto-filled from the pincode above -- correct these if the lookup is wrong, or type them in directly if the pincode isn't known.</div>
+
+          <div class="signed-as">CRE: <b id="creNameDisplay">&ndash;</b> <span style="color:#888;">(from your sign-in)</span></div>
+
+          <label style="margin-bottom:0;">Products</label>
+          <div class="field-hint" style="margin-top:2px;">Add every product on this order with its quantity.</div>
+          <div id="productLines"></div>
+          <button type="button" class="add-product-btn" id="addProductLine">+ Add Product</button>
+          <div class="error" id="productError"></div>
+          <div class="dispatch-note" id="dispatchNote">Courier order: Ops will post this packet – no vehicle, e-way bill or gate pass. Once Accounts verifies payment, collect the postal receipt from Ops and record it under Look Up.</div>
+
+          <label for="paymentTermsType">Payment Terms</label>
+          <select id="paymentTermsType" required>
+            <option value="End Customer">End Customer – full payment required before dispatch</option>
+            <option value="PO Customer">Dealer / Institution with own PO – partial payment allowed</option>
+          </select>
+          <div class="field-hint">Select "PO Customer" only if the buyer has provided their own separate purchase order. Gate pass generation will be blocked later for End Customer orders until fully paid.</div>
+
+          <div class="row2">
+            <div>
+              <label for="totalValue">Total Order Value (Rs.)</label>
+              <input type="number" id="totalValue" min="0" step="0.01" required>
+            </div>
+            <div>
+              <label for="advanceReceived">Advance Received (Rs.)</label>
+              <input type="number" id="advanceReceived" min="0" step="0.01" required>
+            </div>
+          </div>
+
+          <div class="pct-preview" id="pctPreview"></div>
+
+          <div class="row2">
+            <div>
+              <label for="requestedDeliveryDate">Customer Requested Delivery Date</label>
+              <input type="date" id="requestedDeliveryDate">
+            </div>
+            <div>
+              <label for="priorityLevel">Priority Level</label>
+              <select id="priorityLevel">
+                <option value="Normal">Normal</option>
+                <option value="High">High</option>
+              </select>
+            </div>
+          </div>
+          <div class="priority-badge" id="priorityBadge">High priority – remember the red sticker on the file.</div>
+
+          <button type="submit" id="submitBtn">Generate Internal PO</button>
+        </form>
+
+        <div class="error" id="errorBox"></div>
+
+        <div class="result" id="resultBox">
+          <div>Tracker ID:</div>
+          <div class="tid" id="resultTrackerId"></div>
+          <div id="resultPct" style="margin-top:6px; font-size:13px; color:#333;"></div>
+          <div id="resultDispatch" style="margin-top:4px; font-size:13px; color:#2E74B5; font-weight:600;"></div>
+          <a id="resultLink" href="#" target="_blank">Open / Print Wrapper PO (PDF)</a>
+        </div>
+      </div>
+
+      <div class="card" id="lookupCard">
+        <h1 style="font-size:18px;">Look Up an Enquiry</h1>
+        <div class="subtitle">Find any enquiry by CRM quotation number, the customer's phone number, or the customer's name. Record the postal receipt for courier orders, and update delivery status once an order is dispatched.</div>
+
+        <label for="lookupTrackerId">Quotation No., Phone Number or Customer Name</label>
+        <input type="text" id="lookupTrackerId" placeholder="e.g. ICESPL-123-26-27, 6199, 98470 12345, or Booma">
+        <button class="btn-lookup" id="lookupBtn">Look Up</button>
+
+        <div class="error" id="lookupError"></div>
+        <div class="match-list" id="matchList"></div>
+        <div class="details" id="details"></div>
+        <div class="timeline-box" id="timelineBox">
+          <div class="timeline-title">Order Timeline</div>
+          <div id="timelineList"></div>
+        </div>
+
+        <div class="access-note" id="accessNote"></div>
+
+        <!-- Stage: someone else's order, needs action, no access yet -->
+        <div class="stage" id="stageLocked">
+          <h2>Owned by another CRE</h2>
+          <div class="locked-box" id="lockedMessage"></div>
+          <div id="requestForm">
+            <label for="accessReason">Why do you need to update it?</label>
+            <textarea id="accessReason" rows="2" placeholder="e.g. Customer called for delivery update, Greeshma on leave today"></textarea>
+            <button id="btnRequestAccess">Request access from admin</button>
+          </div>
+          <div class="error" id="errRequest"></div>
+          <div class="result" id="resultRequest"></div>
+        </div>
+
+        <!-- Stage: Record Postal Dispatch (courier order, status = Sent to Ops) -->
+        <div class="stage" id="stagePostal">
+          <h2>Record Postal Dispatch</h2>
+          <div class="hint">Copy these from the postal receipt Ops handed you. Delivery status becomes In Transit.</div>
+          <label for="postalCourierName">Posted via (post office / courier)</label>
+          <input type="text" id="postalCourierName" list="courierOptions" placeholder="e.g. India Post">
+          <datalist id="courierOptions">
+            <option value="India Post"></option>
+            <option value="India Post – Speed Post"></option>
+            <option value="DTDC"></option>
+            <option value="Professional Couriers"></option>
+            <option value="Blue Dart"></option>
+          </datalist>
+          <label for="postalTrackingNo">Tracking / consignment no.</label>
+          <input type="text" id="postalTrackingNo">
+          <label for="postalPostedAt">Date &amp; time posted (on the receipt)</label>
+          <input type="datetime-local" id="postalPostedAt">
+          <label for="postalPickedUpAt">When Ops collected the packet (optional, if written on the PO)</label>
+          <input type="datetime-local" id="postalPickedUpAt">
+          <button id="btnPostal">Save Postal Dispatch</button>
+          <div class="error" id="errPostal"></div>
+        </div>
+
+        <!-- Stage: Delivery Status Update (dispatched -- Gate-Verified or Posted -- not yet closed) -->
+        <div class="stage" id="stageDelivery">
+          <h2>Delivery Status Update</h2>
+          <label for="deliveryStatus">Delivery Status</label>
+          <select id="deliveryStatus">
+            <option value="">-- select --</option>
+            <option value="Pending">Pending</option>
+            <option value="In Transit">In Transit</option>
+            <option value="Delivered">Delivered</option>
+            <option value="Returned">Returned</option>
+          </select>
+          <label for="deliveryCourierName">Courier / Transport Name (optional update)</label>
+          <input type="text" id="deliveryCourierName">
+          <label for="deliveryTrackingNo">Tracking / Consignment No. (optional update)</label>
+          <input type="text" id="deliveryTrackingNo">
+          <div id="deliveredAtGroup" style="display:none;">
+            <label for="deliveredAt">Date &amp; time the customer confirmed delivery (from your call)</label>
+            <input type="datetime-local" id="deliveredAt">
+          </div>
+          <button id="btnDeliveryUpdate">Save Delivery Status</button>
+          <div class="error" id="errDelivery"></div>
+          <div class="result" id="resultDelivery">Delivery status updated.</div>
+        </div>
+
+        <!-- Closed / no action -->
+        <div class="stage" id="stageClosed">
+          <div class="closed-box" id="closedMessage"></div>
+        </div>
+
+        <button type="button" id="btnDone" class="btn-lookup" style="display:none;">Okay</button>
+      </div>
+    </div>
+
+    <div class="side-col">
+      <div class="side-panel">
+        <div class="side-panel-header">
+          <h3>Needs Action</h3>
+          <button class="refresh-btn" id="refreshActionBtn" type="button">&#8635; Refresh</button>
+        </div>
+        <div class="field-hint" style="margin-top:0;">Your orders waiting on a postal receipt or a delivery update – plus any you're covering or have been given access to.</div>
+        <div id="actionList" class="pending-empty">Loading...</div>
+        <button type="button" class="show-more-btn" id="actionShowMore">Show all</button>
+      </div>
+
+      <div class="side-panel">
+        <div class="side-panel-header">
+          <h3>Pending Payments</h3>
+          <button class="refresh-btn" id="refreshBtn" type="button">&#8635; Refresh</button>
+        </div>
+        <div class="filter-tabs">
+          <div class="filter-tab active" data-filter="all">All</div>
+          <div class="filter-tab" data-filter="End Customer">End Customer</div>
+          <div class="filter-tab" data-filter="PO Customer">Dealer/Inst.</div>
+        </div>
+        <div id="pendingPaymentsList" class="pending-empty">Loading...</div>
+        <button type="button" class="show-more-btn" id="paymentsShowMore">Show all</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="ordersOverlay">
+    <div class="modal-box orders-box">
+      <div class="modal-header">
+        <h3 id="ordersTitle">My orders</h3>
+        <button type="button" class="modal-close" id="ordersCloseBtn">&times;</button>
+      </div>
+      <div class="modal-body" id="ordersBody">
+        <input type="text" class="orders-search" id="ordersSearch" placeholder="Search by customer name, phone number or quotation no.">
+        <div class="orders-filters">
+          <div><label>Logged from</label><input type="date" id="ordFrom"></div>
+          <div><label>Logged to</label><input type="date" id="ordTo"></div>
+          <div><label>Stage</label><select id="ordStage"></select></div>
+          <div><label>Delivery</label><select id="ordDelivery">
+            <option value="all">All</option><option value="none">Not dispatched yet</option>
+            <option value="Pending">Pending</option><option value="In Transit">In Transit</option>
+            <option value="Delivered">Delivered</option><option value="Returned">Returned</option>
+          </select></div>
+          <div><label>Order type</label><select id="ordType">
+            <option value="all">All</option><option value="End Customer">End Customer</option><option value="PO Customer">PO Customer</option>
+          </select></div>
+          <button type="button" class="clear-btn" id="ordClear">Clear filters</button>
+        </div>
+        <div class="orders-summary" id="ordersSummary"></div>
+        <div class="orders-table-wrap" id="ordersTable"><div class="orders-empty">Loading...</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="modalOverlay">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3 id="modalTitle"></h3>
+        <button type="button" class="modal-close" id="modalCloseBtn">&times;</button>
+      </div>
+      <div class="modal-body" id="modalBody"></div>
+    </div>
+  </div>
+
+  <script>
+    // ---------- Signed-in CRE ----------
+    document.addEventListener('icf-signed-in', function (e) {
+      document.getElementById('creNameDisplay').textContent = e.detail.name;
+    });
+
+    // ---------- At-a-glance stat strip ----------
+    function loadCreSummary() {
+      authRun()
+        .withSuccessHandler(function (s) {
+          document.getElementById('statTotal').textContent = s.totalLogged;
+          document.getElementById('statLoggedToday').textContent = s.loggedToday;
+          document.getElementById('statLoggedWeek').textContent = s.loggedThisWeek;
+          document.getElementById('statValueWeek').textContent = '\u20b9' + Number(s.valueThisWeek).toLocaleString('en-IN');
+          document.getElementById('statHighPriority').textContent = s.highPriorityPending;
+          document.getElementById('statHighPriorityCard').classList.toggle('alert', s.highPriorityPending > 0);
+          document.getElementById('statAwaitingDelivery').textContent = s.awaitingDeliveryUpdate;
+          document.getElementById('statAwaitingDeliveryCard').classList.toggle('alert', s.awaitingDeliveryUpdate > 0);
+          document.getElementById('statInTransit').textContent = s.inTransit;
+        })
+        .withFailureHandler(function () {
+          Array.prototype.forEach.call(document.querySelectorAll('#statStrip .stat-value'), function (el) { el.textContent = '?'; });
+        })
+        .getCreSummary();
+    }
+    loadCreSummary();
+
+    var totalInput = document.getElementById('totalValue');
+    var advanceInput = document.getElementById('advanceReceived');
+    var pctPreview = document.getElementById('pctPreview');
+    var priorityLevel = document.getElementById('priorityLevel');
+    var priorityBadge = document.getElementById('priorityBadge');
+    var pendingPaymentsList = document.getElementById('pendingPaymentsList');
+    var refreshBtn = document.getElementById('refreshBtn');
+    var allPayments = [];
+    var currentPaymentsFilter = 'all';
+    var currentFilteredPayments = [];
+    var PANEL_LIMIT = 5;
+
+    // ---------- Generic "show all" modal ----------
+    var modalOverlay = document.getElementById('modalOverlay');
+    var modalTitle = document.getElementById('modalTitle');
+    var modalBody = document.getElementById('modalBody');
+    function openModal(title, bodyHtml, bindFn) {
+      modalTitle.textContent = title;
+      modalBody.innerHTML = bodyHtml;
+      if (bindFn) bindFn(modalBody);
+      modalOverlay.classList.add('show');
+    }
+    function closeModal() {
+      modalOverlay.classList.remove('show');
+      modalBody.innerHTML = '';
+    }
+    document.getElementById('modalCloseBtn').addEventListener('click', closeModal);
+    modalOverlay.addEventListener('click', function (e) {
+      if (e.target === modalOverlay) closeModal();
+    });
+
+    function updatePreview() {
+      var total = parseFloat(totalInput.value);
+      var advance = parseFloat(advanceInput.value);
+      if (total > 0 && !isNaN(advance)) {
+        var pct = Math.round((advance / total) * 1000) / 10;
+        pctPreview.textContent = 'Advance = ' + pct + '% of total';
+      } else {
+        pctPreview.textContent = '';
+      }
+    }
+    totalInput.addEventListener('input', updatePreview);
+    advanceInput.addEventListener('input', updatePreview);
+    priorityLevel.addEventListener('change', function () {
+      priorityBadge.classList.toggle('show', priorityLevel.value === 'High');
+    });
+
+    // ---------- Product line items (add-a-line) ----------
+    var productLinesContainer = document.getElementById('productLines');
+    var productError = document.getElementById('productError');
+    var productListCache = [];
+    var courierProducts = {}; // product name -> true, for products that ship by courier
+    var productLineSeq = 0;
+
+    function buildProductOptionsHtml() {
+      return '<option value="">-- select product --</option>' +
+        productListCache.map(function (p) {
+          return '<option value="' + p.replace(/"/g, '&quot;') + '">' + p + '</option>';
+        }).join('');
+    }
+
+    function addProductLine() {
+      productLineSeq++;
+      var row = document.createElement('div');
+      row.className = 'product-line';
+      row.setAttribute('data-line', productLineSeq);
+      row.innerHTML =
+        '<select class="product-select">' + buildProductOptionsHtml() + '</select>' +
+        '<input type="number" class="product-qty" min="1" step="1" placeholder="Qty">' +
+        '<button type="button" class="product-remove" title="Remove">&times;</button>';
+      row.querySelector('.product-remove').addEventListener('click', function () {
+        row.remove();
+        updateDispatchNote();
+      });
+      row.querySelector('.product-select').addEventListener('change', updateDispatchNote);
+      productLinesContainer.appendChild(row);
+    }
+
+    function resetProductLines() {
+      productLinesContainer.innerHTML = '';
+      addProductLine();
+      updateDispatchNote();
+    }
+
+    // Mirrors the server's rule (determineDispatchType_): courier only when
+    // EVERY chosen product is a courier product. Just a heads-up for the
+    // CRE -- the server makes the actual decision.
+    function updateDispatchNote() {
+      var chosen = [];
+      Array.prototype.forEach.call(productLinesContainer.querySelectorAll('.product-select'), function (sel) {
+        if (sel.value) chosen.push(sel.value);
+      });
+      var allCourier = chosen.length > 0 && chosen.every(function (p) { return courierProducts[p]; });
+      document.getElementById('dispatchNote').classList.toggle('show', allCourier);
+    }
+
+    function collectLineItems() {
+      var items = [];
+      Array.prototype.forEach.call(productLinesContainer.querySelectorAll('.product-line'), function (row) {
+        var product = row.querySelector('.product-select').value;
+        var qty = parseInt(row.querySelector('.product-qty').value, 10);
+        if (product && qty > 0) items.push({ product: product, quantity: qty });
+      });
+      return items;
+    }
+
+    document.getElementById('addProductLine').addEventListener('click', addProductLine);
+
+    authRun()
+      .withSuccessHandler(function (catalog) {
+        courierProducts = {};
+        productListCache = (catalog || []).map(function (p) {
+          if (p.dispatchType === 'Courier') courierProducts[p.name] = true;
+          return p.name;
+        });
+        // Refresh options in whatever line(s) already exist (in case the list loaded after the first blank row).
+        Array.prototype.forEach.call(productLinesContainer.querySelectorAll('.product-select'), function (sel) {
+          var current = sel.value;
+          sel.innerHTML = buildProductOptionsHtml();
+          sel.value = current;
+        });
+        if (!productLinesContainer.querySelector('.product-line')) addProductLine();
+      })
+      .withFailureHandler(function () {
+        productError.textContent = 'Could not load the product list -- refresh the page and try again.';
+        productError.classList.add('show');
+      })
+      .getProductCatalog();
+    addProductLine(); // show a blank row immediately; options fill in once the list arrives
+
+    // ---------- Pincode -> State/District auto-fill ----------
+    var pincodeInput = document.getElementById('pincode');
+    var stateInput = document.getElementById('state');
+    var districtInput = document.getElementById('district');
+    var pincodeHint = document.getElementById('pincodeHint');
+    var pincodeLookupTimer = null;
+
+    function runPincodeLookup() {
+      var pincode = pincodeInput.value.trim();
+      if (!/^\d{6}$/.test(pincode)) return;
+      pincodeHint.textContent = 'Looking up...';
+      pincodeHint.style.color = '#888';
+      authRun()
+        .withSuccessHandler(function (result) {
+          if (result.success) {
+            stateInput.value = result.state;
+            districtInput.value = result.district;
+            pincodeHint.textContent = 'State/District filled in from the pincode -- correct them if this looks wrong.';
+            pincodeHint.style.color = '#2c5a1e';
+          } else {
+            pincodeHint.textContent = result.message || 'Pincode not found -- enter State/District manually.';
+            pincodeHint.style.color = '#B06E00';
+          }
+        })
+        .withFailureHandler(function () {
+          pincodeHint.textContent = 'Could not look up the pincode -- enter State/District manually.';
+          pincodeHint.style.color = '#B06E00';
+        })
+        .lookupPincode(pincode);
+    }
+    // Debounced on typing, and immediate on leaving the field, so the lookup
+    // doesn't fire on every keystroke but still catches a pasted pincode.
+    pincodeInput.addEventListener('input', function () {
+      clearTimeout(pincodeLookupTimer);
+      pincodeLookupTimer = setTimeout(runPincodeLookup, 500);
+    });
+    pincodeInput.addEventListener('blur', function () {
+      clearTimeout(pincodeLookupTimer);
+      runPincodeLookup();
+    });
+
+    // ---------- Pending Payments panel (with urgency + End Customer / Dealer-Institution filter) ----------
+    function formatDueLabel(daysUntil) {
+      if (daysUntil === null || daysUntil === undefined) return '';
+      if (daysUntil < 0) return 'Delivery date passed ' + Math.abs(daysUntil) + ' day' + (Math.abs(daysUntil) === 1 ? '' : 's') + ' ago';
+      if (daysUntil === 0) return 'Delivery due today';
+      return 'Delivery due in ' + daysUntil + ' day' + (daysUntil === 1 ? '' : 's');
+    }
+
+    // Pending Payments items can be Delivered or Returned and still carry a
+    // balance -- "delivery date passed" reads as a data error on those, so
+    // this checks Delivery Status first and only falls back to the requested
+    // -date wording for orders that genuinely haven't been delivered yet.
+    function formatPaymentDueLabel(item) {
+      if (item.deliveryStatus === 'Delivered' || item.deliveryStatus === 'Returned') {
+        return item.deliveryStatus + ' \u2013 balance still pending';
+      }
+      return formatDueLabel(item.daysUntilDelivery);
+    }
+
+    function buildPaymentItemsHtml(items) {
+      return items.map(function (it) {
+        var dueLabel = formatPaymentDueLabel(it);
+        return '<div class="payment-item' + (it.isUrgent ? ' urgent' : '') + '">' +
+          '<div class="pi-inst">' + it.institution + '</div>' +
+          '<div class="pi-id">' + it.trackerId + '</div>' +
+          '<div class="pi-balance">\u20b9' + it.balanceDue.toLocaleString('en-IN') + ' due</div>' +
+          (dueLabel ? '<div class="pi-due' + (it.isUrgent ? ' urgent-text' : '') + '">' + dueLabel + '</div>' : '') +
+          '<div class="pi-terms">' + it.paymentTermsType + '</div>' +
+          '</div>';
+      }).join('');
+    }
+
+    function renderPendingPayments() {
+      var items = currentPaymentsFilter === 'all'
+        ? allPayments
+        : allPayments.filter(function (it) { return (it.paymentTermsType || 'End Customer') === currentPaymentsFilter; });
+      currentFilteredPayments = items;
+
+      var moreBtn = document.getElementById('paymentsShowMore');
+      if (!items || items.length === 0) {
+        pendingPaymentsList.className = 'pending-empty';
+        pendingPaymentsList.textContent = 'No outstanding balances right now.';
+        moreBtn.style.display = 'none';
+        return;
+      }
+      pendingPaymentsList.className = '';
+      pendingPaymentsList.innerHTML = buildPaymentItemsHtml(items.slice(0, PANEL_LIMIT));
+
+      if (items.length > PANEL_LIMIT) {
+        moreBtn.style.display = 'block';
+        moreBtn.textContent = 'Show all ' + items.length;
+      } else {
+        moreBtn.style.display = 'none';
+      }
+    }
+    document.getElementById('paymentsShowMore').addEventListener('click', function () {
+      openModal('All Pending Payments (' + currentFilteredPayments.length + ')', buildPaymentItemsHtml(currentFilteredPayments));
+    });
+
+    function loadPendingPayments() {
+      authRun()
+        .withSuccessHandler(function (items) {
+          allPayments = items || [];
+          renderPendingPayments();
+        })
+        .withFailureHandler(function () {
+          pendingPaymentsList.className = 'pending-empty';
+          pendingPaymentsList.textContent = 'Could not load pending payments.';
+        })
+        .getPendingPayments();
+    }
+    loadPendingPayments();
+    refreshBtn.addEventListener('click', loadPendingPayments);
+
+    Array.prototype.forEach.call(document.querySelectorAll('.filter-tab'), function (tab) {
+      tab.addEventListener('click', function () {
+        Array.prototype.forEach.call(document.querySelectorAll('.filter-tab'), function (t) { t.classList.remove('active'); });
+        tab.classList.add('active');
+        currentPaymentsFilter = tab.getAttribute('data-filter');
+        renderPendingPayments();
+      });
+    });
+
+    document.getElementById('poForm').addEventListener('submit', function (e) {
+      e.preventDefault();
+      var submitBtn = document.getElementById('submitBtn');
+      var errorBox = document.getElementById('errorBox');
+      var resultBox = document.getElementById('resultBox');
+
+      errorBox.classList.remove('show');
+      resultBox.classList.remove('show');
+      productError.classList.remove('show');
+
+      var lineItems = collectLineItems();
+      if (!lineItems.length) {
+        productError.textContent = 'Add at least one product with a quantity.';
+        productError.classList.add('show');
+        return;
+      }
+
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Generating...';
+
+      var formData = {
+        trackerId: document.getElementById('trackerId').value.trim(),
+        institution: document.getElementById('institution').value.trim(),
+        customerPhone: document.getElementById('customerPhone').value.trim(),
+        paymentTermsType: document.getElementById('paymentTermsType').value,
+        totalValue: totalInput.value,
+        advanceReceived: advanceInput.value,
+        requestedDeliveryDate: document.getElementById('requestedDeliveryDate').value,
+        priorityLevel: priorityLevel.value,
+        pincode: pincodeInput.value.trim(),
+        state: stateInput.value.trim(),
+        district: districtInput.value.trim(),
+        lineItems: lineItems
+      };
+
+      authRun()
+        .withSuccessHandler(function (result) {
+          document.getElementById('resultTrackerId').textContent = result.trackerId;
+          document.getElementById('resultPct').textContent = 'Advance: ' + result.advancePct + '% of total order value' + (result.priority === 'High' ? '  \u2014  PRIORITY: HIGH' : '');
+          document.getElementById('resultDispatch').textContent = result.dispatchType === 'Courier'
+            ? 'Courier order – goes to Ops for posting after payment verification.' : '';
+          document.getElementById('resultLink').href = result.pdfUrl;
+          resultBox.classList.add('show');
+          document.getElementById('poForm').reset();
+          pctPreview.textContent = '';
+          priorityBadge.classList.remove('show');
+          pincodeHint.textContent = 'Enter the 6-digit pincode and State/District below fill in automatically.';
+          pincodeHint.style.color = '';
+          resetProductLines();
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'Generate Internal PO';
+          loadPendingPayments();
+          loadCreSummary();
+        })
+        .withFailureHandler(function (err) {
+          errorBox.textContent = 'Error: ' + err.message;
+          errorBox.classList.add('show');
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'Generate Internal PO';
+        })
+        .submitOrder(formData);
+    });
+
+    // =====================================================================
+    // Look Up an Enquiry + Needs Action (CRE now owns delivery status updates)
+    // =====================================================================
+    var lookupTrackerIdInput = document.getElementById('lookupTrackerId');
+    var lookupBtn = document.getElementById('lookupBtn');
+    var lookupError = document.getElementById('lookupError');
+    var details = document.getElementById('details');
+    var actionList = document.getElementById('actionList');
+
+    var STAGE_IDS = ['stagePostal', 'stageDelivery', 'stageClosed', 'stageLocked'];
+    function isDispatched(status) { return status === 'Gate-Verified' || status === 'Posted'; }
+    function hideAllStages() {
+      STAGE_IDS.forEach(function (id) { document.getElementById(id).classList.remove('show'); });
+      document.getElementById('resultDelivery').classList.remove('show');
+      document.getElementById('timelineBox').classList.remove('show');
+      document.getElementById('accessNote').classList.remove('show');
+      document.getElementById('btnDone').style.display = 'none';
+    }
+
+    // ---------- Order Timeline ----------
+    function renderTimeline(t) {
+      var rows = [];
+      if (t.enquiryDate) rows.push(['Date of Enquiry', t.enquiryDate]);
+      if (t.advancePaymentVerifiedDate) rows.push(['Advance Payment Verified', t.advancePaymentVerifiedDate]);
+      rows.push(['Total Order Value', '\u20b9' + Number(t.totalOrderValue).toLocaleString('en-IN')]);
+      rows.push(['Advance Received', '\u20b9' + Number(t.advanceReceived).toLocaleString('en-IN')]);
+      if (t.fullPaymentDate) {
+        rows.push(['Full Payment Received', t.fullPaymentDate]);
+      } else if (t.balanceDue > 0) {
+        rows.push(['Balance Outstanding', '\u20b9' + Number(t.balanceDue).toLocaleString('en-IN') +
+          (t.paymentTermsType === 'PO Customer' ? ' (PO Customer terms)' : '')]);
+      }
+      if (t.handoverToOpsDate) rows.push(['Handed to Ops Personnel', t.handoverToOpsDate]);
+      if (t.pickupByOpsDate) rows.push(['Pickup Noted by Ops', t.pickupByOpsDate]);
+      if (t.dispatchDate) rows.push([t.dispatchType === 'Courier' ? 'Date Posted' : 'Date of Dispatch', t.dispatchDate]);
+      if (t.ewayBillNo) rows.push(['E-way Bill No.', t.ewayBillNo]);
+      if (t.transportMode) rows.push(['Mode of Dispatch', t.transportMode + (t.courierName ? ' \u2013 ' + t.courierName : '')]);
+      if (t.dispatchType === 'Courier' && t.trackingNo) rows.push(['Tracking No.', t.trackingNo]);
+      if (t.deliveryDate) {
+        rows.push(['Date of Delivery', t.deliveryDate]);
+      } else if (t.deliveryStatus) {
+        rows.push(['Current Delivery Status', t.deliveryStatus]);
+      }
+
+      document.getElementById('timelineList').innerHTML = rows.map(function (r) {
+        return '<div class="timeline-row"><span class="tl-label">' + r[0] + '</span><span class="tl-value">' + r[1] + '</span></div>';
+      }).join('');
+      document.getElementById('timelineBox').classList.add('show');
+    }
+
+    function loadTimeline(trackerId) {
+      authRun()
+        .withSuccessHandler(renderTimeline)
+        .withFailureHandler(function (err) {
+          document.getElementById('timelineList').innerHTML =
+            '<div class="timeline-row"><span class="tl-label" style="color:#B00020;">Could not load timeline: ' +
+            (err && err.message ? err.message : 'unknown error') + '</span></div>';
+          document.getElementById('timelineBox').classList.add('show');
+        })
+        .getOrderTimeline(trackerId);
+    }
+
+    function loadOrderProducts(trackerId) {
+      authRun()
+        .withSuccessHandler(function (items) {
+          var el = document.getElementById('detailsProducts');
+          if (!el) return; // details panel may have been replaced by a newer lookup already
+          if (!items || !items.length) {
+            el.innerHTML = '<b>Products:</b> <span style="color:#888;">none recorded</span>';
+            return;
+          }
+          el.innerHTML = '<b>Products:</b><br>' + items.map(function (it) {
+            return '\u2022 ' + it.product + ' \u2013 ' + it.quantity + (Number(it.quantity) === 1 ? ' unit' : ' units');
+          }).join('<br>');
+        })
+        .withFailureHandler(function () {
+          var el = document.getElementById('detailsProducts');
+          if (el) el.innerHTML = '<b>Products:</b> <span style="color:#888;">could not load</span>';
+        })
+        .getOrderLineItems(trackerId);
+    }
+
+    function runLookup(searchValue) {
+      lookupError.classList.remove('show');
+      details.classList.remove('show');
+      hideAllStages();
+
+      if (!searchValue) {
+        lookupError.textContent = 'Enter a quotation number, phone number or customer name first.';
+        lookupError.classList.add('show');
+        return;
+      }
+
+      lookupBtn.disabled = true;
+      lookupBtn.textContent = 'Looking up...';
+      hideMatchList();
+
+      // One search for quotation no. / phone / name. A single match comes back
+      // as the full order; several come back as a list to pick from.
+      authRun()
+        .withSuccessHandler(function (res) {
+          lookupBtn.disabled = false;
+          lookupBtn.textContent = 'Look Up';
+          if (res.order) { showOrder(res.order); return; }
+          if (!res.matches || !res.matches.length) {
+            lookupError.textContent = 'No order matches "' + searchValue + '". Try part of the name, the last digits of the phone number, or the quotation number.';
+            lookupError.classList.add('show');
+            return;
+          }
+          showMatchList(res.matches, res.total, searchValue);
+        })
+        .withFailureHandler(function (err) {
+          lookupBtn.disabled = false;
+          lookupBtn.textContent = 'Look Up';
+          lookupError.textContent = 'Error: ' + err.message;
+          lookupError.classList.add('show');
+        })
+        .findOrders(searchValue);
+    }
+
+    function showOrder(order) {
+          lookupTrackerIdInput.value = order.trackerId; // normalize the box to the real Tracker ID, even if searched by phone or name
+          details.innerHTML =
+            '<div><b>Institution:</b> ' + order.institution + '</div>' +
+            (order.phoneNumber ? '<div><b>Phone:</b> ' + order.phoneNumber + '</div>' : '') +
+            ((order.district || order.state) ? '<div><b>Location:</b> ' + [order.district, order.state].filter(Boolean).join(', ') + (order.pincode ? ' \u2013 ' + order.pincode : '') + '</div>' : '') +
+            '<div><b>Priority:</b> ' + order.priority + '</div>' +
+            '<div><b>CRE:</b> ' + (order.ownerName || '\u2013') + (order.ownerCode ? ' (' + order.ownerCode + ')' : '') + '</div>' +
+            '<div><b>Workflow Stage:</b> ' + order.status + '</div>' +
+            '<div><b>Dispatch Type:</b> ' + (order.dispatchType === 'Courier' ? 'Courier (packet by post)' : 'Vehicle') + '</div>' +
+            (order.deliveryStatus ? '<div><b>Delivery Status:</b> ' + order.deliveryStatus + '</div>' : '') +
+            '<div><b>Payment Terms:</b> ' + order.paymentTermsType + '</div>' +
+            '<div><b>Balance Due:</b> \u20b9' + Number(order.balanceDue).toLocaleString('en-IN') + '</div>' +
+            '<div id="detailsProducts"><b>Products:</b> loading...</div>' +
+            (order.wrapperPdfUrl ? '<div><a class="pdf-link" href="' + order.wrapperPdfUrl + '" target="_blank">Reprint Wrapper PO (PDF)</a></div>' : '');
+          details.classList.add('show');
+          loadTimeline(order.trackerId);
+          loadOrderProducts(order.trackerId);
+          document.getElementById('btnDone').style.display = 'block';
+
+          var access = order.access || { canAct: true };
+          var needsCreAction = (order.dispatchType === 'Courier' && order.status === 'Sent to Ops') ||
+            (isDispatched(order.status) && order.deliveryStatus !== 'Delivered' && order.deliveryStatus !== 'Returned');
+          if (access.canAct && access.note) {
+            var noteEl = document.getElementById('accessNote');
+            noteEl.textContent = access.note;
+            noteEl.classList.add('show');
+          }
+
+          if (needsCreAction && !access.canAct) {
+            showLockedStage(order, access);
+          } else if (order.dispatchType === 'Courier' && order.status === 'Sent to Ops') {
+            ['postalCourierName', 'postalTrackingNo', 'postalPostedAt', 'postalPickedUpAt'].forEach(function (id) { document.getElementById(id).value = ''; });
+            document.getElementById('errPostal').classList.remove('show');
+            document.getElementById('stagePostal').classList.add('show');
+          } else if (isDispatched(order.status) && order.deliveryStatus !== 'Delivered' && order.deliveryStatus !== 'Returned') {
+            document.getElementById('deliveryStatus').value = '';
+            document.getElementById('deliveryCourierName').value = '';
+            document.getElementById('deliveryTrackingNo').value = '';
+            document.getElementById('deliveredAt').value = '';
+            document.getElementById('deliveredAtGroup').style.display = 'none';
+            document.getElementById('stageDelivery').classList.add('show');
+          } else if (isDispatched(order.status)) {
+            document.getElementById('closedMessage').textContent =
+              'Closed \u2013 Delivery Status is "' + order.deliveryStatus + '". Nothing further to do here.';
+            document.getElementById('stageClosed').classList.add('show');
+          } else if (order.status === 'On Hold - Balance Due') {
+            document.getElementById('closedMessage').textContent =
+              'Courier order on hold: \u20b9' + Number(order.balanceDue).toLocaleString('en-IN') +
+              ' is still due from this end customer. Once Accounts records it, the order goes to Ops for posting automatically.';
+            document.getElementById('stageClosed').classList.add('show');
+          } else {
+            document.getElementById('closedMessage').textContent =
+              'This enquiry is at workflow stage "' + order.status + '" \u2013 still with Accounts/Ops, nothing for the CRE to update yet.';
+            document.getElementById('stageClosed').classList.add('show');
+          }
+    }
+
+    // ---------- Several matches: list them, click one to open it ----------
+    var matchListEl = document.getElementById('matchList');
+    function hideMatchList() { matchListEl.classList.remove('show'); matchListEl.innerHTML = ''; }
+    function fmtDay(ms) { return ms ? new Date(ms).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '\u2013'; }
+    function stageText(o) { return (o.deliveryStatus && isDispatched(o.status)) ? o.status + ' \u00b7 ' + o.deliveryStatus : o.status; }
+    function showMatchList(matches, total, q) {
+      matchListEl.innerHTML =
+        '<div class="match-head">' + total + ' orders match \u201c' + escHtml(q) + '\u201d \u2013 choose one' +
+        (total > matches.length ? ' (showing the ' + matches.length + ' most recent; type more to narrow it down)' : '') + '</div>' +
+        matches.map(function (m) {
+          return '<div class="match-row" data-id="' + escHtml(m.trackerId) + '">' +
+            '<div class="m-top"><span><b>' + escHtml(m.institution) + '</b><span class="m-why">' + escHtml(m.matchedOn) + '</span></span>' +
+            '<span>\u20b9' + Number(m.total).toLocaleString('en-IN') + '</span></div>' +
+            '<div class="m-sub">' + escHtml(m.trackerId) + (m.phone ? ' \u00b7 ' + escHtml(m.phone) : '') + ' \u00b7 ' + fmtDay(m.dateLoggedMs) +
+            ' \u00b7 ' + escHtml(stageText(m)) + (m.cre ? ' \u00b7 ' + escHtml(m.cre) : '') + '</div>' +
+          '</div>';
+        }).join('');
+      matchListEl.classList.add('show');
+      Array.prototype.forEach.call(matchListEl.querySelectorAll('.match-row'), function (el) {
+        el.addEventListener('click', function () {
+          lookupTrackerIdInput.value = el.getAttribute('data-id');
+          runLookup(el.getAttribute('data-id'));
+        });
+      });
+    }
+
+    lookupBtn.addEventListener('click', function () {
+      runLookup(lookupTrackerIdInput.value.trim());
+    });
+    lookupTrackerIdInput.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); runLookup(lookupTrackerIdInput.value.trim()); }
+    });
+
+    document.getElementById('deliveryStatus').addEventListener('change', function () {
+      var group = document.getElementById('deliveredAtGroup');
+      group.style.display = (this.value === 'Delivered') ? 'block' : 'none';
+    });
+
+    document.getElementById('btnDeliveryUpdate').addEventListener('click', function () {
+      var btn = this;
+      var err = document.getElementById('errDelivery');
+      var result = document.getElementById('resultDelivery');
+      err.classList.remove('show');
+      result.classList.remove('show');
+      var deliveryStatus = document.getElementById('deliveryStatus').value;
+      if (!deliveryStatus) { err.textContent = 'Select a delivery status.'; err.classList.add('show'); return; }
+      var deliveredAt = document.getElementById('deliveredAt').value;
+      if (deliveryStatus === 'Delivered' && !deliveredAt) {
+        err.textContent = 'Enter the date and time the customer confirmed delivery.';
+        err.classList.add('show');
+        return;
+      }
+
+      btn.disabled = true; btn.textContent = 'Saving...';
+      authRun()
+        .withSuccessHandler(function () {
+          btn.disabled = false; btn.textContent = 'Save Delivery Status';
+          result.classList.add('show');
+          loadActionList();
+          loadCreSummary();
+          loadApprovals();
+        })
+        .withFailureHandler(function (e) {
+          btn.disabled = false; btn.textContent = 'Save Delivery Status';
+          err.textContent = 'Error: ' + e.message; err.classList.add('show');
+        })
+        .submitDeliveryUpdate({
+          trackerId: lookupTrackerIdInput.value.trim(),
+          deliveryStatus: deliveryStatus,
+          courierName: document.getElementById('deliveryCourierName').value.trim(),
+          trackingNo: document.getElementById('deliveryTrackingNo').value.trim(),
+          deliveredAt: deliveredAt
+        });
+    });
+
+    // ---------- Someone else's order: read-only + access request ----------
+    function showLockedStage(order, access) {
+      var msg = 'This is ' + (order.ownerName || 'another CRE') + '\u2019s order. You can see its details, but only ' +
+        (order.ownerName || 'they') + ' can update it \u2013 unless the admin gives you access.';
+      if (access.pendingRequest) msg += ' Your request is waiting for an admin to respond.';
+      else if (access.lastDecision) msg += ' ' + access.lastDecision;
+      document.getElementById('lockedMessage').textContent = msg;
+      document.getElementById('requestForm').style.display = access.pendingRequest ? 'none' : 'block';
+      document.getElementById('accessReason').value = '';
+      document.getElementById('errRequest').classList.remove('show');
+      document.getElementById('resultRequest').classList.remove('show');
+      document.getElementById('stageLocked').classList.add('show');
+    }
+
+    document.getElementById('btnRequestAccess').addEventListener('click', function () {
+      var btn = this;
+      var err = document.getElementById('errRequest');
+      var result = document.getElementById('resultRequest');
+      err.classList.remove('show');
+      var reason = document.getElementById('accessReason').value.trim();
+      if (!reason) { err.textContent = 'Add a short reason for the admin.'; err.classList.add('show'); return; }
+      btn.disabled = true; btn.textContent = 'Sending...';
+      authRun()
+        .withSuccessHandler(function (res) {
+          btn.disabled = false; btn.textContent = 'Request access from admin';
+          document.getElementById('requestForm').style.display = 'none';
+          loadApprovals();
+          result.textContent = res.emailed
+            ? 'Request sent to the admin. It\u2019s in Awaiting approval on the left; once approved, you can update it for 24 hours.'
+            : 'Request saved, but no admin has an email on file yet \u2013 please tell Ananthu to check the Admin page. It\u2019s in Awaiting approval on the left.';
+          result.classList.add('show');
+        })
+        .withFailureHandler(function (e) {
+          btn.disabled = false; btn.textContent = 'Request access from admin';
+          err.textContent = 'Error: ' + e.message; err.classList.add('show');
+        })
+        .requestOrderAccess({ trackerId: lookupTrackerIdInput.value.trim(), reason: reason });
+    });
+
+    document.getElementById('btnPostal').addEventListener('click', function () {
+      var btn = this;
+      var err = document.getElementById('errPostal');
+      err.classList.remove('show');
+      var courierName = document.getElementById('postalCourierName').value.trim();
+      var trackingNo = document.getElementById('postalTrackingNo').value.trim();
+      var postedAt = document.getElementById('postalPostedAt').value;
+      if (!courierName || !trackingNo || !postedAt) {
+        err.textContent = 'Enter who it was posted with, the tracking number, and the date & time posted.';
+        err.classList.add('show');
+        return;
+      }
+      btn.disabled = true; btn.textContent = 'Saving...';
+      authRun()
+        .withSuccessHandler(function () {
+          btn.disabled = false; btn.textContent = 'Save Postal Dispatch';
+          runLookup(lookupTrackerIdInput.value.trim()); // re-open: now shows the delivery update stage
+          loadActionList();
+          loadCreSummary();
+          loadApprovals();
+        })
+        .withFailureHandler(function (e) {
+          btn.disabled = false; btn.textContent = 'Save Postal Dispatch';
+          err.textContent = 'Error: ' + e.message; err.classList.add('show');
+        })
+        .submitPostalDispatch({
+          trackerId: lookupTrackerIdInput.value.trim(),
+          courierName: courierName,
+          trackingNo: trackingNo,
+          postedAt: postedAt,
+          pickedUpAt: document.getElementById('postalPickedUpAt').value
+        });
+    });
+
+    // ---------- Needs Action panel (CRE) ----------
+    var allActionItems = [];
+
+    function buildActionItemsHtml(items) {
+      return items.map(function (it) {
+        var badgeClass = it.priority === 'High' ? 'pi-badge high' : 'pi-badge';
+        var dueLabel = formatDueLabel(it.daysUntilDelivery);
+        return '<div class="pending-item' + (it.isUrgent ? ' urgent' : '') + '" data-id="' + it.trackerId + '">' +
+          '<div class="pi-row"><div><div class="pi-inst">' + it.institution +
+          (it.dispatchType === 'Courier' ? '<span class="pi-tag">Courier</span>' : '') +
+          (it.accessNote ? '<span class="pi-tag cover">' + it.accessNote + '</span>' : '') + '</div>' +
+          '<div class="pi-id">' + it.trackerId + ' \u2013 ' + it.deliveryStatus + '</div></div>' +
+          '<div class="' + badgeClass + '">' + it.priority + '</div></div>' +
+          (dueLabel ? '<div class="pi-due' + (it.isUrgent ? ' urgent-text' : '') + '">' + dueLabel + '</div>' : '') +
+          '</div>';
+      }).join('');
+    }
+
+    function bindActionItemClicks(container) {
+      Array.prototype.forEach.call(container.querySelectorAll('.pending-item'), function (el) {
+        el.addEventListener('click', function () {
+          lookupTrackerIdInput.value = el.getAttribute('data-id');
+          runLookup(el.getAttribute('data-id'));
+          closeModal();
+          document.getElementById('lookupCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
+      });
+    }
+
+    function renderActionList(items) {
+      allActionItems = items || [];
+      var moreBtn = document.getElementById('actionShowMore');
+      if (allActionItems.length === 0) {
+        actionList.className = 'pending-empty';
+        actionList.textContent = 'Nothing needs action right now.';
+        moreBtn.style.display = 'none';
+        return;
+      }
+      actionList.className = '';
+      actionList.innerHTML = buildActionItemsHtml(allActionItems.slice(0, PANEL_LIMIT));
+      bindActionItemClicks(actionList);
+
+      if (allActionItems.length > PANEL_LIMIT) {
+        moreBtn.style.display = 'block';
+        moreBtn.textContent = 'Show all ' + allActionItems.length;
+      } else {
+        moreBtn.style.display = 'none';
+      }
+    }
+
+    function loadActionList() {
+      authRun()
+        .withSuccessHandler(renderActionList)
+        .withFailureHandler(function () {
+          actionList.className = 'pending-empty';
+          actionList.textContent = 'Could not load the list.';
+          document.getElementById('actionShowMore').style.display = 'none';
+        })
+        .getCREActionItems();
+    }
+    loadActionList();
+    document.getElementById('refreshActionBtn').addEventListener('click', loadActionList);
+    document.getElementById('actionShowMore').addEventListener('click', function () {
+      openModal('All Needs Action (' + allActionItems.length + ')', buildActionItemsHtml(allActionItems), bindActionItemClicks);
+    });
+
+    // ---------- "My orders" pop-up (opened from the stat tiles) ----------
+    // Loads the CRE's orders once per opening and filters in the browser, so
+    // typing in the search box is instant. Clicking a row closes the pop-up
+    // and opens the order through the normal Look Up.
+    var ordersOverlay = document.getElementById('ordersOverlay');
+    var myOrders = [];
+    var ordersPreset = 'all';
+    var TILE_SETS = {
+      all: function () { return true; },
+      today: function (o) { return o.loggedToday; },
+      week: function (o) { return o.loggedThisWeek; },
+      high: function (o) { return o.highPending; },
+      awaiting: function (o) { return o.awaitingDelivery; },
+      transit: function (o) { return o.inTransit; }
+    };
+    var ORDER_STAGES = ['Logged', 'On Hold - Balance Due', 'Sent to Ops', 'On Hold - Site Not Ready', 'Vehicle Confirmed', 'Gate-Verified', 'Posted'];
+    document.getElementById('ordStage').innerHTML = '<option value="all">All</option>' +
+      ORDER_STAGES.map(function (st) { return '<option value="' + st + '">' + st + '</option>'; }).join('');
+
+    function resetOrderFilters() {
+      ['ordersSearch', 'ordFrom', 'ordTo'].forEach(function (id) { document.getElementById(id).value = ''; });
+      ['ordStage', 'ordDelivery', 'ordType'].forEach(function (id) { document.getElementById(id).value = 'all'; });
+    }
+
+    function openOrdersPopup(preset, title) {
+      ordersPreset = preset;
+      document.getElementById('ordersTitle').textContent = title;
+      resetOrderFilters();
+      document.getElementById('ordersSummary').innerHTML = '';
+      document.getElementById('ordersTable').innerHTML = '<div class="orders-empty">Loading...</div>';
+      ordersOverlay.classList.add('show');
+      authRun()
+        .withSuccessHandler(function (rows) { myOrders = rows || []; renderOrdersPopup(); })
+        .withFailureHandler(function (e) { document.getElementById('ordersTable').innerHTML = '<div class="orders-empty">Could not load: ' + escHtml(e.message) + '</div>'; })
+        .getMyOrders();
+      setTimeout(function () { document.getElementById('ordersSearch').focus(); }, 50);
+    }
+
+    function renderOrdersPopup() {
+      var q = document.getElementById('ordersSearch').value.trim().toLowerCase();
+      var qDigits = q.replace(/\D/g, '');
+      var from = document.getElementById('ordFrom').value, to = document.getElementById('ordTo').value;
+      var stage = document.getElementById('ordStage').value, del = document.getElementById('ordDelivery').value, type = document.getElementById('ordType').value;
+      var fromMs = from ? new Date(from + 'T00:00:00+05:30').getTime() : null;
+      var toMs = to ? new Date(to + 'T23:59:59+05:30').getTime() : null;
+      var rows = myOrders.filter(TILE_SETS[ordersPreset] || TILE_SETS.all).filter(function (o) {
+        if (q) {
+          var hit = o.institution.toLowerCase().indexOf(q) !== -1 || o.trackerId.toLowerCase().indexOf(q) !== -1 ||
+            (qDigits.length >= 3 && String(o.phone).replace(/\D/g, '').indexOf(qDigits) !== -1);
+          if (!hit) return false;
+        }
+        if (fromMs && o.dateLoggedMs < fromMs) return false;
+        if (toMs && o.dateLoggedMs > toMs) return false;
+        if (stage !== 'all' && o.status !== stage) return false;
+        if (type !== 'all' && o.paymentTerms !== type) return false;
+        if (del !== 'all') {
+          if (del === 'none') { if (isDispatched(o.status)) return false; }
+          else if (!isDispatched(o.status) || (o.deliveryStatus || 'Pending') !== del) return false;
+        }
+        return true;
+      });
+      var value = rows.reduce(function (s, o) { return s + o.total; }, 0);
+      var bal = rows.reduce(function (s, o) { return s + Math.max(0, o.balance); }, 0);
+      document.getElementById('ordersSummary').innerHTML = '<b>' + rows.length + '</b> order' + (rows.length === 1 ? '' : 's') +
+        ' &middot; <b>\u20b9' + value.toLocaleString('en-IN') + '</b> order value' +
+        (bal > 0 ? ' &middot; <b>\u20b9' + bal.toLocaleString('en-IN') + '</b> balance due' : '') +
+        ' &middot; click an order to open it';
+      if (!rows.length) {
+        document.getElementById('ordersTable').innerHTML = '<div class="orders-empty">' + (myOrders.length ? 'No orders match.' : 'No orders yet.') + '</div>';
+        return;
+      }
+      document.getElementById('ordersTable').innerHTML = '<table class="orders-table"><thead><tr>' +
+        '<th>Quotation No.</th><th>Customer</th><th>Phone</th><th>Stage</th><th class="num">Value</th><th class="num">Balance</th><th>Logged</th>' +
+        '</tr></thead><tbody>' + rows.map(function (o) {
+          return '<tr data-id="' + escHtml(o.trackerId) + '"><td>' + escHtml(o.trackerId) + (o.priority === 'High' ? ' <span style="color:#B00020;font-weight:700;">&#9679;</span>' : '') + '</td>' +
+            '<td>' + escHtml(o.institution) + '</td><td>' + escHtml(o.phone || '\u2013') + '</td>' +
+            '<td>' + escHtml(stageText(o)) + '</td>' +
+            '<td class="num">\u20b9' + o.total.toLocaleString('en-IN') + '</td>' +
+            '<td class="num">' + (o.balance > 0 ? '\u20b9' + o.balance.toLocaleString('en-IN') : '\u2013') + '</td>' +
+            '<td>' + fmtDay(o.dateLoggedMs) + '</td></tr>';
+        }).join('') + '</tbody></table>';
+      Array.prototype.forEach.call(document.querySelectorAll('#ordersTable tbody tr'), function (tr) {
+        tr.addEventListener('click', function () {
+          var id = tr.getAttribute('data-id');
+          ordersOverlay.classList.remove('show');
+          lookupTrackerIdInput.value = id;
+          runLookup(id);
+          var card = document.getElementById('lookupCard');
+          if (card && card.scrollIntoView) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
+      });
+    }
+
+    Array.prototype.forEach.call(document.querySelectorAll('#statStrip .stat-card.clickable'), function (card) {
+      card.addEventListener('click', function () { openOrdersPopup(card.getAttribute('data-set'), card.getAttribute('data-title')); });
+    });
+    document.getElementById('ordersSearch').addEventListener('input', renderOrdersPopup);
+    ['ordFrom', 'ordTo', 'ordStage', 'ordDelivery', 'ordType'].forEach(function (id) {
+      document.getElementById(id).addEventListener('change', renderOrdersPopup);
+    });
+    document.getElementById('ordClear').addEventListener('click', function () { resetOrderFilters(); renderOrdersPopup(); });
+    document.getElementById('ordersCloseBtn').addEventListener('click', function () { ordersOverlay.classList.remove('show'); });
+    ordersOverlay.addEventListener('click', function (e) { if (e.target === ordersOverlay) ordersOverlay.classList.remove('show'); });
+
+    // ---------- Awaiting approval panel (left) ----------
+    var approvalsList = document.getElementById('approvalsList');
+    function escHtml(t) { return String(t == null ? '' : t).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+    function loadApprovals() {
+      authRun()
+        .withSuccessHandler(renderApprovals)
+        .withFailureHandler(function () { approvalsList.className = 'pending-empty'; approvalsList.textContent = 'Could not load the list.'; })
+        .getAccessApprovalsPanel();
+    }
+    function renderApprovals(items) {
+      items = items || [];
+      var badge = document.getElementById('approvalsCount');
+      var ready = items.filter(function (it) { return it.status !== 'Pending'; }).length;
+      badge.textContent = items.length; badge.style.display = items.length ? 'inline-block' : 'none';
+      badge.style.background = ready ? '#2c7a2c' : '#2E74B5';
+      if (!items.length) { approvalsList.className = 'pending-empty'; approvalsList.textContent = 'Nothing waiting on an admin.'; return; }
+      approvalsList.className = '';
+      approvalsList.innerHTML = items.map(function (it) {
+        return '<div class="pending-item" data-id="' + escHtml(it.trackerId) + '">' +
+          '<div class="pi-inst">' + escHtml(it.institution) + '</div>' +
+          '<div class="pi-id">' + escHtml(it.trackerId) + '</div>' +
+          '<div class="pi-label">' + escHtml(it.label) + '</div>' +
+          '<div><span class="appr-status ' + escHtml(it.status) + '">' + escHtml(it.statusText) + '</span></div>' +
+          '<div class="pi-id" style="margin-top:3px;">' + escHtml(it.when) + (it.decidedBy ? ' \u2013 ' + escHtml(it.decidedBy) : '') + '</div>' +
+          '</div>';
+      }).join('');
+      Array.prototype.forEach.call(approvalsList.querySelectorAll('.pending-item'), function (el) {
+        el.addEventListener('click', function () {
+          lookupTrackerIdInput.value = el.getAttribute('data-id');
+          runLookup(el.getAttribute('data-id'));
+        });
+      });
+    }
+    document.getElementById('refreshApprovalsBtn').addEventListener('click', loadApprovals);
+    loadApprovals();
+    setInterval(function () { if (window.ICF_STAFF) loadApprovals(); }, 120000);
+
+    // ---------- Hooks used by the sign-in screen (auth) ----------
+    // ICF_CLEAR: on Sign out, wipe everything personal from the page.
+    // ICF_RELOAD: after someone (possibly someone else) signs in again, load their data.
+    window.ICF_CLEAR = function () {
+      ordersOverlay.classList.remove('show'); myOrders = [];
+      hideMatchList();
+      approvalsList.className = 'pending-empty'; approvalsList.textContent = 'Loading...';
+      document.getElementById('approvalsCount').style.display = 'none';
+      Array.prototype.forEach.call(document.querySelectorAll('#statStrip .stat-value'), function (el) { el.innerHTML = '&ndash;'; });
+      actionList.className = 'pending-empty'; actionList.textContent = 'Loading...';
+      pendingPaymentsList.className = 'pending-empty'; pendingPaymentsList.textContent = 'Loading...';
+      document.getElementById('actionShowMore').style.display = 'none';
+      document.getElementById('paymentsShowMore').style.display = 'none';
+      lookupTrackerIdInput.value = '';
+      details.classList.remove('show');
+      hideAllStages();
+      document.getElementById('resultBox').classList.remove('show');
+      closeModal();
+    };
+    window.ICF_RELOAD = function () {
+      loadApprovals();
+      loadCreSummary();
+      loadActionList();
+      loadPendingPayments();
+    };
+
+    // ---------- Okay / Return (closes out the lookup and resets the page) ----------
+    // Apps Script pages run inside a sandboxed iframe, so a full location.reload()
+    // can fail silently and leave a blank white frame -- resetting the page's own
+    // state achieves the same "closure" without touching the browser location.
+    document.getElementById('btnDone').addEventListener('click', function () {
+      lookupTrackerIdInput.value = '';
+      lookupError.classList.remove('show');
+      details.classList.remove('show');
+      hideAllStages();
+      loadActionList();
+      loadPendingPayments();
+      loadCreSummary();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+  </script>
+</body>
+</html>

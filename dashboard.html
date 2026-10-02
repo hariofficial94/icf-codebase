@@ -1,0 +1,1180 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: 'Segoe UI', Arial, sans-serif; background: #f4f6f8; margin: 0; padding: 24px; color: #222; }
+    .wrap { max-width: 1120px; margin: 0 auto; }
+
+    .topbar { display: flex; justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: 14px; margin-bottom: 20px; }
+    h1 { font-size: 22px; color: #1F3864; margin: 0 0 4px 0; }
+    .subtitle { font-size: 12px; color: #595959; font-style: italic; margin: 0; }
+    .topbar-right { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .updated-text { font-size: 11px; color: #888; }
+    .refresh-btn { padding: 7px 14px; font-size: 12px; font-weight: 600; background: #fff; color: #2E74B5; border: 1px solid #d5dbe0; border-radius: 5px; cursor: pointer; }
+    .refresh-btn:hover { background: #eef4fa; }
+
+    /* Custom date-range row, shown under the topbar when the "Custom Range" period tab is active */
+    .custom-range-row { display: none; align-items: flex-end; gap: 12px; flex-wrap: wrap; padding: 10px 0 2px; }
+    .custom-range-row.show { display: flex; }
+    .custom-range-row div { display: flex; flex-direction: column; gap: 3px; }
+    .custom-range-row label { font-size: 10.5px; font-weight: 700; color: #888; }
+    .custom-range-row input { padding: 6px 8px; font-size: 12.5px; border: 1px solid #ccc; border-radius: 4px; }
+    .custom-range-row button { padding: 7px 14px; font-size: 12px; font-weight: 600; background: #1F3864; color: #fff; border: 1px solid #1F3864; border-radius: 5px; cursor: pointer; }
+    .custom-range-row button:hover { background: #16294a; }
+
+    .period-tabs { display: flex; gap: 6px; }
+    .period-tab { padding: 7px 13px; font-size: 12px; font-weight: 600; border: 1px solid #d5dbe0; border-radius: 5px; background: #fff; color: #555; cursor: pointer; }
+    .period-tab.active { background: #1F3864; color: #fff; border-color: #1F3864; }
+
+    .section { margin-bottom: 26px; }
+    .section-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; }
+    .section-head h2 { font-size: 15px; color: #1F3864; margin: 0; }
+    .section-head .section-note { font-size: 11px; color: #888; }
+    /* Metric switches on chart cards (By location: Value/Orders; By product: Units/Orders) */
+    .section-head.with-toggle { align-items: center; flex-wrap: wrap; gap: 8px; }
+    .section-head.with-toggle h2 { margin-right: auto; }
+    .metric-toggle { display: inline-flex; border: 1px solid #d5dbe0; border-radius: 6px; overflow: hidden; }
+    .metric-toggle button { border: none; background: #fff; color: #2E74B5; font-size: 12px; font-weight: 600; padding: 5px 12px; cursor: pointer; font-family: inherit; }
+    .metric-toggle button + button { border-left: 1px solid #d5dbe0; }
+    .metric-toggle button.active { background: #1F3864; color: #fff; }
+    .metric-toggle button:hover:not(.active) { background: #eef4fa; }
+    .chart-legend { display: flex; gap: 14px; font-size: 11.5px; color: #555; margin-bottom: 12px; }
+    .chart-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+    .bar-track + .bar-track { margin-top: 3px; }
+
+    .card { background: #fff; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.06); padding: 20px; }
+    .empty-state { font-size: 13px; color: #888; font-style: italic; padding: 30px; text-align: center; background: #fff; border-radius: 8px; }
+
+    /* KPI strip */
+    .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; }
+    .kpi-card { background: #fff; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.06); padding: 16px 18px; border-left: 4px solid #2E74B5; }
+    .kpi-card.clickable { cursor: pointer; transition: box-shadow 0.15s ease; }
+    .kpi-card.clickable:hover { box-shadow: 0 4px 16px rgba(31,56,100,0.16); }
+    .kpi-card.warn { border-left-color: #B06E00; }
+    .kpi-card.danger { border-left-color: #B00020; }
+    .kpi-label { font-size: 11.5px; color: #666; font-weight: 600; }
+    .kpi-value { font-size: 22px; font-weight: 700; color: #1F3864; margin-top: 4px; }
+    .kpi-value.warn { color: #B06E00; }
+    .kpi-value.danger { color: #B00020; }
+    .kpi-info-icon { display:inline-block; width:14px; height:14px; line-height:14px; text-align:center; border-radius:50%; background:#d8e3f0; color:#2E74B5; font-size:10px; font-weight:700; margin-left:5px; cursor:pointer; vertical-align:middle; }
+    .kpi-info-icon:hover { background:#2E74B5; color:#fff; }
+    .kpi-sub { font-size: 11px; color: #888; margin-top: 3px; }
+
+    /* KPI drill-down modal */
+    .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(20, 30, 45, 0.45); z-index: 1000; align-items: flex-start; justify-content: center; padding: 40px 16px; overflow-y: auto; }
+    .modal-overlay.show { display: flex; }
+    .modal-box { background: #fff; border-radius: 8px; width: 100%; max-width: 760px; max-height: 85vh; display: flex; flex-direction: column; box-shadow: 0 8px 30px rgba(0,0,0,0.25); }
+    .modal-header { display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; border-bottom: 1px solid #e5e5e5; }
+    .modal-header h3 { margin: 0; font-size: 15px; color: #1F3864; }
+    .modal-close { width: auto; margin: 0; padding: 2px 8px; background: transparent; color: #888; font-size: 20px; line-height: 1; border: none; cursor: pointer; }
+    .modal-close:hover { color: #1F3864; }
+    .modal-body { padding: 18px 20px; overflow-y: auto; }
+
+    .drill-filters { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; padding-bottom: 14px; border-bottom: 1px solid #eee; }
+    .drill-filters div { display: flex; flex-direction: column; gap: 3px; }
+    .drill-filters label { font-size: 10.5px; font-weight: 700; color: #888; }
+    .drill-filters input, .drill-filters select { padding: 6px 8px; font-size: 12.5px; border: 1px solid #ccc; border-radius: 4px; min-width: 110px; }
+    .drill-filters .clear-filters-btn { align-self: flex-end; padding: 6px 10px; font-size: 11.5px; font-weight: 600; background: #f4f6f8; color: #2E74B5; border: 1px solid #d5dbe0; border-radius: 4px; cursor: pointer; }
+    .drill-summary { font-size: 12.5px; color: #555; margin-bottom: 10px; }
+    .drill-summary b { color: #1F3864; }
+    .drill-cre-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 10px; }
+    .drill-cre-chips .lbl { font-size: 10.5px; font-weight: 700; color: #888; text-transform: uppercase; margin-right: 2px; }
+    .cre-chip { font-size: 12px; padding: 3px 10px; border-radius: 12px; border: 1px solid #d5dbe0; background: #f4f6f8; color: #333; cursor: pointer; font-family: inherit; }
+    .cre-chip b { color: #1F3864; margin-left: 2px; }
+    .cre-chip.active { background: #1F3864; border-color: #1F3864; color: #fff; }
+    .cre-chip.active b { color: #fff; }
+    .late-days { color: #B00020; font-weight: 700; }
+    .drill-empty { font-size: 12.5px; color: #888; font-style: italic; padding: 20px 0; text-align: center; }
+
+    /* Two-column layout */
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    @media (max-width: 820px) { .two-col { grid-template-columns: 1fr; } }
+
+    /* Geography drill-down (state dropdown + pincode list under the state chart) */
+    .geo-drill { margin-top: 16px; padding-top: 14px; border-top: 1px solid #eee; }
+    .geo-drill-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+    .geo-drill-head label { font-size: 11px; font-weight: 700; color: #888; text-transform: uppercase; letter-spacing: 0.02em; }
+    .geo-drill-head select { padding: 6px 10px; font-size: 12.5px; border: 1px solid #ccc; border-radius: 4px; min-width: 170px; background: #fff; color: #222; }
+    /* District bars inside the state drill-down; click one to open its pincodes */
+    .geo-district { cursor: pointer; padding: 6px 8px; margin: 0 -8px 6px; border-radius: 6px; }
+    .geo-district:hover { background: #f4f7fb; }
+    .geo-district.open { background: #eef4fa; }
+    .geo-district .caret { display: inline-block; width: 12px; color: #2E74B5; font-size: 10px; transition: transform 0.15s; }
+    .geo-district.open .caret { transform: rotate(90deg); }
+    .geo-pins { display: none; margin: 2px 0 10px 20px; border-left: 2px solid #d5e3f1; padding-left: 10px; }
+    .geo-district.open + .geo-pins { display: block; }
+    .geo-pin-row { display: flex; justify-content: space-between; font-size: 12px; color: #555; padding: 3px 0; }
+    .geo-pin-row b { color: #1F3864; font-weight: 600; }
+    .geo-drill-note { font-size: 11.5px; color: #888; margin-bottom: 10px; }
+
+    /* Bar rows (funnel, delivery status) */
+    .bar-row { margin-bottom: 12px; }
+    .bar-row:last-child { margin-bottom: 0; }
+    .bar-row-label { display: flex; justify-content: space-between; font-size: 12.5px; margin-bottom: 4px; }
+    .bar-row-label .name { color: #333; font-weight: 600; }
+    .bar-row-label .count { color: #555; }
+    .bar-track { background: #eef1f4; border-radius: 4px; height: 10px; overflow: hidden; }
+    .bar-fill { height: 100%; background: #2E74B5; border-radius: 4px; }
+    .bar-fill.amber { background: #d99a2b; }
+    .bar-fill.green { background: #4a9d5f; }
+    .bar-fill.red { background: #c94a3f; }
+    .bar-fill.navy { background: #1F3864; }
+
+    /* Collections */
+    .collect-row { display: flex; justify-content: space-between; align-items: baseline; padding: 9px 0; border-bottom: 1px dashed #eee; font-size: 13px; }
+    .collect-row:last-child { border-bottom: none; }
+    .collect-row .cl-label { color: #555; }
+    .collect-row .cl-value { font-weight: 700; color: #1F3864; }
+    .collect-row .cl-value.warn { color: #B06E00; }
+
+    /* Trend chart */
+    .trend-chart { display: flex; align-items: flex-end; gap: 10px; height: 140px; padding-top: 10px; }
+    .trend-col { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; }
+    .trend-bar { width: 60%; background: #2E74B5; border-radius: 3px 3px 0 0; min-height: 2px; }
+    .trend-bar-label { font-size: 10.5px; color: #888; margin-top: 6px; }
+    .trend-bar-value { font-size: 10px; color: #1F3864; font-weight: 700; margin-bottom: 3px; }
+
+    /* Tables */
+    table.data-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+    table.data-table th { text-align: left; font-size: 11px; color: #888; font-weight: 700; padding: 6px 8px; border-bottom: 2px solid #eee; }
+    table.data-table td { padding: 7px 8px; border-bottom: 1px solid #f2f2f2; color: #333; }
+    table.data-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    table.data-table tr:last-child td { border-bottom: none; }
+
+    /* Exceptions list */
+    .exc-item { display: flex; justify-content: space-between; align-items: center; padding: 9px 10px; border: 1px solid #e0e0e0; border-radius: 5px; margin-bottom: 6px; background: #fafafa; }
+    .exc-item:last-child { margin-bottom: 0; }
+    .exc-item.urgent { border-color: #e2a19a; background: #fdf1f0; }
+    .exc-left .exc-inst { font-size: 13px; font-weight: 600; color: #1F3864; }
+    .exc-left .exc-id { font-size: 11px; color: #888; }
+    .exc-right { text-align: right; font-size: 11px; font-weight: 700; color: #B00020; }
+    .exc-right .exc-sub { display: block; font-size: 10px; color: #888; font-weight: 400; margin-top: 2px; }
+    .exc-tabs { display: flex; gap: 6px; margin-bottom: 12px; }
+    .exc-tab { padding: 6px 12px; font-size: 11.5px; font-weight: 600; border: 1px solid #d5dbe0; border-radius: 5px; background: #f4f6f8; color: #555; cursor: pointer; }
+    .exc-tab.active { background: #1F3864; color: #fff; border-color: #1F3864; }
+
+    /* Product placeholder */
+  </style>
+</head>
+<body>
+  <script>window.ICF_PAGE = 'dashboard';</script>
+  <?!= include('auth'); ?>
+  <div class="wrap">
+    <div class="topbar">
+      <div>
+        <h1>ICF Owner Dashboard</h1>
+        <div class="subtitle">A live read-only view over the order tracker -- nothing here changes an order.</div>
+      </div>
+      <div class="topbar-right">
+        <div class="period-tabs" id="periodTabs">
+          <div class="period-tab active" data-period="30">Last 30 Days</div>
+          <div class="period-tab" data-period="90">Last 90 Days</div>
+          <div class="period-tab" data-period="all">All Time</div>
+          <div class="period-tab" data-period="custom">Custom Range</div>
+        </div>
+        <span class="updated-text" id="updatedText"></span>
+        <button class="refresh-btn" id="refreshBtn" type="button">&#8635; Refresh</button>
+      </div>
+    </div>
+
+    <div class="custom-range-row" id="customRangeRow">
+      <div><label>From</label><input type="date" id="customFrom"></div>
+      <div><label>To</label><input type="date" id="customTo"></div>
+      <button type="button" id="customApplyBtn">Apply range</button>
+    </div>
+
+    <div id="loadingState" class="empty-state">Loading order data...</div>
+    <div id="dashboardBody" style="display:none;">
+
+      <div class="section">
+        <div class="section-head"><h2>Right now</h2><span class="section-note">Reflects every open order, regardless of the period selected above</span></div>
+        <div class="kpi-grid" id="kpiGrid"></div>
+      </div>
+
+      <div class="section two-col">
+        <div class="card">
+          <div class="section-head" style="margin-bottom:14px;"><h2>Order pipeline</h2></div>
+          <div id="funnelBox"></div>
+        </div>
+        <div class="card">
+          <div class="section-head" style="margin-bottom:14px;"><h2>Delivery status (dispatched orders)</h2></div>
+          <div id="deliveryBox"></div>
+        </div>
+      </div>
+
+      <div class="section two-col">
+        <div class="card">
+          <div class="section-head" style="margin-bottom:6px;"><h2>Collections &amp; exposure</h2></div>
+          <div id="collectionsBox"></div>
+        </div>
+        <div class="card">
+          <div class="section-head" style="margin-bottom:6px;"><h2>Needs attention</h2></div>
+          <div class="exc-tabs" id="excTabs">
+            <div class="exc-tab active" data-filter="aging">Aging</div>
+            <div class="exc-tab" data-filter="priority">High priority</div>
+            <div class="exc-tab" data-filter="amended">Amended</div>
+          </div>
+          <div id="exceptionsBox"></div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-head"><h2>Performance trend</h2><span class="section-note" id="trendPeriodNote"></span></div>
+        <div class="card">
+          <div class="kpi-grid" id="perfKpiGrid" style="margin-bottom:18px;"></div>
+          <div id="trendChart"></div>
+        </div>
+      </div>
+
+      <div class="section two-col">
+        <div class="card">
+          <div class="section-head with-toggle" style="margin-bottom:10px;"><h2>By location</h2>
+            <span class="section-note">Top-performing states by</span>
+            <div class="metric-toggle" id="geoMetricToggle">
+              <button type="button" data-metric="value" class="active">Value</button><button type="button" data-metric="count">Orders</button>
+            </div>
+          </div>
+          <div id="geoStateChart"></div>
+          <div class="geo-drill">
+            <div class="geo-drill-head">
+              <label for="geoStateSelect">Drill into a state &rarr; districts</label>
+              <select id="geoStateSelect"><option value="">Select a state&hellip;</option></select>
+            </div>
+            <div id="geoPincodeBox"></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="section-head" style="margin-bottom:10px;"><h2>By CRE</h2></div>
+          <div id="creBox"></div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="card">
+          <div class="section-head with-toggle" style="margin-bottom:10px;"><h2>By product</h2>
+            <span class="section-note">Show</span>
+            <div class="metric-toggle" id="productMetricToggle">
+              <button type="button" data-metric="units" class="active">Units</button><button type="button" data-metric="orders">Orders</button>
+            </div>
+          </div>
+          <div id="productBox"></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="drillOverlay">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3 id="drillTitle"></h3>
+        <button type="button" class="modal-close" id="drillCloseBtn">&times;</button>
+      </div>
+      <div class="modal-body" id="drillBody"></div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="infoOverlay">
+    <div class="modal-box" style="max-width:420px;">
+      <div class="modal-header">
+        <h3 id="infoTitle"></h3>
+        <button type="button" class="modal-close" id="infoCloseBtn">&times;</button>
+      </div>
+      <div class="modal-body" id="infoBody"></div>
+    </div>
+  </div>
+
+  <script>
+    var allOrders = [];
+    var allLineItems = [];
+    var currentPeriod = '30';
+    var customFrom = ''; // yyyy-mm-dd, only meaningful when currentPeriod === 'custom'
+    var customTo = '';
+    var currentExcFilter = 'aging';
+    var OPEN_DELIVERY_STATES = ['Delivered', 'Returned']; // an order is "open" if its delivery status is NOT one of these
+    // "On Hold - Balance Due" and "Posted" belong to courier orders (packets
+    // sent by post -- no vehicle or gate pass). "Posted" is the courier
+    // equivalent of Gate-Verified: both mean the order has left ICF.
+    var FUNNEL_STATUSES = ['Logged', 'On Hold - Balance Due', 'Sent to Ops', 'On Hold - Site Not Ready', 'Vehicle Confirmed', 'Gate-Verified', 'Posted'];
+    function isDispatched(o) { return o.status === 'Gate-Verified' || o.status === 'Posted'; }
+    var DELIVERY_STATUSES = ['Pending', 'In Transit', 'Delivered', 'Returned'];
+
+    function fmtINR(n) {
+      return '\u20b9' + Math.round(n || 0).toLocaleString('en-IN');
+    }
+    // An order only stops needing attention once its delivery is closed out
+    // AND its balance is fully paid -- the two are independent lifecycles on
+    // this tracker (see the "STATUS vs DELIVERY STATUS" note in code.gs), so
+    // checking delivery status alone was wrongly treating "Delivered but
+    // still owed money" as resolved and dropping it from every exposure and
+    // priority figure below.
+    function isOpen(o) {
+      var deliveryClosed = OPEN_DELIVERY_STATES.indexOf(o.deliveryStatus) !== -1;
+      var paidInFull = o.balanceDue <= 0;
+      return !(deliveryClosed && paidInFull);
+    }
+    function daysAgo(ms) { return ms ? Math.floor((Date.now() - ms) / 86400000) : null; }
+
+    // Midnight today in India time, as epoch ms (IST is UTC+5:30, no daylight saving).
+    function istTodayStart() {
+      var OFF = 330 * 60000, DAY = 86400000;
+      return Math.floor((Date.now() + OFF) / DAY) * DAY - OFF;
+    }
+    // PAST DELIVERY DATE: the customer's requested delivery date is before today
+    // and the order hasn't been Delivered (or Returned) -- whether it's still at
+    // the factory or already on the road. Returns whole days late, or null.
+    function daysPastDue(o) {
+      if (!o.reqDeliveryDate) return null;
+      if (o.deliveryStatus === 'Delivered' || o.deliveryStatus === 'Returned') return null;
+      var today = istTodayStart();
+      if (o.reqDeliveryDate >= today) return null;
+      return Math.max(1, Math.round((today - o.reqDeliveryDate) / 86400000));
+    }
+    function monthLabel(ms) {
+      var d = new Date(ms);
+      return d.toLocaleDateString('en-IN', { month: 'short', year: '2-digit', timeZone: 'Asia/Kolkata' });
+    }
+    function monthKey(ms) {
+      // Intl.DateTimeFormat instead of getFullYear()/getMonth() -- those two
+      // read the VIEWING DEVICE's local timezone, not IST, so a late-night
+      // order could land in the wrong month bucket on a non-IST device.
+      var parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit' }).formatToParts(new Date(ms));
+      var o = {};
+      parts.forEach(function (p) { o[p.type] = p.value; });
+      return o.year + '-' + o.month;
+    }
+    // The most recent timestamp an order has actually reached -- used to
+    // measure "days in current stage" for anything not yet Gate-Verified.
+    function lastTouched(o) {
+      return o.vehConfDate || o.recvOpsDate || o.sentOpsDate || o.verifiedDate || o.dateLogged;
+    }
+
+    function periodStartMs(period) {
+      if (period === 'all' || period === 'custom') return null;
+      var days = Number(period);
+      return Date.now() - days * 86400000;
+    }
+
+    function filterByPeriod(orders, period) {
+      if (period === 'custom') {
+        var startMs = customFrom ? new Date(customFrom).getTime() : null;
+        var endMs = customTo ? new Date(customTo).getTime() + 86400000 - 1 : null;
+        return orders.filter(function (o) {
+          if (!o.dateLogged) return false;
+          if (startMs !== null && o.dateLogged < startMs) return false;
+          if (endMs !== null && o.dateLogged > endMs) return false;
+          return true;
+        });
+      }
+      var start = periodStartMs(period);
+      if (start === null) return orders;
+      return orders.filter(function (o) { return o.dateLogged && o.dateLogged >= start; });
+    }
+
+    // ---------------- Right now (not period-filtered) ----------------
+    function renderKpis(orders) {
+      var open = orders.filter(isOpen);
+      var totalOutstanding = open.reduce(function (s, o) { return s + o.balanceDue; }, 0);
+      var dispatchedExposure = open.filter(function (o) { return isDispatched(o); })
+        .reduce(function (s, o) { return s + o.balanceDue; }, 0);
+      var highPriorityOpen = open.filter(function (o) { return o.priority === 'High'; }).length;
+      var agingCount = open.filter(function (o) {
+        if (isDispatched(o)) return false;
+        var d = daysAgo(lastTouched(o));
+        return d !== null && d >= 3;
+      }).length;
+
+      var pastDue = orders.filter(function (o) { return daysPastDue(o) !== null; }).length;
+
+      var cards = [
+        { key: 'open', label: 'Open orders', value: open.length, cls: '' },
+        { key: 'outstanding', label: 'Outstanding balance (open orders)', value: fmtINR(totalOutstanding), cls: totalOutstanding > 0 ? 'warn' : '' },
+        { key: 'dispatchedUnpaid', label: 'Dispatched, still unpaid', value: fmtINR(dispatchedExposure), sub: 'Money out the door on PO-customer terms', cls: dispatchedExposure > 0 ? 'danger' : '' },
+        { key: 'priority', label: 'High priority, still open', value: highPriorityOpen, cls: highPriorityOpen > 0 ? 'warn' : '' },
+        { key: 'aging', label: 'Sitting 3+ days at a stage', value: agingCount, cls: agingCount > 0 ? 'danger' : '' },
+        { key: 'pastDue', label: 'Past delivery date', value: pastDue, sub: 'Requested date gone, not yet delivered', cls: pastDue > 0 ? 'danger' : '' }
+      ];
+      document.getElementById('kpiGrid').innerHTML = cards.map(function (c) {
+        return '<div class="kpi-card clickable ' + c.cls + '" data-kpi="' + c.key + '" data-label="' + c.label + '"><div class="kpi-label">' + c.label + '</div>' +
+          '<div class="kpi-value ' + c.cls + '">' + c.value + '</div>' +
+          (c.sub ? '<div class="kpi-sub">' + c.sub + '</div>' : '') + '</div>';
+      }).join('');
+    }
+
+    function renderFunnel(orders) {
+      var open = orders.filter(isOpen);
+      var counts = {};
+      FUNNEL_STATUSES.forEach(function (s) { counts[s] = 0; });
+      open.forEach(function (o) { if (counts.hasOwnProperty(o.status)) counts[o.status]++; });
+      var max = Math.max.apply(null, FUNNEL_STATUSES.map(function (s) { return counts[s]; }).concat([1]));
+
+      document.getElementById('funnelBox').innerHTML = FUNNEL_STATUSES.map(function (s) {
+        var pct = Math.round((counts[s] / max) * 100);
+        var cls = (s === 'On Hold - Site Not Ready' || s === 'On Hold - Balance Due') ? 'amber' : ((s === 'Gate-Verified' || s === 'Posted') ? 'navy' : '');
+        return '<div class="bar-row"><div class="bar-row-label"><span class="name">' + s + '</span><span class="count">' + counts[s] + '</span></div>' +
+          '<div class="bar-track"><div class="bar-fill ' + cls + '" style="width:' + pct + '%;"></div></div></div>';
+      }).join('');
+    }
+
+    function renderDeliveryStatus(orders) {
+      var dispatched = orders.filter(function (o) { return isDispatched(o); });
+      if (dispatched.length === 0) {
+        document.getElementById('deliveryBox').innerHTML = '<div class="empty-state" style="padding:14px;">No dispatched orders yet.</div>';
+        return;
+      }
+      var states = DELIVERY_STATUSES;
+      var counts = {}; states.forEach(function (s) { counts[s] = 0; });
+      dispatched.forEach(function (o) { var s = o.deliveryStatus || 'Pending'; if (counts.hasOwnProperty(s)) counts[s]++; });
+      var max = Math.max.apply(null, states.map(function (s) { return counts[s]; }).concat([1]));
+      var clsMap = { Pending: '', 'In Transit': 'amber', Delivered: 'green', Returned: 'red' };
+
+      var html = states.map(function (s) {
+        var pct = Math.round((counts[s] / max) * 100);
+        return '<div class="bar-row"><div class="bar-row-label"><span class="name">' + s + '</span><span class="count">' + counts[s] + '</span></div>' +
+          '<div class="bar-track"><div class="bar-fill ' + clsMap[s] + '" style="width:' + pct + '%;"></div></div></div>';
+      }).join('');
+
+      var closedCount = counts['Delivered'] + counts['Returned'];
+      if (closedCount > 0) {
+        var returnRate = Math.round((counts['Returned'] / closedCount) * 1000) / 10;
+        html += '<div class="collect-row" style="margin-top:6px;"><span class="cl-label">Return rate (of closed orders)</span>' +
+          '<span class="cl-value' + (returnRate > 5 ? ' warn' : '') + '">' + returnRate + '%</span></div>';
+      }
+      document.getElementById('deliveryBox').innerHTML = html;
+    }
+
+    function renderCollections(orders) {
+      var open = orders.filter(isOpen);
+      var pipelineOutstanding = open.filter(function (o) { return !isDispatched(o); })
+        .reduce(function (s, o) { return s + o.balanceDue; }, 0);
+      var dispatchedExposure = open.filter(function (o) { return isDispatched(o); })
+        .reduce(function (s, o) { return s + o.balanceDue; }, 0);
+      var totalValue = orders.reduce(function (s, o) { return s + o.total; }, 0);
+      var totalAdvance = orders.reduce(function (s, o) { return s + o.advance; }, 0);
+      var collectionRate = totalValue > 0 ? Math.round((totalAdvance / totalValue) * 1000) / 10 : 0;
+
+      var rows = [
+        ['Total order value logged (all time)', fmtINR(totalValue), ''],
+        ['Total received (all time)', fmtINR(totalAdvance), ''],
+        ['Overall collection rate', collectionRate + '%', ''],
+        ['Pre-dispatch balance in the pipeline (normal)', fmtINR(pipelineOutstanding), ''],
+        ['Dispatched but not fully paid (PO-customer risk)', fmtINR(dispatchedExposure), dispatchedExposure > 0 ? 'warn' : '']
+      ];
+      document.getElementById('collectionsBox').innerHTML = rows.map(function (r) {
+        return '<div class="collect-row"><span class="cl-label">' + r[0] + '</span><span class="cl-value ' + r[2] + '">' + r[1] + '</span></div>';
+      }).join('');
+    }
+
+    // ---------------- Needs attention ----------------
+    function buildExceptionsList(orders, filter) {
+      var open = orders.filter(isOpen);
+      var items = [];
+      if (filter === 'aging') {
+        items = open.filter(function (o) { return !isDispatched(o); })
+          .map(function (o) { return { o: o, days: daysAgo(lastTouched(o)) }; })
+          .filter(function (x) { return x.days !== null && x.days >= 3; })
+          .sort(function (a, b) { return b.days - a.days; })
+          .slice(0, 8);
+        return items.map(function (x) {
+          return exceptionRow(x.o, x.days + ' day' + (x.days === 1 ? '' : 's') + ' at "' + x.o.status + '"', x.days >= 5);
+        });
+      }
+      if (filter === 'priority') {
+        items = open.filter(function (o) { return o.priority === 'High'; }).slice(0, 8);
+        return items.map(function (o) { return exceptionRow(o, o.status, true); });
+      }
+      // amended
+      items = orders.filter(function (o) { return o.amended; }).slice(0, 8);
+      return items.map(function (o) { return exceptionRow(o, o.status, false); });
+    }
+    function exceptionRow(o, subText, urgent) {
+      return '<div class="exc-item' + (urgent ? ' urgent' : '') + '"><div class="exc-left">' +
+        '<div class="exc-inst">' + o.institution + '</div><div class="exc-id">' + o.id + '</div></div>' +
+        '<div class="exc-right">' + subText + '</div></div>';
+    }
+    function renderExceptions(orders) {
+      var rows = buildExceptionsList(orders, currentExcFilter);
+      document.getElementById('exceptionsBox').innerHTML = rows.length
+        ? rows.join('')
+        : '<div class="empty-state" style="padding:14px;">Nothing here right now.</div>';
+    }
+
+    // ---------------- KPI drill-down modal ----------------
+    var drillOverlay = document.getElementById('drillOverlay');
+    var drillTitleEl = document.getElementById('drillTitle');
+    var drillBodyEl = document.getElementById('drillBody');
+    var currentDrillKey = null;
+    var DRILL_FILTER_DEFAULTS = { from: '', to: '', min: '', max: '', type: 'all', pipeline: 'all', delivery: 'all', cre: 'all' };
+    var drillFilters = Object.assign({}, DRILL_FILTER_DEFAULTS);
+
+    function fmtDateShort(ms) {
+      if (!ms) return '\u2013';
+      return new Date(ms).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' });
+    }
+
+    // Status (the internal workflow stage) caps out at "Gate-Verified" by
+    // design -- there's no later Status value for a delivered order, since
+    // delivery progress lives in the separate Delivery Status column instead
+    // (see the note in code.gs). Showing Status alone on a delivered or
+    // returned order reads as stuck/stale even though it isn't, so this
+    // folds Delivery Status in wherever it adds information.
+    function combinedStatus(o) {
+      if (isDispatched(o) && o.deliveryStatus) return o.status + ' \u00b7 ' + o.deliveryStatus;
+      return o.status;
+    }
+
+    // The same condition each "Right now" tile already uses to arrive at
+    // its headline number -- kept in one place so the modal always opens
+    // to exactly the set of orders that number was counted from.
+    function drillBaseSet(key) {
+      var open = allOrders.filter(isOpen);
+      if (key === 'open') return open;
+      if (key === 'outstanding') return open.filter(function (o) { return o.balanceDue > 0; });
+      if (key === 'dispatchedUnpaid') return open.filter(function (o) { return isDispatched(o) && o.balanceDue > 0; });
+      if (key === 'priority') return open.filter(function (o) { return o.priority === 'High'; });
+      if (key === 'pastDue') {
+        return allOrders.map(function (o) { return Object.assign({}, o, { daysLate: daysPastDue(o) }); })
+          .filter(function (o) { return o.daysLate !== null; });
+      }
+      if (key === 'aging') {
+        return open.filter(function (o) { return !isDispatched(o); })
+          .map(function (o) { return Object.assign({}, o, { daysAtStage: daysAgo(lastTouched(o)) }); })
+          .filter(function (o) { return o.daysAtStage !== null && o.daysAtStage >= 3; });
+      }
+      return [];
+    }
+
+    function applyDrillFilters(orders) {
+      return orders.filter(function (o) {
+        if (drillFilters.from && (!o.dateLogged || o.dateLogged < new Date(drillFilters.from).getTime())) return false;
+        if (drillFilters.to && (!o.dateLogged || o.dateLogged > new Date(drillFilters.to).getTime() + 86400000 - 1)) return false;
+        if (drillFilters.min && o.total < Number(drillFilters.min)) return false;
+        if (drillFilters.max && o.total > Number(drillFilters.max)) return false;
+        if (drillFilters.type !== 'all' && o.paymentTerms !== drillFilters.type) return false;
+        if (drillFilters.pipeline !== 'all' && o.status !== drillFilters.pipeline) return false;
+        if (drillFilters.cre !== 'all' && (o.cre || 'Unspecified') !== drillFilters.cre) return false;
+        if (drillFilters.delivery !== 'all') {
+          if (!isDispatched(o)) return false; // an order that hasn't dispatched yet has no real delivery status
+          if ((o.deliveryStatus || 'Pending') !== drillFilters.delivery) return false;
+        }
+        return true;
+      });
+    }
+
+    // The CREs who appear in this tile's orders (so the list never offers someone with nothing to show).
+    function drillCreOptions() {
+      var seen = {};
+      drillBaseSet(currentDrillKey).forEach(function (o) { seen[o.cre || 'Unspecified'] = true; });
+      return Object.keys(seen).sort();
+    }
+
+    function applyDrillFiltersExceptCre(orders) {
+      var saved = drillFilters.cre;
+      drillFilters.cre = 'all';
+      var out = applyDrillFilters(orders);
+      drillFilters.cre = saved;
+      return out;
+    }
+    function escDrill(t) {
+      return String(t == null ? '' : t).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; });
+    }
+
+    function drillFilterBarHtml() {
+      return '<div class="drill-filters">' +
+        '<div><label>CRE</label><select id="fltCre">' +
+          '<option value="all"' + (drillFilters.cre === 'all' ? ' selected' : '') + '>All CREs</option>' +
+          drillCreOptions().map(function (c) {
+            return '<option value="' + escDrill(c) + '"' + (drillFilters.cre === c ? ' selected' : '') + '>' + escDrill(c) + '</option>';
+          }).join('') +
+        '</select></div>' +
+        '<div><label>Logged from</label><input type="date" id="fltFrom" value="' + drillFilters.from + '"></div>' +
+        '<div><label>Logged to</label><input type="date" id="fltTo" value="' + drillFilters.to + '"></div>' +
+        '<div><label>Min. value (\u20b9)</label><input type="number" id="fltMin" min="0" placeholder="e.g. 10000" value="' + drillFilters.min + '"></div>' +
+        '<div><label>Max. value (\u20b9)</label><input type="number" id="fltMax" min="0" placeholder="e.g. 500000" value="' + drillFilters.max + '"></div>' +
+        '<div><label>Order type</label><select id="fltType">' +
+          '<option value="all"' + (drillFilters.type === 'all' ? ' selected' : '') + '>All</option>' +
+          '<option value="End Customer"' + (drillFilters.type === 'End Customer' ? ' selected' : '') + '>End Customer</option>' +
+          '<option value="PO Customer"' + (drillFilters.type === 'PO Customer' ? ' selected' : '') + '>PO Customer</option>' +
+        '</select></div>' +
+        '<div><label>Order pipeline</label><select id="fltPipeline">' +
+          '<option value="all"' + (drillFilters.pipeline === 'all' ? ' selected' : '') + '>All</option>' +
+          FUNNEL_STATUSES.map(function (s) {
+            return '<option value="' + s + '"' + (drillFilters.pipeline === s ? ' selected' : '') + '>' + s + '</option>';
+          }).join('') +
+        '</select></div>' +
+        '<div><label>Delivery status</label><select id="fltDelivery">' +
+          '<option value="all"' + (drillFilters.delivery === 'all' ? ' selected' : '') + '>All</option>' +
+          DELIVERY_STATUSES.map(function (s) {
+            return '<option value="' + s + '"' + (drillFilters.delivery === s ? ' selected' : '') + '>' + s + '</option>';
+          }).join('') +
+        '</select></div>' +
+        '<button type="button" class="clear-filters-btn" id="fltClear">Clear filters</button>' +
+        '</div>';
+    }
+
+    function bindDrillFilterHandlers() {
+      ['fltFrom', 'fltTo', 'fltMin', 'fltMax'].forEach(function (id) {
+        document.getElementById(id).addEventListener('input', function () {
+          drillFilters.from = document.getElementById('fltFrom').value;
+          drillFilters.to = document.getElementById('fltTo').value;
+          drillFilters.min = document.getElementById('fltMin').value;
+          drillFilters.max = document.getElementById('fltMax').value;
+          renderDrillResults();
+        });
+      });
+      document.getElementById('fltCre').addEventListener('change', function () {
+        drillFilters.cre = document.getElementById('fltCre').value;
+        renderDrillResults();
+      });
+      document.getElementById('fltType').addEventListener('change', function () {
+        drillFilters.type = document.getElementById('fltType').value;
+        renderDrillResults();
+      });
+      document.getElementById('fltPipeline').addEventListener('change', function () {
+        drillFilters.pipeline = document.getElementById('fltPipeline').value;
+        renderDrillResults();
+      });
+      document.getElementById('fltDelivery').addEventListener('change', function () {
+        drillFilters.delivery = document.getElementById('fltDelivery').value;
+        renderDrillResults();
+      });
+      document.getElementById('fltClear').addEventListener('click', function () {
+        drillFilters = Object.assign({}, DRILL_FILTER_DEFAULTS);
+        openKpiDrilldown(currentDrillKey, drillTitleEl.textContent); // simplest way to reset both the form and the results
+      });
+    }
+
+    function renderDrillResults() {
+      var base = drillBaseSet(currentDrillKey);
+      var rows = applyDrillFilters(base);
+      var totalValue = rows.reduce(function (s, o) { return s + o.total; }, 0);
+
+      // Which CRE handled these orders -- counts per CRE within the current filters.
+      // Click a name to show only that CRE's orders; click again to show all.
+      var byCre = {};
+      var creRows = applyDrillFiltersExceptCre(base);
+      creRows.forEach(function (o) { var k = o.cre || 'Unspecified'; byCre[k] = (byCre[k] || 0) + 1; });
+      var creNames = Object.keys(byCre).sort(function (a, b) { return byCre[b] - byCre[a] || (a < b ? -1 : 1); });
+      var creChips = creNames.length > 0
+        ? '<div class="drill-cre-chips"><span class="lbl">By CRE:</span>' + creNames.map(function (c) {
+            return '<button type="button" class="cre-chip' + (drillFilters.cre === c ? ' active' : '') + '" data-cre="' + escDrill(c) + '">' +
+              escDrill(c) + ' <b>' + byCre[c] + '</b></button>';
+          }).join('') + '</div>'
+        : '';
+
+      var summaryEl = document.getElementById('drillSummary');
+      summaryEl.innerHTML = creChips + '<b>' + rows.length + '</b> order' + (rows.length === 1 ? '' : 's') +
+        ' &middot; <b>' + fmtINR(totalValue) + '</b> total order value' +
+        (currentDrillKey === 'outstanding' || currentDrillKey === 'dispatchedUnpaid'
+          ? ' &middot; <b>' + fmtINR(rows.reduce(function (s, o) { return s + o.balanceDue; }, 0)) + '</b> outstanding'
+          : '') +
+        (currentDrillKey === 'pastDue' && rows.length
+          ? ' &middot; most overdue: <b>' + Math.max.apply(null, rows.map(function (o) { return o.daysLate; })) + ' days</b>'
+          : '');
+      Array.prototype.forEach.call(summaryEl.querySelectorAll('.cre-chip'), function (btn) {
+        btn.addEventListener('click', function () {
+          var c = btn.getAttribute('data-cre');
+          drillFilters.cre = drillFilters.cre === c ? 'all' : c;
+          var sel = document.getElementById('fltCre');
+          if (sel) sel.value = drillFilters.cre;
+          renderDrillResults();
+        });
+      });
+
+      var tableEl = document.getElementById('drillTable');
+      if (rows.length === 0) {
+        tableEl.innerHTML = '<div class="drill-empty">No orders match these filters.</div>';
+        return;
+      }
+      var showAging = currentDrillKey === 'aging';
+      var showLate = currentDrillKey === 'pastDue';
+      var sorted = rows.slice().sort(function (a, b) {
+        if (showLate) return b.daysLate - a.daysLate;
+        return showAging ? (b.daysAtStage - a.daysAtStage) : (b.dateLogged || 0) - (a.dateLogged || 0);
+      });
+      tableEl.innerHTML = '<table class="data-table"><thead><tr>' +
+        '<th>Tracker ID</th><th>Institution</th><th>CRE</th><th>Type</th>' +
+        (showLate ? '<th>Due date</th><th>Days late</th>' : '') +
+        (showAging ? '<th>Days at stage</th>' : '<th>Status</th>') +
+        '<th class="num">Order value</th><th class="num">Balance due</th><th>Date logged</th>' +
+        '</tr></thead><tbody>' +
+        sorted.map(function (o) {
+          return '<tr><td>' + o.id + '</td><td>' + o.institution + '</td><td>' + (o.cre || '\u2013') + '</td>' +
+            '<td>' + o.paymentTerms + '</td>' +
+            (showLate ? '<td>' + fmtDateShort(o.reqDeliveryDate) + '</td><td class="late-days">' + o.daysLate + '</td>' : '') +
+            (showAging ? '<td>' + o.daysAtStage + '</td>' : '<td>' + combinedStatus(o) + '</td>') +
+            '<td class="num">' + fmtINR(o.total) + '</td>' +
+            '<td class="num">' + (o.balanceDue > 0 ? fmtINR(o.balanceDue) : '\u2013') + '</td>' +
+            '<td>' + fmtDateShort(o.dateLogged) + '</td></tr>';
+        }).join('') + '</tbody></table>';
+    }
+
+    function openKpiDrilldown(key, label) {
+      currentDrillKey = key;
+      drillTitleEl.textContent = label;
+      drillBodyEl.innerHTML = drillFilterBarHtml() +
+        '<div class="drill-summary" id="drillSummary"></div><div id="drillTable"></div>';
+      bindDrillFilterHandlers();
+      renderDrillResults();
+      drillOverlay.classList.add('show');
+    }
+
+    document.getElementById('kpiGrid').addEventListener('click', function (e) {
+      var card = e.target.closest ? e.target.closest('.kpi-card') : null;
+      if (!card || !card.getAttribute('data-kpi')) return;
+      drillFilters = Object.assign({}, DRILL_FILTER_DEFAULTS);
+      openKpiDrilldown(card.getAttribute('data-kpi'), card.getAttribute('data-label'));
+    });
+    document.getElementById('drillCloseBtn').addEventListener('click', function () { drillOverlay.classList.remove('show'); });
+    drillOverlay.addEventListener('click', function (e) { if (e.target === drillOverlay) drillOverlay.classList.remove('show'); });
+
+    // ---------------- Performance trend tile definitions (info pop-up) ----------------
+    var PERF_KPI_INFO = {
+      'Orders logged': 'Count of orders logged into the tracker within the selected period, no matter what stage they\u2019ve reached since.',
+      'Order value logged': 'Total Order Value added up across every order logged in this period.',
+      'Avg. advance at intake': 'Total advance received across this period\u2019s orders, as a percentage of their combined order value \u2013 shows how much typically comes in upfront.',
+      'Avg. total cycle time': 'Average hours from payment verification to delivery, for this period\u2019s orders that have actually reached Delivered. Orders still in progress aren\u2019t counted.',
+      'Avg. verification-to-pickup': 'Average hours from payment verification to the point ops personnel physically picked up the order, for orders where both timestamps are on file.',
+      'Avg. pickup to gate verification': 'Average hours from when ops personnel physically picked up the order to when the Gate Pass was issued (vehicle checked out through the gate), for orders where both timestamps are on file.',
+      'On-time delivery rate': 'Share of this period\u2019s delivered orders that reached the customer by their Requested Delivery Date. Orders not yet delivered aren\u2019t counted.'
+    };
+    var infoOverlay = document.getElementById('infoOverlay');
+    document.getElementById('infoCloseBtn').addEventListener('click', function () { infoOverlay.classList.remove('show'); });
+    infoOverlay.addEventListener('click', function (e) { if (e.target === infoOverlay) infoOverlay.classList.remove('show'); });
+    document.getElementById('perfKpiGrid').addEventListener('click', function (e) {
+      var icon = e.target.closest ? e.target.closest('.kpi-info-icon') : null;
+      if (!icon) return;
+      e.stopPropagation();
+      var label = icon.getAttribute('data-label');
+      document.getElementById('infoTitle').textContent = label;
+      document.getElementById('infoBody').textContent = PERF_KPI_INFO[label] || '';
+      infoOverlay.classList.add('show');
+    });
+
+    // ---------------- Performance trend (period-filtered) ----------------
+    function renderPerformance(periodOrders, period) {
+      var count = periodOrders.length;
+      var value = periodOrders.reduce(function (s, o) { return s + o.total; }, 0);
+      var advance = periodOrders.reduce(function (s, o) { return s + o.advance; }, 0);
+      var avgAdvancePct = value > 0 ? Math.round((advance / value) * 1000) / 10 : 0;
+
+      function isUsableNumber(v) { return v !== null && v !== undefined && isFinite(v); }
+      var cycleVals = periodOrders.map(function (o) { return o.cycleHrs; }).filter(isUsableNumber);
+      var avgCycle = cycleVals.length ? Math.round(cycleVals.reduce(function (a, b) { return a + b; }, 0) / cycleVals.length) : null;
+
+      var vtopVals = periodOrders.map(function (o) { return o.vToPHrs; }).filter(isUsableNumber);
+      var avgVtoP = vtopVals.length ? Math.round(vtopVals.reduce(function (a, b) { return a + b; }, 0) / vtopVals.length) : null;
+
+      // Pickup -> Gate Verification: there's no separate "gate verification"
+      // timestamp in the tracker -- Dispatch Timestamp IS that moment, stamped
+      // the instant the Gate Pass is generated (submitDispatch), which is when
+      // the vehicle is checked out through the gate. So this is just
+      // Dispatch Timestamp minus Received by Ops Timestamp, computed here
+      // since both are already on the order object.
+      var pickupToGateVals = periodOrders.map(function (o) {
+        return (o.recvOpsDate && o.dispatchDate) ? (o.dispatchDate - o.recvOpsDate) / 3600000 : null;
+      }).filter(isUsableNumber);
+      var avgPickupToGate = pickupToGateVals.length ? Math.round(pickupToGateVals.reduce(function (a, b) { return a + b; }, 0) / pickupToGateVals.length) : null;
+
+      var delivered = periodOrders.filter(function (o) { return o.deliveredDate; });
+      var onTime = delivered.filter(function (o) { return o.reqDeliveryDate && o.deliveredDate <= o.reqDeliveryDate + 86400000; });
+      var onTimePct = delivered.length ? Math.round((onTime.length / delivered.length) * 100) : null;
+
+      var cards = [
+        { label: 'Orders logged', value: count },
+        { label: 'Order value logged', value: fmtINR(value) },
+        { label: 'Avg. advance at intake', value: avgAdvancePct + '%' },
+        { label: 'Avg. total cycle time', value: avgCycle !== null ? avgCycle + ' hrs' : '\u2013' },
+        { label: 'Avg. verification-to-pickup', value: avgVtoP !== null ? avgVtoP + ' hrs' : '\u2013' },
+        { label: 'Avg. pickup to gate verification', value: avgPickupToGate !== null ? avgPickupToGate + ' hrs' : '\u2013' },
+        { label: 'On-time delivery rate', value: onTimePct !== null ? onTimePct + '%' : '\u2013', cls: (onTimePct !== null && onTimePct < 80) ? 'warn' : '' }
+      ];
+      document.getElementById('perfKpiGrid').innerHTML = cards.map(function (c) {
+        return '<div class="kpi-card ' + (c.cls || '') + '"><div class="kpi-label">' + c.label +
+          ' <span class="kpi-info-icon" data-label="' + c.label + '">i</span></div>' +
+          '<div class="kpi-value ' + (c.cls || '') + '">' + c.value + '</div></div>';
+      }).join('');
+
+      var noteMap = { '30': 'last 30 days', '90': 'last 90 days', 'all': 'all time' };
+      var noteText = noteMap[period];
+      if (period === 'custom') {
+        var fromTxt = customFrom ? fmtDateShort(new Date(customFrom).getTime()) : 'the start';
+        var toTxt = customTo ? fmtDateShort(new Date(customTo).getTime()) : 'today';
+        noteText = fromTxt + ' \u2013 ' + toTxt;
+      }
+      document.getElementById('trendPeriodNote').textContent = 'Showing ' + noteText;
+
+      renderTrendChart(periodOrders);
+    }
+
+    function renderTrendChart(periodOrders) {
+      var byMonth = {};
+      periodOrders.forEach(function (o) {
+        if (!o.dateLogged) return;
+        var key = monthKey(o.dateLogged);
+        if (!byMonth[key]) byMonth[key] = { count: 0, value: 0, ms: o.dateLogged };
+        byMonth[key].count++;
+        byMonth[key].value += o.total;
+      });
+      var months = Object.keys(byMonth).sort();
+      if (months.length === 0) {
+        document.getElementById('trendChart').innerHTML = '<div class="empty-state" style="padding:14px;">No orders logged in this period.</div>';
+        return;
+      }
+      var maxVal = Math.max.apply(null, months.map(function (k) { return byMonth[k].value; }).concat([1]));
+      document.getElementById('trendChart').innerHTML = '<div class="trend-chart">' + months.map(function (k) {
+        var m = byMonth[k];
+        var h = Math.max(4, Math.round((m.value / maxVal) * 100));
+        return '<div class="trend-col"><div class="trend-bar-value">' + fmtINR(m.value) + '</div>' +
+          '<div class="trend-bar" style="height:' + h + '%;"></div>' +
+          '<div class="trend-bar-label">' + monthLabel(m.ms) + ' \u00b7 ' + m.count + '</div></div>';
+      }).join('') + '</div>';
+    }
+
+    // ---------------- Geography & CRE tables (period-filtered) ----------------
+    var GEO_TOP_STATES = 8; // macro chart shows only this many top-performing states, not district-level detail
+    var currentGeoState = ''; // state currently drilled into; persists across period-tab switches while still valid
+    var openGeoDistricts = {}; // districts whose pincode list is expanded (per state), kept open across period switches
+    var geoMetric = 'value';   // 'value' (order value) or 'count' (number of orders) -- sizes AND ranks the state and district bars
+
+    /**
+     * Two-part geography view, both scoped to periodOrders:
+     *  1. A macro horizontal-bar chart of state-wise performance -- only the
+     *     GEO_TOP_STATES best-performing states by order value, so this stays
+     *     a "which states are winning" read rather than a full district table.
+     *  2. A state dropdown; picking a state renders the pincodes within it
+     *     below (see renderGeoPincodeList), for warehouse/marketing drill-down.
+     * The dropdown lists every state with an order in this period (not just
+     * the top performers charted above) so a smaller state can still be
+     * inspected. Re-rendered whenever the period tab changes.
+     */
+    function renderGeoPanel(periodOrders) {
+      var withLoc = periodOrders.filter(function (o) { return o.district || o.state || o.pincode; });
+      var select = document.getElementById('geoStateSelect');
+      if (withLoc.length === 0) {
+        document.getElementById('geoStateChart').innerHTML = '<div class="empty-state" style="padding:14px;">No location data logged in this period yet.</div>';
+        select.innerHTML = '<option value="">Select a state&hellip;</option>';
+        currentGeoState = '';
+        renderGeoPincodeList(periodOrders);
+        return;
+      }
+
+      var byState = {};
+      withLoc.forEach(function (o) {
+        var key = o.state || 'Unspecified';
+        if (!byState[key]) byState[key] = { count: 0, value: 0 };
+        byState[key].count++;
+        byState[key].value += o.total;
+      });
+      var stateRows = Object.keys(byState).map(function (k) {
+        return { name: k, count: byState[k].count, value: byState[k].value };
+      }).sort(geoSort);
+
+      var topStates = stateRows.slice(0, GEO_TOP_STATES);
+      var max = Math.max.apply(null, topStates.map(function (r) { return r[geoMetric]; }).concat([1]));
+      document.getElementById('geoStateChart').innerHTML = topStates.map(function (r) {
+        var pct = Math.round((r[geoMetric] / max) * 100);
+        return '<div class="bar-row">' +
+          '<div class="bar-row-label"><span class="name">' + r.name + '</span>' +
+          '<span class="count">' + fmtINR(r.value) + ' &middot; ' + r.count + ' order' + (r.count === 1 ? '' : 's') + '</span></div>' +
+          '<div class="bar-track"><div class="bar-fill navy" style="width:' + pct + '%;"></div></div>' +
+        '</div>';
+      }).join('');
+
+      var allStateNames = stateRows.map(function (r) { return r.name; }).sort();
+      if (allStateNames.indexOf(currentGeoState) === -1) currentGeoState = '';
+      select.innerHTML = '<option value="">Select a state&hellip;</option>' +
+        allStateNames.map(function (s) {
+          var esc = s.replace(/"/g, '&quot;');
+          return '<option value="' + esc + '"' + (s === currentGeoState ? ' selected' : '') + '>' + s + '</option>';
+        }).join('');
+
+      renderGeoPincodeList(periodOrders);
+    }
+
+    /**
+     * District-wise horizontal bars for currentGeoState, within periodOrders.
+     * Same bar style as the state chart above, so the two read as one
+     * drill-down (state -> district). Click a district to open its pincodes
+     * underneath (warehouse / marketing detail) -- one click away, but not
+     * cluttering the view. Orders with no district go under "Unspecified",
+     * and orders with no pincode under "No pincode", so nothing is dropped.
+     * Kept the old function name so every existing caller still works.
+     */
+    function renderGeoPincodeList(periodOrders) {
+      var box = document.getElementById('geoPincodeBox');
+      if (!currentGeoState) {
+        box.innerHTML = '<div class="empty-state" style="padding:14px;">Pick a state above to see its district-wise sales.</div>';
+        return;
+      }
+      var inState = periodOrders.filter(function (o) { return (o.state || 'Unspecified') === currentGeoState; });
+      if (inState.length === 0) {
+        box.innerHTML = '<div class="empty-state" style="padding:14px;">No orders for ' + escGeo(currentGeoState) + ' in this period.</div>';
+        return;
+      }
+      var byDistrict = {};
+      inState.forEach(function (o) {
+        var d = o.district || 'Unspecified';
+        if (!byDistrict[d]) byDistrict[d] = { name: d, count: 0, value: 0, pins: {} };
+        var g = byDistrict[d];
+        g.count++;
+        g.value += o.total;
+        var pin = o.pincode || 'No pincode';
+        if (!g.pins[pin]) g.pins[pin] = { pincode: pin, count: 0, value: 0 };
+        g.pins[pin].count++;
+        g.pins[pin].value += o.total;
+      });
+      var rows = Object.keys(byDistrict).map(function (k) { return byDistrict[k]; }).sort(geoSort);
+      var max = Math.max.apply(null, rows.map(function (r) { return r[geoMetric]; }).concat([1]));
+      var stateTotal = rows.reduce(function (sum, r) { return sum + r.value; }, 0);
+      var stateCount = rows.reduce(function (sum, r) { return sum + r.count; }, 0);
+      var open = openGeoDistricts[currentGeoState] || {};
+
+      box.innerHTML =
+        '<div class="geo-drill-note">' + rows.length + ' district' + (rows.length === 1 ? '' : 's') + ' \u00b7 ' + fmtINR(stateTotal) +
+        ' \u00b7 ' + inState.length + ' order' + (inState.length === 1 ? '' : 's') + '. Click a district to see its pincodes.</div>' +
+        rows.map(function (r) {
+          var pct = Math.round((r[geoMetric] / max) * 100);
+          // Share of the state, in whichever measure the bars are showing.
+          var share = geoMetric === 'count'
+            ? (stateCount > 0 ? Math.round((r.count / stateCount) * 100) : 0)
+            : (stateTotal > 0 ? Math.round((r.value / stateTotal) * 100) : 0);
+          var pins = Object.keys(r.pins).map(function (k) { return r.pins[k]; }).sort(geoSort);
+          return '<div class="bar-row geo-district' + (open[r.name] ? ' open' : '') + '" data-district="' + escGeo(r.name) + '">' +
+              '<div class="bar-row-label"><span class="name"><span class="caret">&#9654;</span>' + escGeo(r.name) + '</span>' +
+              '<span class="count">' + fmtINR(r.value) + ' &middot; ' + r.count + ' order' + (r.count === 1 ? '' : 's') + ' &middot; ' + share + '%</span></div>' +
+              '<div class="bar-track"><div class="bar-fill" style="width:' + pct + '%;"></div></div>' +
+            '</div>' +
+            '<div class="geo-pins">' + pins.map(function (p) {
+              return '<div class="geo-pin-row"><span><b>' + escGeo(p.pincode) + '</b></span>' +
+                '<span>' + p.count + ' order' + (p.count === 1 ? '' : 's') + ' &middot; ' + fmtINR(p.value) + '</span></div>';
+            }).join('') + '</div>';
+        }).join('');
+
+      Array.prototype.forEach.call(box.querySelectorAll('.geo-district'), function (el) {
+        el.addEventListener('click', function () {
+          var name = el.getAttribute('data-district');
+          el.classList.toggle('open');
+          if (!openGeoDistricts[currentGeoState]) openGeoDistricts[currentGeoState] = {};
+          openGeoDistricts[currentGeoState][name] = el.classList.contains('open');
+        });
+      });
+    }
+
+    /** Largest first by the selected measure; ties broken by the other one. */
+    function geoSort(a, b) {
+      return geoMetric === 'count' ? (b.count - a.count) || (b.value - a.value) : (b.value - a.value) || (b.count - a.count);
+    }
+
+    function escGeo(t) {
+      return String(t == null ? '' : t).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; });
+    }
+
+    function renderCreTable(periodOrders) {
+      if (periodOrders.length === 0) {
+        document.getElementById('creBox').innerHTML = '<div class="empty-state" style="padding:14px;">No orders logged in this period yet.</div>';
+        return;
+      }
+      var byCre = {};
+      periodOrders.forEach(function (o) {
+        var key = o.cre || 'Unspecified';
+        if (!byCre[key]) byCre[key] = { count: 0, value: 0, advance: 0 };
+        byCre[key].count++;
+        byCre[key].value += o.total;
+        byCre[key].advance += o.advance;
+      });
+      var rows = Object.keys(byCre).map(function (k) {
+        var c = byCre[k];
+        var pct = c.value > 0 ? Math.round((c.advance / c.value) * 100) : 0;
+        return { name: k, count: c.count, value: c.value, pct: pct };
+      }).sort(function (a, b) { return b.value - a.value; });
+
+      document.getElementById('creBox').innerHTML =
+        '<table class="data-table"><thead><tr><th>CRE</th><th class="num">Orders</th><th class="num">Value</th><th class="num">Avg. advance</th></tr></thead><tbody>' +
+        rows.map(function (r) {
+          return '<tr><td>' + r.name + '</td><td class="num">' + r.count + '</td><td class="num">' + fmtINR(r.value) + '</td><td class="num">' + r.pct + '%</td></tr>';
+        }).join('') + '</tbody></table>';
+    }
+
+    /**
+     * Products aren't on the order objects themselves (see the NOTE on
+     * getDashboardData in code.gs) -- they're joined here from allLineItems
+     * by Tracker ID, restricted to whichever orders filterByPeriod already
+     * kept, so this respects the same date-range tabs as every other card.
+     *
+     * No revenue column here, unlike By location/By CRE: line items only
+     * record product + quantity, not a per-item price, so there's no way to
+     * attribute a share of an order's total value to one product on a
+     * multi-product order. Units and order-count are what's actually knowable.
+     */
+    var productMetrics = { units: true, orders: false }; // either or both; at least one always on
+
+    function renderProductTable(periodOrders, lineItems) {
+      var idSet = {};
+      periodOrders.forEach(function (o) { idSet[o.id] = true; });
+
+      var relevant = lineItems.filter(function (li) { return idSet[li.trackerId]; });
+      if (relevant.length === 0) {
+        document.getElementById('productBox').innerHTML = '<div class="empty-state" style="padding:14px;">No products recorded for orders in this period yet.</div>';
+        return;
+      }
+
+      var byProduct = {};
+      relevant.forEach(function (li) {
+        var key = li.product || 'Unspecified';
+        if (!byProduct[key]) byProduct[key] = { units: 0, orderIds: {} };
+        byProduct[key].units += li.quantity;
+        byProduct[key].orderIds[li.trackerId] = true;
+      });
+      var rows = Object.keys(byProduct).map(function (k) {
+        return { name: k, units: byProduct[k].units, orders: Object.keys(byProduct[k].orderIds).length };
+      });
+      var showUnits = productMetrics.units, showOrders = productMetrics.orders;
+      // Rank by units unless only Orders is switched on; top 10.
+      var rankBy = showUnits ? 'units' : 'orders';
+      var other = rankBy === 'units' ? 'orders' : 'units';
+      rows = rows.sort(function (a, b) { return (b[rankBy] - a[rankBy]) || (b[other] - a[other]); }).slice(0, 10);
+
+      // Each measure is scaled to its own largest value, so both bars use the full width.
+      var maxUnits = Math.max.apply(null, rows.map(function (r) { return r.units; }).concat([1]));
+      var maxOrders = Math.max.apply(null, rows.map(function (r) { return r.orders; }).concat([1]));
+      var plural = function (n, w) { return n + ' ' + w + (n === 1 ? '' : 's'); };
+
+      var legend = (showUnits && showOrders)
+        ? '<div class="chart-legend"><span><i style="background:#2E74B5;"></i>Units</span><span><i style="background:#d99a2b;"></i>Orders</span></div>'
+        : '';
+      document.getElementById('productBox').innerHTML = legend + rows.map(function (r) {
+        return '<div class="bar-row">' +
+          '<div class="bar-row-label"><span class="name">' + r.name + '</span>' +
+          '<span class="count">' + plural(r.units, 'unit') + ' &middot; ' + plural(r.orders, 'order') + '</span></div>' +
+          (showUnits ? '<div class="bar-track" title="' + plural(r.units, 'unit') + '"><div class="bar-fill" style="width:' + Math.round((r.units / maxUnits) * 100) + '%;"></div></div>' : '') +
+          (showOrders ? '<div class="bar-track" title="' + plural(r.orders, 'order') + '"><div class="bar-fill amber" style="width:' + Math.round((r.orders / maxOrders) * 100) + '%;"></div></div>' : '') +
+        '</div>';
+      }).join('');
+    }
+
+    // ---------------- Orchestration ----------------
+    function applyCurrentPeriod() {
+      var periodOrders = filterByPeriod(allOrders, currentPeriod);
+      renderPerformance(periodOrders, currentPeriod);
+      renderGeoPanel(periodOrders);
+      renderCreTable(periodOrders);
+      renderProductTable(periodOrders, allLineItems);
+    }
+
+    function renderAll() {
+      renderKpis(allOrders);
+      renderFunnel(allOrders);
+      renderDeliveryStatus(allOrders);
+      renderCollections(allOrders);
+      renderExceptions(allOrders);
+      applyCurrentPeriod();
+    }
+
+    function loadData() {
+      document.getElementById('loadingState').style.display = 'block';
+      document.getElementById('loadingState').textContent = 'Loading order data...';
+      document.getElementById('dashboardBody').style.display = 'none';
+      authRun()
+        .withSuccessHandler(function (orders) {
+          allOrders = orders || [];
+          document.getElementById('loadingState').style.display = 'none';
+          if (allOrders.length === 0) {
+            document.getElementById('loadingState').style.display = 'block';
+            document.getElementById('loadingState').textContent = 'No orders logged in the tracker yet.';
+            return;
+          }
+          document.getElementById('dashboardBody').style.display = 'block';
+          document.getElementById('updatedText').textContent = 'Updated ' + new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' });
+          renderAll();
+          loadLineItems();
+        })
+        .withFailureHandler(function (err) {
+          document.getElementById('loadingState').textContent = 'Could not load the dashboard: ' + (err && err.message ? err.message : 'unknown error');
+        })
+        .getDashboardData();
+    }
+
+    /**
+     * Fetched separately from orders (not bundled into getDashboardData --
+     * see the NOTE there) so the rest of the dashboard can render, and feel
+     * fast, without waiting on this too. Re-renders just the product table
+     * once it lands; everything else has already painted by then.
+     */
+    function loadLineItems() {
+      authRun()
+        .withSuccessHandler(function (items) {
+          allLineItems = items || [];
+          renderProductTable(filterByPeriod(allOrders, currentPeriod), allLineItems);
+        })
+        .withFailureHandler(function () {
+          document.getElementById('productBox').innerHTML = '<div class="empty-state" style="padding:14px;">Could not load product data.</div>';
+        })
+        .getAllLineItems();
+    }
+
+    document.getElementById('refreshBtn').addEventListener('click', loadData);
+    Array.prototype.forEach.call(document.querySelectorAll('.period-tab'), function (tab) {
+      tab.addEventListener('click', function () {
+        Array.prototype.forEach.call(document.querySelectorAll('.period-tab'), function (t) { t.classList.remove('active'); });
+        tab.classList.add('active');
+        var period = tab.getAttribute('data-period');
+        var rangeRow = document.getElementById('customRangeRow');
+        if (period === 'custom') {
+          rangeRow.classList.add('show');
+          if (customFrom || customTo) { currentPeriod = 'custom'; applyCurrentPeriod(); } // reuse the last-applied range, if any
+          return; // otherwise wait for the user to pick dates and hit Apply
+        }
+        rangeRow.classList.remove('show');
+        currentPeriod = period;
+        applyCurrentPeriod();
+      });
+    });
+    document.getElementById('customApplyBtn').addEventListener('click', function () {
+      customFrom = document.getElementById('customFrom').value;
+      customTo = document.getElementById('customTo').value;
+      if (!customFrom && !customTo) return;
+      currentPeriod = 'custom';
+      applyCurrentPeriod();
+    });
+    // Location: Value | Orders (one at a time)
+    Array.prototype.forEach.call(document.querySelectorAll('#geoMetricToggle button'), function (btn) {
+      btn.addEventListener('click', function () {
+        geoMetric = btn.getAttribute('data-metric');
+        Array.prototype.forEach.call(document.querySelectorAll('#geoMetricToggle button'), function (b) { b.classList.toggle('active', b === btn); });
+        renderGeoPanel(filterByPeriod(allOrders, currentPeriod));
+      });
+    });
+    // Product: Units / Orders (either or both -- the last one on can't be switched off)
+    Array.prototype.forEach.call(document.querySelectorAll('#productMetricToggle button'), function (btn) {
+      btn.addEventListener('click', function () {
+        var m = btn.getAttribute('data-metric');
+        var otherOn = m === 'units' ? productMetrics.orders : productMetrics.units;
+        if (productMetrics[m] && !otherOn) return;
+        productMetrics[m] = !productMetrics[m];
+        btn.classList.toggle('active', productMetrics[m]);
+        renderProductTable(filterByPeriod(allOrders, currentPeriod), allLineItems);
+      });
+    });
+
+    document.getElementById('geoStateSelect').addEventListener('change', function () {
+      currentGeoState = this.value;
+      renderGeoPincodeList(filterByPeriod(allOrders, currentPeriod));
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('.exc-tab'), function (tab) {
+      tab.addEventListener('click', function () {
+        Array.prototype.forEach.call(document.querySelectorAll('.exc-tab'), function (t) { t.classList.remove('active'); });
+        tab.classList.add('active');
+        currentExcFilter = tab.getAttribute('data-filter');
+        renderExceptions(allOrders);
+      });
+    });
+
+    window.ICF_RELOAD = loadData;
+    window.ICF_CLEAR = function () { document.getElementById('dashboardBody').style.display = 'none'; };
+    loadData();
+  </script>
+</body>
+</html>
