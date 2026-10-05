@@ -829,6 +829,11 @@ function submitOrder_(form) {
 
   var total = parseFloat(form.totalValue) || 0;
   var advance = parseFloat(form.advanceReceived) || 0;
+  if (total > 0 && advance > total) {
+    throw new Error('The advance (\u20b9' + formatAmount(advance) + ') is more than the order value (\u20b9' + formatAmount(total) + '). ' +
+      'Enter only this order\u2019s share (up to \u20b9' + formatAmount(total) + ') and tell Accounts about the extra \u20b9' +
+      formatAmount(Math.round((advance - total) * 100) / 100) + ' \u2013 they record it when verifying.');
+  }
   var advancePct = total > 0 ? Math.round((advance / total) * 1000) / 10 : 0;
   var dateLogged = new Date();
   var priority = form.priorityLevel === 'High' ? 'High' : 'Normal';
@@ -1524,6 +1529,13 @@ function recordBalancePayment_(form) {
   }
 
   var total = Number(data['Total Order Value']) || 0;
+  // Never more than the order still needs (Oct 2026): anything extra is an excess
+  // payment, which goes to an admin and is kept off the order (see Excess.gs).
+  var balanceBefore = computeBalanceDue(total, data['Advance Received']);
+  if (amountReceived > balanceBefore + BALANCE_DUE_TOLERANCE) {
+    throw new Error('\u20b9' + formatAmount(amountReceived) + ' is more than the balance due (\u20b9' + formatAmount(balanceBefore) + '). ' +
+      'If the customer really paid extra, send it to an admin as a payment with excess \u2013 the extra is kept off the order.');
+  }
   var newAdvance = (Number(data['Advance Received']) || 0) + amountReceived;
   var advancePct = total > 0 ? Math.round((newAdvance / total) * 1000) / 10 : 0;
   var newBalance = computeBalanceDue(total, newAdvance);
@@ -1614,7 +1626,8 @@ function lookupOrder_(trackerId) {
     paymentExceptions: {
       verify: summarizePaymentException_(latestPaymentException_(raw['Tracker ID'] || trackerId, PX_VERIFY)),
       dispatch: summarizePaymentException_(latestPaymentException_(raw['Tracker ID'] || trackerId, PX_DISPATCH)),
-      correction: summarizePaymentException_(latestPaymentException_(raw['Tracker ID'] || trackerId, PX_CORRECTION))
+      correction: summarizePaymentException_(latestPaymentException_(raw['Tracker ID'] || trackerId, PX_CORRECTION)),
+      excess: summarizePaymentException_(latestPaymentException_(raw['Tracker ID'] || trackerId, PX_EXCESS))
     },
     // Standby (Oct 2026): request/approval state for the Accounts page. Never throws.
     standby: (typeof standbyInfoForOrder_ === 'function') ? standbyInfoForOrder_(raw['Tracker ID'] || trackerId, raw['Status'] || '') : null
@@ -1701,7 +1714,8 @@ function toTimelineDisplay(val) {
  *  staff member -- no longer typed in. */
 function submitVerification_(form) {
   var trackerId = (form.trackerId || '').trim();
-  form.accountsName = currentStaffName_();
+  // VERIFY_AS_NAME_: set only when an approved excess payment completes the verification (Excess.gs).
+  form.accountsName = (typeof VERIFY_AS_NAME_ !== 'undefined' && VERIFY_AS_NAME_) ? VERIFY_AS_NAME_ : currentStaffName_();
   if (!trackerId || !form.accountsName) throw new Error('Tracker ID is required.');
   var sheet = getSheet();
   var row = resolveTrackerId(sheet, trackerId);
@@ -1735,7 +1749,8 @@ function submitVerification_(form) {
   var advanceAmt = hasAmount ? Number(form.amountReceived) : loggedAdvance;
   if (isNaN(advanceAmt) || advanceAmt < 0) throw new Error('Enter the amount received as a number (0 if nothing has come in).');
   advanceAmt = Math.round(advanceAmt * 100) / 100;
-  if (totalValue > 0 && advanceAmt > totalValue) throw new Error('The amount received (\u20b9' + formatAmount(advanceAmt) + ') is more than the order value (\u20b9' + formatAmount(totalValue) + ').');
+  if (totalValue > 0 && advanceAmt > totalValue) throw new Error('The amount received (\u20b9' + formatAmount(advanceAmt) + ') is more than the order value (\u20b9' + formatAmount(totalValue) + '). ' +
+    'If the customer really paid extra, send it to an admin as a payment with excess \u2013 the extra is kept off the order.');
   if (loggedAdvance > 0 && advanceAmt !== loggedAdvance) {
     throw new Error('The CRE logged an advance of \u20b9' + formatAmount(loggedAdvance) + '. Changing it to \u20b9' + formatAmount(advanceAmt) +
       ' needs an admin\u2019s approval \u2013 use "Request correction".');
@@ -2403,6 +2418,11 @@ function apiMap_() {
   if (typeof standbyApiMap_ === 'function') {
     var extra = standbyApiMap_();
     for (var k in extra) map[k] = extra[k];
+  }
+  // Excess payments (Oct 2026) -- defined in Excess.gs.
+  if (typeof excessApiMap_ === 'function') {
+    var extra2 = excessApiMap_();
+    for (var k2 in extra2) map[k2] = extra2[k2];
   }
   return map;
 }
@@ -3278,7 +3298,8 @@ function setupOwnership_() {
  */
 var PAYMENT_EXCEPTIONS_SHEET_NAME = 'Payment Exceptions';
 var PX_HEADERS = ['Request ID', 'Requested At', 'Tracker ID', 'Type', 'Requested By', 'Requested By Name',
-  'Reason', 'Amount At Request', 'Status', 'Decided By', 'Decided At', 'Corrected Advance', 'Alerts Sent'];
+  'Reason', 'Amount At Request', 'Status', 'Decided By', 'Decided At', 'Corrected Advance', 'Alerts Sent',
+  'Amount Received', 'Bank Reference / UTR']; // last two: excess payments only (Oct 2026)
 var PX_VERIFY = 'VERIFY_NO_ADVANCE';
 var PX_DISPATCH = 'DISPATCH_WITH_BALANCE';
 // PX_CORRECTION "Correct advance amount" -- the CRE logged an advance (say
@@ -3291,6 +3312,12 @@ var PX_LABELS = {};
 PX_LABELS[PX_VERIFY] = 'Verify without advance';
 PX_LABELS[PX_DISPATCH] = 'Dispatch with balance due';
 PX_LABELS[PX_CORRECTION] = 'Correct advance amount';
+// PX_EXCESS "Payment with excess" (Oct 2026) -- the bank shows more than the
+// order needs (usually old pre-system dues in the same transfer). The whole
+// entry waits for an admin; on approval the order gets its share and the rest
+// goes to the Excess Payments tab, never onto the order. See Excess.gs.
+var PX_EXCESS = 'EXCESS_PAYMENT';
+PX_LABELS[PX_EXCESS] = 'Payment with excess';
 
 function getOrCreatePaymentExceptionsSheet_() {
   var ss = SpreadsheetApp.openById(SHEET_ID);
@@ -3321,7 +3348,8 @@ function readPaymentExceptions_() {
       requestedByName: String(r[5] || ''), reason: String(r[6] || ''), amountNote: String(r[7] || ''),
       status: String(r[8] || ''), decidedBy: String(r[9] || ''), decidedAtMs: r[10] instanceof Date ? r[10].getTime() : null,
       correctedAdvance: r[11] === '' || r[11] === null ? null : Number(r[11]),
-      alertsSent: String(r[12] || '')
+      alertsSent: String(r[12] || ''),
+      amountReceived: Number(r[13]) || 0, bankReference: String(r[14] || '')
     };
   }).filter(function (r) { return r.requestId; });
 }
@@ -3342,13 +3370,13 @@ function isPaymentExceptionApproved_(trackerId, type) {
 function summarizePaymentException_(r) {
   if (!r) return null;
   return { requestId: r.requestId, status: r.status, decidedBy: r.decidedBy, requestedByName: r.requestedByName, reason: r.reason,
-           correctedAdvance: r.correctedAdvance, amountNote: r.amountNote };
+           correctedAdvance: r.correctedAdvance, amountNote: r.amountNote, amountReceived: r.amountReceived || 0 };
 }
 
 /** Accounts: form = { trackerId, type, reason } */
 function requestPaymentException_(form) {
   var me = CURRENT_STAFF_;
-  var type = [PX_VERIFY, PX_DISPATCH, PX_CORRECTION].indexOf(form.type) !== -1 ? form.type : '';
+  var type = [PX_VERIFY, PX_DISPATCH, PX_CORRECTION, PX_EXCESS].indexOf(form.type) !== -1 ? form.type : '';
   if (!type) throw new Error('Unknown request type.');
   var reason = String(form.reason || '').trim();
   if (!reason) throw new Error('Add a short reason for the admin, e.g. "Govt. hospital, pays on delivery".');
@@ -3364,8 +3392,12 @@ function requestPaymentException_(form) {
   var balance = computeBalanceDue(total, advance);
 
   // Only allow a request where the rule actually blocks something.
-  var amountNote, corrected = '';
-  if (type === PX_CORRECTION) {
+  var amountNote, corrected = '', excess = null;
+  if (type === PX_EXCESS) {
+    // Any customer, before or after verification -- it's about money that arrived, not payment terms.
+    excess = prepareExcessRequest_(sheet, row, form);
+    amountNote = excess.amountNote;
+  } else if (type === PX_CORRECTION) {
     // Applies to PO and End customers alike -- it's about a wrong figure, not payment terms.
     if (d['Status'] !== 'Logged') throw new Error('The advance can only be corrected before verification.');
     corrected = Math.round(Number(form.correctedAdvance) * 100) / 100;
@@ -3388,14 +3420,16 @@ function requestPaymentException_(form) {
   }
   var existing = latestPaymentException_(trackerId, type);
   if (existing && existing.status === 'Pending') throw new Error('A request is already waiting for an admin (' + existing.requestId + ').');
-  if (existing && existing.status === 'Approved') throw new Error('Already approved by ' + existing.decidedBy + '. Look the order up again to continue.');
+  // An order can receive more than one excess payment over time, so an earlier approved one doesn't block a new one.
+  if (existing && existing.status === 'Approved' && type !== PX_EXCESS) throw new Error('Already approved by ' + existing.decidedBy + '. Look the order up again to continue.');
 
   var lock = LockService.getScriptLock();
   lock.waitLock(20000);
   var requestId;
   try {
     requestId = 'PE-' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyMMdd') + '-' + Utilities.getUuid().split('-')[0].slice(0, 4).toUpperCase();
-    getOrCreatePaymentExceptionsSheet_().appendRow([requestId, new Date(), trackerId, type, me.code, me.name, reason, amountNote, 'Pending', '', '', corrected]);
+    getOrCreatePaymentExceptionsSheet_().appendRow([requestId, new Date(), trackerId, type, me.code, me.name, reason, amountNote, 'Pending', '', '', corrected,
+      '', excess ? excess.amount : '', excess ? excess.utr : '']);
   } finally {
     lock.releaseLock();
   }
@@ -3405,7 +3439,7 @@ function requestPaymentException_(form) {
   var link = url ? url + '?page=admin&req=' + encodeURIComponent(requestId) : '';
   var emailed = emailAdmins_(
     'Payment approval: ' + PX_LABELS[type] + ' \u2013 ' + trackerId,
-    '<p><b>' + esc(me.name) + '</b> (Accounts) is asking to <b>' + esc(PX_LABELS[type].toLowerCase()) + '</b>' + (type === PX_CORRECTION ? '' : ' for an end-customer order') + '.</p>' +
+    '<p><b>' + esc(me.name) + '</b> (Accounts) is asking to <b>' + esc(PX_LABELS[type].toLowerCase()) + '</b>' + (type === PX_CORRECTION || type === PX_EXCESS ? '' : ' for an end-customer order') + '.</p>' +
     '<p>Order: <b>' + esc(trackerId) + '</b> \u2013 ' + esc(d['Institution / Customer']) + '<br>' + esc(amountNote) + '<br>Reason: ' + esc(reason) + '</p>' +
     (link ? '<p><a href="' + link + '" style="background:#1F3864;color:#fff;padding:10px 16px;border-radius:4px;text-decoration:none;font-weight:600;">Review request</a></p>' +
             '<p style="color:#666;font-size:12px;">You\u2019ll sign in with your staff code and PIN to approve or decline.</p>' : '') +
@@ -3428,6 +3462,7 @@ function decidePaymentException_(form) {
   var lock = LockService.getScriptLock();
   lock.waitLock(20000);
   var releasedToOps = false;
+  var excessResult = null;
   try {
     r = readPaymentExceptions_().filter(function (x) { return x.requestId === form.requestId; })[0];
     if (!r) throw new Error('Request not found.');
@@ -3444,6 +3479,11 @@ function decidePaymentException_(form) {
       setRowFields(cSheet, cRow, { 'Advance Received': r.correctedAdvance });
       writeAdvancePct_(cSheet, cRow, r.correctedAdvance, Number(cur['Total Order Value']) || 0);
       logActivity_(me, 'Advance corrected', r.trackerId, r.amountNote + ' (' + r.requestId + ')');
+    }
+    if (form.approve && r.type === PX_EXCESS) {
+      // Records the order's share (completing verification if still Logged) and logs the excess. Throws -> nothing marked.
+      excessResult = applyExcessPayment_(r, me);
+      releasedToOps = !!excessResult.releasedToOps;
     }
     getOrCreatePaymentExceptionsSheet_().getRange(r.row, 9, 1, 3)
       .setValues([[form.approve ? 'Approved' : 'Declined', me.name + ' (' + me.code + ')', new Date()]]);
@@ -3464,11 +3504,16 @@ function decidePaymentException_(form) {
   if (requester && /@/.test(requester.email)) {
     try {
       MailApp.sendEmail(requester.email, (form.approve ? 'Approved: ' : 'Declined: ') + PX_LABELS[r.type] + ' \u2013 ' + r.trackerId,
-        form.approve ? me.name + ' approved "' + PX_LABELS[r.type] + '" for ' + r.trackerId + '. Look the order up on the Accounts page to continue.'
-                     : me.name + ' declined "' + PX_LABELS[r.type] + '" for ' + r.trackerId + '.');
+        excessResult
+          ? me.name + ' approved the payment for ' + r.trackerId + '. Recorded: \u20b9' + formatAmount(excessResult.share) + ' to the order, \u20b9' +
+            formatAmount(excessResult.excess) + ' to Excess Payments.' +
+            (excessResult.verificationCode ? ' The order is verified \u2013 Verification Code ' + excessResult.verificationCode + ' (write it on the physical PO).' : '')
+          : form.approve ? me.name + ' approved "' + PX_LABELS[r.type] + '" for ' + r.trackerId + '. Look the order up on the Accounts page to continue.'
+          : me.name + ' declined "' + PX_LABELS[r.type] + '" for ' + r.trackerId + '.' + (r.type === PX_EXCESS ? ' Nothing was recorded \u2013 check the amount and enter it again.' : ''));
     } catch (e) { Logger.log('requester notify failed: ' + e); }
   }
-  return { trackerId: r.trackerId, requestId: r.requestId, approved: !!form.approve, releasedToOps: releasedToOps };
+  return { trackerId: r.trackerId, requestId: r.requestId, approved: !!form.approve, releasedToOps: releasedToOps,
+           excess: excessResult ? excessResult.excess : null, verificationCode: excessResult ? excessResult.verificationCode || '' : '' };
 }
 
 /** Writes Advance % of Total as text ("45.5%"), same format as intake and balance payments. */
@@ -3541,12 +3586,14 @@ function getPaymentApprovalsPanel_() {
     var r = latest[k];
     var o = orders[r.trackerId.toLowerCase()];
     if (!o) return;
-    var stillBlocking = (r.type === PX_DISPATCH) ? (!isDispatchedStatus_(o.status) && o.balance > 0) : (o.status === 'Logged');
+    var stillBlocking = (r.type === PX_DISPATCH) ? (!isDispatchedStatus_(o.status) && o.balance > 0)
+      : (r.type === PX_EXCESS) ? (r.status === 'Pending' || (r.decidedAtMs && r.decidedAtMs > Date.now() - 2 * 86400000))
+      : (o.status === 'Logged');
     if (!stillBlocking) return;
     if (r.status === 'Declined' && !(r.decidedAtMs && r.decidedAtMs > weekAgo)) return;
     out.push(panelItem_(r, o, PX_LABELS[r.type] || r.type,
-      r.status === 'Approved' ? (r.type === PX_CORRECTION ? 'Approved \u2013 advance updated, verify now' : 'Approved \u2013 continue')
-      : r.status === 'Declined' ? 'Declined \u2013 follow up' : 'Waiting for admin'));
+      r.status === 'Approved' ? (r.type === PX_CORRECTION ? 'Approved \u2013 advance updated, verify now' : r.type === PX_EXCESS ? 'Approved \u2013 recorded' : 'Approved \u2013 continue')
+      : r.status === 'Declined' ? (r.type === PX_EXCESS ? 'Declined \u2013 nothing recorded, re-enter' : 'Declined \u2013 follow up') : 'Waiting for admin'));
   });
   return sortPanel_(out);
 }
@@ -3802,7 +3849,7 @@ function checkApprovalAlerts() {
     var sent = 0;
 
     var jobs = [
-      { list: readPaymentExceptions_(), sheet: getOrCreatePaymentExceptionsSheet_(), col: PX_HEADERS.length,
+      { list: readPaymentExceptions_(), sheet: getOrCreatePaymentExceptionsSheet_(), col: PX_HEADERS.indexOf('Alerts Sent') + 1,
         remind: cfg.paymentRemindAfter, escalate: cfg.paymentEscalateAfter,
         label: function (r) { return (PX_LABELS[r.type] || r.type) + ' \u2013 ' + r.trackerId; },
         detail: function (r) { return r.amountNote + '<br>Asked by ' + r.requestedByName + ': ' + r.reason; } },

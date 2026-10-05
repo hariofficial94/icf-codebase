@@ -1,0 +1,172 @@
+<!--
+  Excess payments on the Accounts page (Oct 2026). Pulled in by accounts.html
+  with <?!= include('excess_accounts'); ?> as the LAST line before </body>.
+  When the bank amount is more than the order needs -- in the verification
+  stage or a Pending Payments item -- it shows the split and sends the whole
+  entry to an admin instead of the normal button. Nothing is recorded until
+  an admin approves (see Excess.gs).
+-->
+<style>
+  .xs-split { margin-top: 8px; padding: 12px; background: #f3f0fa; border: 1px solid #d9cfe9; border-radius: 6px; font-size: 13px; color: #3d2a5c; }
+  .xs-split b { color: #1F3864; }
+  .xs-split .xs-line { display: flex; justify-content: space-between; gap: 10px; padding: 3px 0; }
+  .xs-split .xs-line.extra { color: #6b4c9a; font-weight: 700; border-top: 1px dashed #d9cfe9; margin-top: 4px; padding-top: 6px; }
+  .xs-split .xs-small { font-size: 11.5px; color: #6a5a85; margin-top: 6px; }
+  .payment-item .xs-split { padding: 8px; font-size: 11.5px; }
+  .payment-item textarea { width: 100%; padding: 6px 8px; font-size: 12px; border: 1px solid #ccc; border-radius: 4px; font-family: inherit; margin-top: 4px; resize: vertical; }
+  .payment-item .xs-send { background: #6b4c9a !important; }
+  .xs-done { margin-top: 10px; padding: 12px; background: #e9f4e3; border: 1px solid #b7d9a6; border-radius: 6px; font-size: 13px; color: #2c5a1e; }
+  .xs-done .code { font-size: 18px; font-weight: 700; color: #1F3864; letter-spacing: 1px; }
+</style>
+
+<script>
+(function () {
+  var TOL = 1; // same rounding tolerance as the server (BALANCE_DUE_TOLERANCE)
+  function esc(t) { return String(t == null ? '' : t).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+  function rs(n) { return '\u20b9' + (Math.round(Number(n) * 100) / 100).toLocaleString('en-IN'); }
+  function splitHtml(amount, share, extraLine) {
+    return '<div class="xs-split">' +
+      '<div class="xs-line"><span>Bank shows</span><b>' + rs(amount) + '</b></div>' +
+      '<div class="xs-line"><span>Goes to this order</span><b>' + rs(share) + '</b></div>' +
+      '<div class="xs-line extra"><span>Excess (kept off the order)</span><span>' + rs(amount - share) + '</span></div>' +
+      '<div class="xs-small">' + extraLine + '</div></div>';
+  }
+  function refreshApprovals() { try { window.loadApprovals(); } catch (e) {} if (window.ICF_REFRESH_APPROVALS) window.ICF_REFRESH_APPROVALS(); }
+  function sentHtml(res) {
+    var phone = res.callPhone ? ' on <a href="tel:' + esc(res.callPhone.replace(/[^0-9+]/g, '')) + '" target="_top"><b>' + esc(res.callPhone) + '</b></a>' : '';
+    return '<div class="note-box">' + (res.emailed ? 'Sent to the admin (' : 'Saved (') + esc(res.requestId) + (res.emailed ? ').' : ') \u2013 no admin has an email on file.') +
+      ' <b>Nothing is recorded yet.</b> Once it\u2019s approved, the order gets its share and the excess goes to Excess Payments automatically. It\u2019s in <b>Awaiting approval</b> on the left.' +
+      (res.callName ? '<br>Call ' + esc(res.callName) + phone + ' so it gets decided quickly.' : '') + '</div>';
+  }
+
+  // ---------------- Verification stage ----------------
+  var amountInput = document.getElementById('amountReceived');
+
+  function postVerify() {
+    var o = window.currentOrder;
+    if (!o || o.status !== 'Logged' || !amountInput) return;
+    var total = Number(o.totalOrderValue) || 0;
+    var raw = amountInput.value.trim();
+    var amt = raw === '' ? null : Number(raw);
+    if (!(total > 0) || amt === null || isNaN(amt) || amt <= total) return; // the page's own logic covers everything else
+    var note = document.getElementById('verifyNote'), exBox = document.getElementById('verifyExBox');
+    var btn = document.getElementById('btnVerify'), utr = document.getElementById('utrBlock');
+    var ex = o.paymentExceptions && o.paymentExceptions.excess;
+    btn.style.display = 'none';
+    document.getElementById('noAdvanceLink').style.display = 'none';
+    if (ex && ex.status === 'Pending') {
+      utr.style.display = 'none';
+      note.innerHTML = '<div class="note-box">A payment with excess is waiting for an admin (' + esc(ex.requestId) + ', ' + esc(ex.amountNote) +
+        '). Nothing is recorded until it\u2019s approved \u2013 it\u2019s in <b>Awaiting approval</b> on the left.</div>';
+      exBox.innerHTML = '';
+      return;
+    }
+    utr.style.display = 'block';
+    note.innerHTML = splitHtml(amt, total, 'The customer paid more than this order\u2019s value. The whole entry goes to an admin first; on approval the order is verified with ' + rs(total) +
+      ' and the extra is recorded separately \u2013 it never shows as order income.') +
+      (ex && ex.status === 'Declined' ? '<div class="warn-box">The last excess entry was declined by ' + esc(ex.decidedBy) + ' and nothing was recorded. Check the amount against the bank before sending again.</div>' : '');
+    exBox.innerHTML = '<label>What is the extra ' + esc(rs(amt - total)) + ' for?</label>' +
+      '<textarea rows="2" class="ex-reason" placeholder="e.g. Old invoice 2024-117 \u2013 pre-system credit, confirmed with the customer"></textarea>' +
+      '<button type="button" class="ex-btn">Send to admin for approval</button><div class="error ex-err"></div>';
+    var send = exBox.querySelector('.ex-btn');
+    send.addEventListener('click', function () {
+      var err = exBox.querySelector('.ex-err'); err.classList.remove('show');
+      var reason = exBox.querySelector('.ex-reason').value.trim();
+      var ref = document.getElementById('bankReference').value.trim();
+      if (!ref) { err.textContent = 'Enter the Bank Reference / UTR No. above.'; err.classList.add('show'); return; }
+      if (!reason) { err.textContent = 'Say what the extra amount is for.'; err.classList.add('show'); return; }
+      send.disabled = true; send.textContent = 'Sending...';
+      authRun()
+        .withSuccessHandler(function (res) {
+          if (o.paymentExceptions) o.paymentExceptions.excess = { status: 'Pending', requestId: res.requestId, amountNote: rs(amt) + ' received' };
+          utr.style.display = 'none';
+          note.innerHTML = '';
+          exBox.innerHTML = sentHtml(res);
+          refreshApprovals();
+        })
+        .withFailureHandler(function (e) { send.disabled = false; send.textContent = 'Send to admin for approval'; err.textContent = 'Error: ' + e.message; err.classList.add('show'); })
+        .requestPaymentException({ trackerId: o.trackerId, type: 'EXCESS_PAYMENT', reason: reason, amountReceived: amt, bankReference: ref });
+    });
+  }
+
+  if (typeof window.updateVerifyState === 'function') {
+    var origUpdate = window.updateVerifyState;
+    window.updateVerifyState = function () { origUpdate(); postVerify(); }; // used when an order is looked up
+  }
+  if (amountInput) amountInput.addEventListener('input', postVerify);     // runs after the page's own input handler
+
+  // ---------------- Pending Payments items ----------------
+  function itemFor(trackerId) {
+    return (window.allPaymentItems || []).filter(function (it) { return it.trackerId === trackerId; })[0] || null;
+  }
+  document.addEventListener('input', function (e) {
+    if (!e.target || !e.target.classList || !e.target.classList.contains('pi-amount')) return;
+    var item = e.target.closest('.payment-item');
+    if (!item) return;
+    var data = itemFor(item.getAttribute('data-id'));
+    var save = item.querySelector('.pi-save-btn');
+    var box = item.querySelector('.xs-box');
+    var amt = Number(e.target.value);
+    var balance = data ? Number(data.balanceDue) || 0 : null;
+    if (balance === null || !amt || amt <= balance + TOL) {
+      if (box) box.remove();
+      if (save) save.style.display = '';
+      return;
+    }
+    if (save) save.style.display = 'none';
+    if (!box) {
+      box = document.createElement('div');
+      box.className = 'xs-box';
+      (save || e.target).insertAdjacentElement('afterend', box);
+    }
+    box.innerHTML = splitHtml(amt, balance, 'More than the balance due. The whole entry goes to an admin first; nothing is recorded until it\u2019s approved.') +
+      '<textarea rows="2" class="xs-reason" placeholder="What is the extra ' + esc(rs(amt - balance)) + ' for? e.g. old invoice 2024-117"></textarea>' +
+      '<button type="button" class="xs-send">Send to admin for approval</button>';
+    box.querySelector('.xs-send').addEventListener('click', function () {
+      var btn = this, errBox = item.querySelector('.pi-error');
+      if (errBox) errBox.classList.remove('show');
+      var ref = (item.querySelector('.pi-bankref') || {}).value || '';
+      var reason = box.querySelector('.xs-reason').value.trim();
+      var fail = function (m) { if (errBox) { errBox.textContent = m; errBox.classList.add('show'); } };
+      if (!ref.trim()) { fail('Bank Reference / UTR No. is required.'); return; }
+      if (!reason) { fail('Say what the extra amount is for.'); return; }
+      btn.disabled = true; btn.textContent = 'Sending...';
+      authRun()
+        .withSuccessHandler(function (res) {
+          e.target.value = '';
+          box.innerHTML = sentHtml(res);
+          refreshApprovals();
+        })
+        .withFailureHandler(function (er) { btn.disabled = false; btn.textContent = 'Send to admin for approval'; fail('Error: ' + er.message); })
+        .requestPaymentException({ trackerId: item.getAttribute('data-id'), type: 'EXCESS_PAYMENT', reason: reason, amountReceived: amt, bankReference: ref.trim() });
+    });
+  });
+
+  // ---------------- After approval: show what was recorded ----------------
+  var done = document.createElement('div');
+  done.style.display = 'none';
+  var details = document.getElementById('details');
+  if (details && details.parentNode) details.parentNode.insertBefore(done, details.nextSibling);
+  function showOutcome(o) {
+    done.style.display = 'none'; done.innerHTML = '';
+    var ex = o && o.paymentExceptions && o.paymentExceptions.excess;
+    if (!ex || ex.status !== 'Approved') return;
+    authRun()
+      .withSuccessHandler(function (r) {
+        if (!r || !r.found || window.currentOrder !== o) return;
+        done.innerHTML = '<div class="xs-done">Payment with excess approved by ' + esc(r.decidedBy) + ' (' + esc(r.requestId) + '): ' +
+          (r.share !== null ? rs(r.share) + ' recorded on this order, ' + rs(r.excess) + ' in Excess Payments.' : 'recorded.') +
+          (r.verificationCode ? '<div style="margin-top:6px;">Verification Code \u2013 write this on the physical PO:</div><div class="code">' + esc(r.verificationCode) + '</div>' : '') + '</div>';
+        done.style.display = 'block';
+      })
+      .withFailureHandler(function () {})
+      .getExcessOutcome(o.trackerId);
+  }
+  if (details && window.MutationObserver) {
+    new MutationObserver(function () {
+      if (details.classList.contains('show') && window.currentOrder) showOutcome(window.currentOrder);
+      else { done.style.display = 'none'; done.innerHTML = ''; }
+    }).observe(details, { attributes: true, attributeFilter: ['class'] });
+  }
+})();
+</script>
