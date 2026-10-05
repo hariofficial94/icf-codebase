@@ -16,6 +16,8 @@
   .lk-banner button { width: auto; margin: 0; padding: 8px 14px; font-size: 13px; background: #fff; color: #B00020; border: 1px solid #e2a19a; }
   .lk-banner button:disabled { color: #999; border-color: #ccc; background: #fff; }
   .lk-locked { opacity: 0.45; filter: grayscale(0.3); pointer-events: none; user-select: none; }
+  #btnDone { background: #fff !important; color: #1F3864 !important; border: 1px solid #1F3864 !important; }
+  #btnDone:hover { background: #eef1f4 !important; }
 </style>
 
 <script>
@@ -73,5 +75,83 @@
       if (details.classList.contains('show') && o && o.pendingRequest) lock(o);
     }).observe(details, { attributes: true, attributeFilter: ['class'] });
   }
+})();
+
+// ---------------- Unsaved-entry guard (Oct 2026) ----------------
+// The page's "Okay" button only closes the order -- it saves nothing. People
+// read it as "accept", so it's renamed "Close order", and it (and switching to
+// another order) now warns when something typed into the order hasn't been
+// saved or sent. Typing is tracked from real keystrokes only, so values the
+// page fills in itself (amounts on record, product lists) don't count.
+(function () {
+  var card = document.getElementById('details') ? document.getElementById('details').closest('.card') : null;
+  var doneBtn = document.getElementById('btnDone');
+  var lookupBtn = document.getElementById('lookupBtn');
+  if (!card || !doneBtn) return;
+  doneBtn.textContent = 'Close order';
+  var dirty = [];
+  var MUTATING = { submitVerification: 1, recordBalancePayment: 1, submitPickupAndVehicle: 1, confirmSiteReady: 1, submitDispatch: 1,
+                   requestPaymentException: 1, requestStandby: 1, resumeStandby: 1, withdrawRequest: 1 };
+  function clean() { dirty = []; }
+  function labelFor(el) {
+    var l = el.id ? card.querySelector('label[for="' + el.id + '"]') : null;
+    if (!l) { var p = el.previousElementSibling; while (p && p.tagName !== 'LABEL') p = p.previousElementSibling; l = p; }
+    return (l && l.textContent.trim()) || el.placeholder || 'A field';
+  }
+  card.addEventListener('input', function (e) {
+    var el = e.target;
+    if (!el || el.id === 'trackerId' || !/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) return; // the page never fires input events itself
+    if (el.closest('.lk-banner')) return;
+    if (dirty.indexOf(el) === -1) dirty.push(el);
+  }, true);
+  card.addEventListener('change', function (e) {
+    var el = e.target;
+    if (e.isTrusted && el && el.tagName === 'SELECT' && el.id !== 'trackerId' && dirty.indexOf(el) === -1) dirty.push(el);
+  }, true);
+  function unsaved() {
+    return dirty.filter(function (el) {
+      return document.body.contains(el) && String(el.value || '').trim() !== '' && el.offsetParent !== null;
+    });
+  }
+  function guard(e, what) {
+    var u = unsaved();
+    if (!u.length) return;
+    var lines = u.slice(0, 5).map(function (el) {
+      var v = String(el.value).trim();
+      return '\u2022 ' + labelFor(el) + ': ' + (v.length > 40 ? v.slice(0, 40) + '\u2026' : v);
+    }).join('\n');
+    if (!window.confirm('Nothing you typed on this order has been saved or sent:\n\n' + lines + '\n\n' + what + ' anyway? It will be lost.')) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+    } else {
+      clean();
+    }
+  }
+  doneBtn.addEventListener('click', function (e) { guard(e, 'Close the order'); }, true);
+  if (lookupBtn) lookupBtn.addEventListener('click', function (e) {
+    var cur = window.currentOrder, box = document.getElementById('trackerId');
+    if (cur && box && box.value.trim() && box.value.trim() !== cur.trackerId) guard(e, 'Open ' + box.value.trim());
+  }, true);
+  // A successful save/send clears the slate (before the page's own handler, which may re-look the order up).
+  var original = window.authRun;
+  if (typeof original === 'function') {
+    window.authRun = function () {
+      var inner = original(), ok = null, fail = null;
+      var p = new Proxy({}, {
+        get: function (_, name) {
+          if (name === 'withSuccessHandler') return function (h) { ok = h; return p; };
+          if (name === 'withFailureHandler') return function (h) { fail = h; return p; };
+          return function () {
+            inner.withSuccessHandler(function (res) { if (MUTATING[name]) clean(); if (ok) ok(res); })
+                 .withFailureHandler(function (err) { if (fail) fail(err); })[name].apply(null, arguments);
+          };
+        }
+      });
+      return p;
+    };
+  }
+  var details = document.getElementById('details');
+  if (window.MutationObserver) new MutationObserver(function () { if (!details.classList.contains('show')) return; clean(); })
+    .observe(details, { attributes: true, attributeFilter: ['class'] });
 })();
 </script>

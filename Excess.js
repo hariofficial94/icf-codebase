@@ -127,12 +127,12 @@ function applyExcessPayment_(r, me) {
     LOCK_SKIP_REQUEST_ID_ = null;
   }
 
-  getOrCreateExcessSheet_().appendRow([
+  appendRowText_(getOrCreateExcessSheet_(), [
     r.requestId, new Date(), s.institution, s.trackerId, r.requestedAtMs ? new Date(r.requestedAtMs) : '',
     r.amountReceived, s.share, s.excess, r.bankReference, r.reason,
     r.requestedByName + ' (' + r.requestedBy + ')', me.name + ' (' + me.code + ')',
     s.stage === 'verification' ? 'Entered at payment verification' : 'Entered as a balance payment'
-  ]);
+  ], [EXCESS_HEADERS.indexOf('Bank Reference / UTR') + 1]);
   logActivity_(me, 'Excess payment recorded', s.trackerId, r.requestId + ' \u2013 order ' + exRupees_(s.share) + ', excess ' + exRupees_(s.excess) + ' (' + r.reason + ')');
   return out;
 }

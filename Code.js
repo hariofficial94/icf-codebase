@@ -694,11 +694,31 @@ function trackerIdExists(sheet, trackerId) {
 }
 
 /** Writes {headerName: value, ...} into the given row, by header name -- order-independent. */
+// Reference numbers are stored as TEXT (Oct 2026). Without this, a long
+// all-digit UTR such as 627646832323627... is turned into a number by
+// Sheets and its last digits are lost for good (shown as 6.28E+23).
+var TEXT_FIELDS_ = { 'Bank Reference / UTR': true, 'E-way Bill No.': true, 'Tracking / Consignment No.': true };
+
 function setRowFields(sheet, row, fieldsObj) {
   Object.keys(fieldsObj).forEach(function (key) {
     var col = getHeaderIndex(key);
-    sheet.getRange(row, col).setValue(fieldsObj[key]);
+    var cell = sheet.getRange(row, col);
+    if (TEXT_FIELDS_[key]) cell.setNumberFormat('@');
+    cell.setValue(fieldsObj[key]);
   });
+}
+
+/**
+ * appendRow, except the listed columns (1-based) are formatted as text BEFORE
+ * the values go in -- so UTRs and other long numbers keep every digit.
+ */
+function appendRowText_(sheet, values, textCols) {
+  var row = sheet.getLastRow() + 1;
+  (textCols || []).forEach(function (c) { sheet.getRange(row, c).setNumberFormat('@'); });
+  sheet.getRange(row, 1, 1, values.length).setValues([values.map(function (v, i) {
+    return (textCols || []).indexOf(i + 1) !== -1 && v !== '' && v !== null && v !== undefined ? String(v) : v;
+  })]);
+  return row;
 }
 
 function getRowFields(sheet, row, headerNames) {
@@ -3443,8 +3463,8 @@ function requestPaymentException_(form) {
   var requestId;
   try {
     requestId = 'PE-' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyMMdd') + '-' + Utilities.getUuid().split('-')[0].slice(0, 4).toUpperCase();
-    getOrCreatePaymentExceptionsSheet_().appendRow([requestId, new Date(), trackerId, type, me.code, me.name, reason, amountNote, 'Pending', '', '', corrected,
-      '', excess ? excess.amount : '', excess ? excess.utr : '']);
+    appendRowText_(getOrCreatePaymentExceptionsSheet_(), [requestId, new Date(), trackerId, type, me.code, me.name, reason, amountNote, 'Pending', '', '', corrected,
+      '', excess ? excess.amount : '', excess ? excess.utr : ''], [PX_HEADERS.indexOf('Bank Reference / UTR') + 1]);
   } finally {
     lock.releaseLock();
   }
