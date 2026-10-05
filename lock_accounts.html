@@ -1,0 +1,77 @@
+<!--
+  Order lock on the Accounts page (Oct 2026). Pulled in by accounts.html with
+  <?!= include('lock_accounts'); ?> as the LAST line before </body> (after
+  the standby and excess includes). When the looked-up order has a request
+  waiting for a decision, it shows who/what it's waiting on, greys out every
+  action on the order, and offers "Withdraw request". The server enforces
+  the same lock (Locks.gs) -- this just makes it visible.
+-->
+<style>
+  .lk-banner { margin-top: 14px; padding: 14px 16px; background: #fff4e5; border: 1px solid #f0c98a; border-left: 4px solid #B06E00; border-radius: 6px; font-size: 13px; color: #5c3d00; display: none; }
+  .lk-banner.show { display: block; }
+  .lk-banner b { color: #1F3864; }
+  .lk-banner .lk-title { font-size: 14px; font-weight: 700; color: #7a4a00; margin-bottom: 4px; }
+  .lk-banner .lk-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
+  .lk-banner input { flex: 1 1 200px; width: auto; padding: 7px 9px; font-size: 13px; }
+  .lk-banner button { width: auto; margin: 0; padding: 8px 14px; font-size: 13px; background: #fff; color: #B00020; border: 1px solid #e2a19a; }
+  .lk-banner button:disabled { color: #999; border-color: #ccc; background: #fff; }
+  .lk-locked { opacity: 0.45; filter: grayscale(0.3); pointer-events: none; user-select: none; }
+</style>
+
+<script>
+(function () {
+  function esc(t) { return String(t == null ? '' : t).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+  var details = document.getElementById('details');
+  if (!details) return;
+  var banner = document.createElement('div');
+  banner.className = 'lk-banner';
+  details.parentNode.insertBefore(banner, details.nextSibling);
+  var lockedEls = [];
+
+  function targets() {
+    var els = Array.prototype.slice.call(document.querySelectorAll('.card .stage'));
+    var sb = document.getElementById('sbOrderBox');
+    if (sb) els.push(sb);
+    return els;
+  }
+  function unlock() {
+    lockedEls.forEach(function (el) { el.classList.remove('lk-locked'); el.removeAttribute('inert'); el.removeAttribute('aria-disabled'); });
+    lockedEls = [];
+    banner.classList.remove('show'); banner.innerHTML = '';
+  }
+  function lock(o) {
+    var p = o.pendingRequest;
+    lockedEls = targets();
+    lockedEls.forEach(function (el) { el.classList.add('lk-locked'); el.setAttribute('inert', ''); el.setAttribute('aria-disabled', 'true'); });
+    banner.innerHTML =
+      '<div class="lk-title">&#128274; Locked \u2013 waiting for ' + esc(p.waitingFor) + '</div>' +
+      '<div><b>' + esc(p.label) + '</b> (' + esc(p.requestId) + '), asked by ' + esc(p.requestedByName) + (p.requestedAt ? ' at ' + esc(p.requestedAt) : '') + '.</div>' +
+      '<div style="margin-top:4px;">Nothing on this order can be changed until it\u2019s approved or declined. If it isn\u2019t needed any more \u2013 for example the customer has paid \u2013 withdraw it.</div>' +
+      '<div class="lk-actions"><input type="text" class="lk-note" placeholder="Why withdraw? (optional)"><button type="button" class="lk-withdraw">Withdraw request</button></div>' +
+      '<div class="error lk-err"></div>';
+    banner.classList.add('show');
+    banner.querySelector('.lk-withdraw').addEventListener('click', function () {
+      var btn = this, err = banner.querySelector('.lk-err');
+      err.classList.remove('show');
+      if (!window.confirm('Withdraw ' + p.requestId + '? The admin will no longer see it, and the order unlocks straight away.')) return;
+      btn.disabled = true; btn.textContent = 'Withdrawing...';
+      authRun()
+        .withSuccessHandler(function () {
+          try { window.loadApprovals(); } catch (e) {}
+          if (window.ICF_REFRESH_APPROVALS) window.ICF_REFRESH_APPROVALS();
+          try { window.lookupBtn.click(); } catch (e) {}
+        })
+        .withFailureHandler(function (e) { btn.disabled = false; btn.textContent = 'Withdraw request'; err.textContent = 'Error: ' + e.message; err.classList.add('show'); })
+        .withdrawRequest({ requestId: p.requestId, note: banner.querySelector('.lk-note').value.trim() });
+    });
+  }
+
+  if (window.MutationObserver) {
+    new MutationObserver(function () {
+      unlock();
+      var o = window.currentOrder;
+      if (details.classList.contains('show') && o && o.pendingRequest) lock(o);
+    }).observe(details, { attributes: true, attributeFilter: ['class'] });
+  }
+})();
+</script>

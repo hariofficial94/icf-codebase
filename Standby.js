@@ -385,6 +385,7 @@ function requestStandby_(form) {
     var list = readStandby_();
     var open = sbOpenFor_(list, trackerId);
     if (open) throw new Error('There is already a standby request for this order (' + open.requestId + ', ' + open.status.toLowerCase() + ').');
+    if (typeof assertNoPendingRequest_ === 'function') assertNoPendingRequest_(sheet, row); // a payment request waiting also locks it
     var from = String(form.standbyFrom || '').trim();
     var resume = String(form.resumeDate || '').trim();
     var chk = sbCheckDates_(from, resume, sbEarliestStartMs_(f, list), todayYmd_());
@@ -464,7 +465,7 @@ function getStandbyPanel_() {
   var out = [];
   Object.keys(latest).forEach(function (k) {
     var r = latest[k];
-    if (r.status === 'Ended') return;
+    if (r.status === 'Ended' || r.status === 'Withdrawn') return;
     if (r.status === 'Declined' && !(r.decidedAtMs && r.decidedAtMs > cutoff) && !(r.directorDecidedAtMs && r.directorDecidedAtMs > cutoff)) return;
     out.push(sbItem_(r));
   });
@@ -996,6 +997,7 @@ function standbyActivityDetail_(fnName, a, result) {
     case 'shortenStandby': return (a.requestId || '') + ' \u2013 now resumes ' + (result.resume || '');
     case 'decidePaymentAsDirector': return (a.requestId || '') + ' \u2013 ' + (a.approve ? 'approved' : 'declined') + (result.releasedToOps ? ', released to Ops' : '');
     case 'saveSettings': return (result.changed || 0) + ' change(s)';
+    case 'withdrawRequest': return (result.requestId || a.requestId || '') + ' \u2013 ' + (result.label || '') + (a.note ? ' (' + a.note + ')' : '');
     default: return '';
   }
 }

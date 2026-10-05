@@ -94,6 +94,8 @@ function applyExcessPayment_(r, me) {
   if (row === -1) throw new Error('Order not found.');
   if (!(r.amountReceived > 0) || !r.bankReference) throw new Error('This request has no amount or UTR on it.');
   var s = excessSplit_(sheet, row, r.amountReceived); // recomputed now: the order may have changed since the request
+  LOCK_SKIP_REQUEST_ID_ = r.requestId; // this request is still "Pending" until applied -- let its own steps through
+  try {
   var requester = getStaffMap_(false)[r.requestedBy];
   var ref = r.bankReference + ' (incl. excess ' + exRupees_(s.excess) + ', ' + r.requestId + ')';
   var out = { stage: s.stage, share: s.share, excess: s.excess };
@@ -120,6 +122,9 @@ function applyExcessPayment_(r, me) {
   } else if (s.share > 0) {
     var b = recordBalancePayment_({ trackerId: s.trackerId, amountReceived: s.share, bankReference: ref });
     out.releasedToOps = b.releasedToOps;
+  }
+  } finally {
+    LOCK_SKIP_REQUEST_ID_ = null;
   }
 
   getOrCreateExcessSheet_().appendRow([

@@ -1520,6 +1520,7 @@ function recordBalancePayment_(form) {
   if (row === -1) throw new Error('Tracker ID not found.');
 
   var data = getRowFields(sheet, row, ['Total Order Value', 'Advance Received', 'Bank Reference / UTR', 'Status']);
+  if (typeof assertNoPendingRequest_ === 'function') assertNoPendingRequest_(sheet, row); // locked while a request waits (Oct 2026)
   var releasedToOps = false;
   if (data['Status'] === 'Logged') {
     throw new Error(
@@ -1629,6 +1630,8 @@ function lookupOrder_(trackerId) {
       correction: summarizePaymentException_(latestPaymentException_(raw['Tracker ID'] || trackerId, PX_CORRECTION)),
       excess: summarizePaymentException_(latestPaymentException_(raw['Tracker ID'] || trackerId, PX_EXCESS))
     },
+    // Request waiting for a decision (Oct 2026): the order is locked until it's decided or withdrawn.
+    pendingRequest: (typeof pendingRequestFor_ === 'function') ? pendingRequestFor_(raw['Tracker ID'] || trackerId) : null,
     // Standby (Oct 2026): request/approval state for the Accounts page. Never throws.
     standby: (typeof standbyInfoForOrder_ === 'function') ? standbyInfoForOrder_(raw['Tracker ID'] || trackerId, raw['Status'] || '') : null
   };
@@ -1720,6 +1723,7 @@ function submitVerification_(form) {
   var sheet = getSheet();
   var row = resolveTrackerId(sheet, trackerId);
   if (row === -1) throw new Error('Tracker ID not found.');
+  if (typeof assertNoPendingRequest_ === 'function') assertNoPendingRequest_(sheet, row); // locked while a request waits (Oct 2026)
 
   var current = getRowFields(sheet, row, ['Status', 'Dispatch Type', 'Payment Terms Type', 'Total Order Value', 'Advance Received']);
   if (current['Status'] !== 'Logged') {
@@ -1840,6 +1844,7 @@ function submitPickupAndVehicle_(form) {
     throw new Error('This is a courier order \u2013 there is no vehicle stage. The CRE records the postal receipt instead.');
   }
   assertNotOnStandby_(getRowFields(sheet, row, ['Status'])['Status']);
+  if (typeof assertNoPendingRequest_ === 'function') assertNoPendingRequest_(sheet, row); // locked while a request waits (Oct 2026)
 
   var siteReady = form.siteReadiness === 'Y';
   var now = new Date();
@@ -1867,6 +1872,7 @@ function confirmSiteReady_(trackerId) {
   var row = resolveTrackerId(sheet, id);
   if (row === -1) throw new Error('Tracker ID not found.');
   assertNotOnStandby_(getRowFields(sheet, row, ['Status'])['Status']);
+  if (typeof assertNoPendingRequest_ === 'function') assertNoPendingRequest_(sheet, row); // locked while a request waits (Oct 2026)
 
   setRowFields(sheet, row, {
     'Site Readiness Confirmed': 'Y',
@@ -1893,6 +1899,7 @@ function submitDispatch_(form) {
     'Status', 'Payment Terms Type', 'Total Order Value', 'Advance Received'
   ]);
   assertNotOnStandby_(data['Status']);
+  if (typeof assertNoPendingRequest_ === 'function') assertNoPendingRequest_(sheet, row); // locked while a request waits (Oct 2026)
   if (data['Site Readiness Confirmed'] !== 'Y') {
     throw new Error('Site readiness is not confirmed for this order -- dispatch is on hold until that is set to Yes.');
   }
@@ -2083,6 +2090,7 @@ function submitPostalDispatch_(form) {
   if (row === -1) throw new Error('Tracker ID not found.');
 
   requireCanAct_(sheet, row);
+  if (typeof assertNoPendingRequest_ === 'function') assertNoPendingRequest_(sheet, row); // locked while a request waits (Oct 2026)
   var data = getRowFields(sheet, row, ['Status', 'Dispatch Type', 'Payment Terms Type', 'Total Order Value', 'Advance Received']);
   if (normalizeDispatchType_(data['Dispatch Type']) !== DISPATCH_COURIER) {
     throw new Error('This is a vehicle order \u2013 it is dispatched through Accounts with a gate pass, not recorded here.');
@@ -2423,6 +2431,11 @@ function apiMap_() {
   if (typeof excessApiMap_ === 'function') {
     var extra2 = excessApiMap_();
     for (var k2 in extra2) map[k2] = extra2[k2];
+  }
+  // Order lock / withdraw (Oct 2026) -- defined in Locks.gs.
+  if (typeof lockApiMap_ === 'function') {
+    var extra3 = lockApiMap_();
+    for (var k3 in extra3) map[k3] = extra3[k3];
   }
   return map;
 }
@@ -3386,6 +3399,8 @@ function requestPaymentException_(form) {
   if (row === -1) throw new Error('Tracker ID not found.');
   var d = getRowFields(sheet, row, ['Tracker ID', 'Institution / Customer', 'Status', 'Payment Terms Type', 'Total Order Value', 'Advance Received']);
   var trackerId = String(d['Tracker ID']);
+  // One request at a time per order (Oct 2026): a waiting request of ANY type locks the order.
+  if (typeof assertNoPendingRequest_ === 'function') assertNoPendingRequest_(sheet, row);
   var terms = d['Payment Terms Type'] || 'End Customer';
   var total = Number(d['Total Order Value']) || 0;
   var advance = Number(d['Advance Received']) || 0;
@@ -3586,6 +3601,7 @@ function getPaymentApprovalsPanel_() {
     var r = latest[k];
     var o = orders[r.trackerId.toLowerCase()];
     if (!o) return;
+    if (r.status === 'Withdrawn') return; // pulled back by Accounts -- nothing to follow up
     var stillBlocking = (r.type === PX_DISPATCH) ? (!isDispatchedStatus_(o.status) && o.balance > 0)
       : (r.type === PX_EXCESS) ? (r.status === 'Pending' || (r.decidedAtMs && r.decidedAtMs > Date.now() - 2 * 86400000))
       : (o.status === 'Logged');
