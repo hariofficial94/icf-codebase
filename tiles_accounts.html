@@ -50,7 +50,17 @@
   var overlay = document.getElementById('tlOverlay');
   var slot = document.getElementById('tlSlot');
   var note = document.getElementById('tlNote');
-  var homes = {}; // where each pane came from, so a sign-out can put it back
+  var homes = {}; // where each pane came from
+  var current = null;
+  // Return whichever pane is in the pop-up to its (hidden) home -- never delete it:
+  // the page's code keeps updating the panes by id even while they're out of sight.
+  function putBack(except) {
+    Array.prototype.slice.call(slot.children).forEach(function (child) {
+      Object.keys(PANES).forEach(function (k) {
+        if (k !== except && homes[k] && PANES[k]() === child) homes[k].appendChild(child);
+      });
+    });
+  }
 
   function close() { overlay.classList.remove('show'); }
   document.getElementById('tlClose').addEventListener('click', close);
@@ -62,8 +72,9 @@
     if (!pane) return null;
     if (!homes[key]) homes[key] = pane.parentNode;
     note.classList.remove('show');
-    slot.innerHTML = '';
+    putBack(key);
     slot.appendChild(pane);
+    current = key;
     document.getElementById('tlTitle').textContent = title;
     overlay.classList.add('show');
     var refresh = pane.querySelector('.refresh-btn');
@@ -71,10 +82,28 @@
     return pane;
   }
 
-  Array.prototype.forEach.call(document.querySelectorAll('.stat-card.tile[data-pane]'), function (tile) {
-    tile.title = tile.title || 'Tap to open';
-    tile.addEventListener('click', function () { open(tile.getAttribute('data-pane'), tile.getAttribute('data-title')); });
+  // One listener on the strip (not one per tile), so the tiles keep working
+  // whatever else redraws inside them. Any error is shown, not swallowed.
+  var strip = document.getElementById('statStrip');
+  if (strip) strip.addEventListener('click', function (e) {
+    var tile = e.target && e.target.closest ? e.target.closest('.stat-card.tile[data-pane]') : null;
+    if (!tile) return;
+    try {
+      if (!open(tile.getAttribute('data-pane'), tile.getAttribute('data-title'))) {
+        showError('This list isn\u2019t available on the page. Reload the page and try again.');
+      }
+    } catch (err) { showError('Couldn\u2019t open "' + tile.getAttribute('data-title') + '": ' + err.message); }
   });
+
+  // Errors on this page show as a red bar at the bottom instead of failing silently.
+  var errBar = document.createElement('div');
+  errBar.style.cssText = 'display:none;position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:6000;max-width:92vw;background:#B00020;color:#fff;padding:10px 16px;border-radius:6px;font-size:13px;box-shadow:0 4px 16px rgba(0,0,0,0.25);';
+  document.body.appendChild(errBar);
+  function showError(text) {
+    errBar.textContent = text; errBar.style.display = 'block';
+    clearTimeout(showError._t); showError._t = setTimeout(function () { errBar.style.display = 'none'; }, 12000);
+  }
+  window.addEventListener('error', function (e) { showError('Page error: ' + (e.message || 'unknown') + ' \u2013 please send Hari a screenshot.'); });
 
   // Opening an order from any list shows it in the look-up card -- close the pop-up and bring the card into view.
   if (typeof lookupBtn !== 'undefined') {
@@ -124,7 +153,7 @@
   window.ICF_CLEAR = function () {
     if (typeof prevClear === 'function') prevClear();
     close();
-    Object.keys(homes).forEach(function (k) { var p = PANES[k](); if (p && homes[k]) homes[k].appendChild(p); });
+    putBack(null);
   };
 })();
 </script>
