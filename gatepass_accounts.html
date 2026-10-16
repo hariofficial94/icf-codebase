@@ -103,7 +103,8 @@
       var desc = it.products.map(function (p) { return p.product; }).join('; ');
       var qty = it.products.map(function (p) { return p.quantity; }).join(', ');
       var blockedNote = it.blocked
-        ? '<div class="note bad">Blocked: end customer with ₹' + Number(it.balanceDue).toLocaleString('en-IN') + ' still due. Record the payment, or open the order to ask an admin to approve dispatch with the balance.</div>' : '';
+        ? '<div class="note bad">Blocked: end customer with ₹' + Number(it.balanceDue).toLocaleString('en-IN') + ' still due. Record the payment, or open the order to ask an admin to approve dispatch with the balance.' +
+          '<div><button type="button" class="record-pay-btn" data-id="' + esc(it.trackerId) + '">Record payment</button></div></div>' : '';
       var pendingNote = it.pending ? '<div class="note">Waiting for a decision: ' + esc(it.pending) + '. Nothing can be done until it’s decided.</div>' : '';
       var okNote = (it.approvedBalanceNote || it.poBalanceNote) ? '<div class="note">' + esc(it.approvedBalanceNote || it.poBalanceNote) + '</div>' : '';
       var canIssue = !it.blocked && !it.pending;
@@ -115,7 +116,7 @@
         blockedNote + pendingNote + okNote +
         '<div class="acts">' +
           (canIssue ? '<button type="button" class="go">Issue gate pass</button>' : '') +
-          '<button type="button" class="light open">Open full order</button>' +
+          '<button type="button" class="light open">' + (it.blocked ? 'Open order (ask admin approval)' : 'Open full order') + '</button>' +
         '</div>' +
         (canIssue ? '<div class="gp-form">' +
           '<label>E-way Bill No.</label><input type="text" class="f-eway">' +

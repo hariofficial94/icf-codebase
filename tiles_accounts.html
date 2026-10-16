@@ -1,0 +1,130 @@
+<!--
+  Accounts tiles (Oct 2026). Pulled in by accounts.html as the LAST line before
+  </body>, after every other include. The page's side panes (New Enquiries,
+  Pending Payments, Awaiting approval, Refunds, On standby) are no longer shown
+  around the order card -- each now opens from its tile in the top strip, in
+  one pop-up. The panes themselves (and all their code) are unchanged: this
+  file moves the pane into the pop-up when its tile is tapped and refreshes it.
+  Opening an order from any list closes the pop-up and shows the order in the
+  look-up card. "Record payment" buttons (blocked gate pass, held courier
+  order) open Pending payments straight at that order: window.ICF_OPEN_PAYMENT.
+-->
+<style>
+  .stat-card.tile { cursor: pointer; transition: box-shadow 0.15s, transform 0.15s; position: relative; }
+  .stat-card.tile:hover { box-shadow: 0 4px 16px rgba(31,56,100,0.18); transform: translateY(-1px); }
+  .stat-card.tile.alert { box-shadow: 0 0 0 2px #B00020 inset, 0 2px 10px rgba(0,0,0,0.08); }
+  .tl-overlay { display: none; position: fixed; inset: 0; background: rgba(20,30,45,0.45); z-index: 1050; align-items: flex-start; justify-content: center; padding: 40px 16px; overflow-y: auto; }
+  .tl-overlay.show { display: flex; }
+  .tl-box { background: #f4f6f8; border-radius: 8px; width: 100%; max-width: 560px; max-height: 88vh; display: flex; flex-direction: column; box-shadow: 0 8px 30px rgba(0,0,0,0.25); }
+  .tl-head { display: flex; justify-content: space-between; align-items: center; padding: 14px 18px; background: #fff; border-radius: 8px 8px 0 0; border-bottom: 1px solid #e5e5e5; }
+  .tl-head h3 { margin: 0; font-size: 14px; color: #1F3864; text-transform: uppercase; letter-spacing: 0.03em; }
+  .tl-head button { width: auto; margin: 0; padding: 2px 8px; background: transparent; color: #888; font-size: 20px; border: none; cursor: pointer; }
+  .tl-body { padding: 14px; overflow-y: auto; }
+  .tl-body .side-panel { box-shadow: none; }
+  .tl-body .side-panel-header h3 { display: none; }            /* the pop-up title says it already */
+  .tl-note { font-size: 12.5px; padding: 8px 10px; border-radius: 4px; margin-bottom: 10px; background: #fff4e5; color: #7a5300; display: none; }
+  .tl-note.show { display: block; }
+  .payment-item.tl-focus { box-shadow: 0 0 0 2px #B00020; background: #fff8f8; }
+  .record-pay-btn { width: auto !important; margin: 10px 0 0 0 !important; padding: 8px 14px !important; font-size: 13px !important; font-weight: 700; background: #2c7a3f !important; color: #fff !important; border: none; border-radius: 5px; cursor: pointer; }
+</style>
+
+<div class="tl-overlay" id="tlOverlay">
+  <div class="tl-box">
+    <div class="tl-head"><h3 id="tlTitle"></h3><button type="button" id="tlClose">&times;</button></div>
+    <div class="tl-body"><div class="tl-note" id="tlNote"></div><div id="tlSlot"></div></div>
+  </div>
+</div>
+
+<script>
+(function () {
+  // Lists show everything in the pop-up (the old 5-item cap was for the narrow side column).
+  try { PANEL_LIMIT = 500; } catch (e) {}
+
+  var PANES = {
+    verify:   function () { return document.querySelector('.side-panel.new-enquiries'); },
+    payments: function () { var l = document.getElementById('paymentsList'); return l ? l.closest('.side-panel') : null; },
+    admin:    function () { return document.querySelector('.side-panel.approvals-panel'); },
+    refunds:  function () { return document.querySelector('.side-panel.cx-acc'); },
+    standby:  function () { return document.querySelector('.side-panel.sb-panel'); }
+  };
+  var overlay = document.getElementById('tlOverlay');
+  var slot = document.getElementById('tlSlot');
+  var note = document.getElementById('tlNote');
+  var homes = {}; // where each pane came from, so a sign-out can put it back
+
+  function close() { overlay.classList.remove('show'); }
+  document.getElementById('tlClose').addEventListener('click', close);
+  overlay.addEventListener('click', function (e) { if (e.target === overlay) close(); });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') close(); });
+
+  function open(key, title) {
+    var pane = PANES[key] && PANES[key]();
+    if (!pane) return null;
+    if (!homes[key]) homes[key] = pane.parentNode;
+    note.classList.remove('show');
+    slot.innerHTML = '';
+    slot.appendChild(pane);
+    document.getElementById('tlTitle').textContent = title;
+    overlay.classList.add('show');
+    var refresh = pane.querySelector('.refresh-btn');
+    if (refresh) refresh.click(); // always fresh when opened
+    return pane;
+  }
+
+  Array.prototype.forEach.call(document.querySelectorAll('.stat-card.tile[data-pane]'), function (tile) {
+    tile.title = tile.title || 'Tap to open';
+    tile.addEventListener('click', function () { open(tile.getAttribute('data-pane'), tile.getAttribute('data-title')); });
+  });
+
+  // Opening an order from any list shows it in the look-up card -- close the pop-up and bring the card into view.
+  if (typeof lookupBtn !== 'undefined') {
+    lookupBtn.addEventListener('click', function () {
+      close();
+      var gp = document.querySelector('.gp-overlay.show'); if (gp) gp.classList.remove('show');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+  }
+
+  /** Pending payments, opened at one order's payment form. */
+  window.ICF_OPEN_PAYMENT = function (trackerId) {
+    var gp = document.querySelector('.gp-overlay.show'); if (gp) gp.classList.remove('show');
+    var list = document.getElementById('paymentsList');
+    var done = false;
+    function tryFocus() {
+      if (done) return;
+      var items = slot.querySelectorAll('.payment-item');
+      for (var i = 0; i < items.length; i++) {
+        if (items[i].getAttribute('data-id') === trackerId) {
+          done = true;
+          items[i].classList.add('tl-focus');
+          items[i].scrollIntoView({ behavior: 'smooth', block: 'center' });
+          var amt = items[i].querySelector('.pi-amount'); if (amt) setTimeout(function () { amt.focus(); }, 300);
+          return;
+        }
+      }
+    }
+    var obs = list ? new MutationObserver(tryFocus) : null;
+    if (obs) obs.observe(list, { childList: true, subtree: true });
+    open('payments', 'Pending payments – ' + trackerId);
+    setTimeout(function () {
+      if (obs) obs.disconnect();
+      if (!done) { note.textContent = 'No outstanding balance found for ' + trackerId + '. It may already be paid – look the order up again.'; note.classList.add('show'); }
+    }, 9000);
+  };
+
+  // Any "Record payment" button on the page (look-up card or the gate pass pop-up).
+  document.addEventListener('click', function (e) {
+    var b = e.target && e.target.closest ? e.target.closest('.record-pay-btn') : null;
+    if (!b) return;
+    e.preventDefault();
+    window.ICF_OPEN_PAYMENT(b.getAttribute('data-id'));
+  });
+
+  var prevClear = window.ICF_CLEAR;
+  window.ICF_CLEAR = function () {
+    if (typeof prevClear === 'function') prevClear();
+    close();
+    Object.keys(homes).forEach(function (k) { var p = PANES[k](); if (p && homes[k]) homes[k].appendChild(p); });
+  };
+})();
+</script>

@@ -1419,6 +1419,10 @@ function getAccountsSummary_() {
   var todayStr = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
 
   var newEnquiries = 0, outstandingTotal = 0, readyToDispatch = 0, paymentsToday = 0;
+  // Tiles (Oct 2026): how many balances, and how many of them block an order right now.
+  var pendingCount = 0, urgentPayments = 0;
+  var idVals = sheet.getRange(2, getHeaderIndex('Tracker ID'), numRows, 1).getValues();
+  var termsVals = sheet.getRange(2, getHeaderIndex('Payment Terms Type'), numRows, 1).getValues();
   for (var i = 0; i < numRows; i++) {
     var status = statusVals[i][0];
     if (isCancelledStatus_(status)) continue; // cancelled (Oct 2026): not outstanding
@@ -1426,7 +1430,14 @@ function getAccountsSummary_() {
     if (status === 'Vehicle Confirmed') readyToDispatch++;
 
     var balance = computeBalanceDue(Number(totalVals[i][0]) || 0, Number(advanceVals[i][0]) || 0);
-    if (balance > 0) outstandingTotal += balance;
+    if (balance > 0) {
+      outstandingTotal += balance;
+      pendingCount++;
+      // Blocking: a courier order held for its balance, or a gate pass Ops asked for on an unpaid end-customer order.
+      if (status === STATUS_HOLD_BALANCE) urgentPayments++;
+      else if (status === 'Vehicle Confirmed' && (termsVals[i][0] || 'End Customer') === 'End Customer' &&
+               !isPaymentExceptionApproved_(String(idVals[i][0]), PX_DISPATCH)) urgentPayments++;
+    }
 
     var lp = lastPaymentVals[i][0];
     if (lp) {
@@ -1437,7 +1448,25 @@ function getAccountsSummary_() {
     }
   }
 
-  return { newEnquiries: newEnquiries, outstandingTotal: outstandingTotal, readyToDispatch: readyToDispatch, paymentsToday: paymentsToday };
+  var out = { newEnquiries: newEnquiries, outstandingTotal: outstandingTotal, readyToDispatch: readyToDispatch, paymentsToday: paymentsToday,
+              pendingCount: pendingCount, urgentPayments: urgentPayments, waitingAdmin: 0, adminReady: 0, refunds: 0, refundsLate: 0, standby: 0 };
+  // The other tiles count the same lists their pop-ups show. Each is optional -- a failure leaves 0, never breaks the strip.
+  try {
+    var appr = getPaymentApprovalsPanel_() || [];
+    out.waitingAdmin = appr.length;
+    out.adminReady = appr.filter(function (it) { return it.status !== 'Pending'; }).length;
+  } catch (e) { Logger.log('tiles: approvals ' + e); }
+  try {
+    if (typeof getRefundsToProcess_ === 'function') {
+      var refunds = getRefundsToProcess_();
+      out.refunds = refunds.length;
+      out.refundsLate = refunds.filter(function (r) { return r.daysLeft !== null && r.daysLeft <= 0; }).length;
+    }
+  } catch (e2) { Logger.log('tiles: refunds ' + e2); }
+  try {
+    if (typeof getStandbyPanel_ === 'function') out.standby = (getStandbyPanel_().items || []).filter(function (r) { return r.status === 'Active'; }).length;
+  } catch (e3) { Logger.log('tiles: standby ' + e3); }
+  return out;
 }
 
 /**

@@ -25,6 +25,11 @@
     .stat-value { font-size: 22px; font-weight: 700; color: #1F3864; }
     .stat-card.alert .stat-value { color: #B00020; }
     .stat-label { font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: 0.03em; margin-top: 4px; }
+    .stat-sub { font-size: 11px; color: #666; margin-top: 4px; }
+    /* Tiles layout (Oct 2026): the side panes live in tile pop-ups now; the order card takes the page. */
+    .left-col, .side-col { display: none !important; }
+    .page-flex { justify-content: center; }
+    .page-flex > .card { max-width: 880px; }
     @media (max-width: 840px) {
       .page-flex { flex-direction: column; }
       .side-col { flex: 1 1 auto; width: 100%; }
@@ -117,22 +122,33 @@
 <body>
   <script>window.ICF_PAGE = 'accounts';</script>
   <?!= include('auth'); ?>
+  <!-- Tiles (Oct 2026): every Accounts to-do lives behind one of these. Tap a tile
+       to open its list in a pop-up (tiles_accounts.html; gate passes: gatepass_accounts.html). -->
   <div class="stat-strip" id="statStrip">
-    <div class="stat-card" id="statNewEnquiriesCard">
+    <div class="stat-card tile" id="statNewEnquiriesCard" data-pane="verify" data-title="Awaiting verification">
       <div class="stat-value" id="statNewEnquiries">&ndash;</div>
       <div class="stat-label">Awaiting Verification</div>
     </div>
-    <div class="stat-card">
+    <div class="stat-card tile" id="tilePayments" data-pane="payments" data-title="Pending payments">
       <div class="stat-value" id="statOutstanding">&ndash;</div>
-      <div class="stat-label">Total Outstanding</div>
+      <div class="stat-label">Pending Payments</div>
+      <div class="stat-sub"><span id="statPendingCount">&ndash;</span> orders &middot; <span id="statPaymentsToday">&ndash;</span> recorded today</div>
     </div>
-    <div class="stat-card">
+    <div class="stat-card" id="tileGatePass">
       <div class="stat-value" id="statReadyDispatch">&ndash;</div>
       <div class="stat-label">Gate Passes Requested</div>
     </div>
-    <div class="stat-card">
-      <div class="stat-value" id="statPaymentsToday">&ndash;</div>
-      <div class="stat-label">Payments Recorded Today</div>
+    <div class="stat-card tile" id="tileAdmin" data-pane="admin" data-title="Waiting for admin">
+      <div class="stat-value" id="statWaitingAdmin">&ndash;</div>
+      <div class="stat-label">Waiting for Admin</div>
+    </div>
+    <div class="stat-card tile" id="tileRefunds" data-pane="refunds" data-title="Refunds to process">
+      <div class="stat-value" id="statRefunds">&ndash;</div>
+      <div class="stat-label">Refunds to Process</div>
+    </div>
+    <div class="stat-card tile" id="tileStandby" data-pane="standby" data-title="On standby">
+      <div class="stat-value" id="statStandby">&ndash;</div>
+      <div class="stat-label">On Standby</div>
     </div>
   </div>
 
@@ -150,7 +166,7 @@
 
     <div class="card">
       <h1>ICF Accounts</h1>
-      <div class="subtitle">Look up an order to verify payment or generate the gate pass Ops has requested. Ops picks orders up and requests gate passes on their own Operations page; the CRE handles delivery updates.</div>
+      <div class="subtitle">Use the tiles above for everything waiting on you, or look up any order here. Ops picks orders up and requests gate passes on their own Operations page; the CRE handles delivery updates.</div>
 
       <label for="trackerId">Tracker ID (CRM Quotation No.) or Customer Phone Number</label>
       <input type="text" id="trackerId" placeholder="e.g. ICESPL-123-26-27, last few digits, or the customer's phone number">
@@ -197,7 +213,7 @@
       <!-- Stage: On hold, site not ready -->
       <div class="stage" id="stageHold">
         <h2>On Hold – Site Not Ready</h2>
-        <div class="hold-box">Ops has the vehicle on file but the customer’s site isn’t ready. Ops normally confirms this from the Operations page; if the customer tells you first, click below – the gate pass request then comes to your Needs Action list.</div>
+        <div class="hold-box">Ops has the vehicle on file but the customer’s site isn’t ready. Ops normally confirms this from the Operations page; if the customer tells you first, click below – the request then shows on your Gate Passes Requested tile.</div>
         <button class="hold-btn" id="btnConfirmReady">Site Confirmed Ready Now</button>
         <div class="error" id="errHold"></div>
       </div>
@@ -305,6 +321,19 @@
           document.getElementById('statOutstanding').textContent = '\u20b9' + Number(s.outstandingTotal).toLocaleString('en-IN');
           document.getElementById('statReadyDispatch').textContent = s.readyToDispatch;
           document.getElementById('statPaymentsToday').textContent = s.paymentsToday;
+          // Tiles (Oct 2026). Red = something is waiting on Accounts.
+          function setTile(valId, cardId, val, red, sub) {
+            var v = document.getElementById(valId); if (v) v.textContent = val;
+            var c = document.getElementById(cardId); if (c) c.classList.toggle('alert', !!red);
+          }
+          setTile('statPendingCount', 'tilePayments', s.pendingCount, s.urgentPayments > 0);
+          setTile('statWaitingAdmin', 'tileAdmin', s.waitingAdmin, s.adminReady > 0);
+          setTile('statRefunds', 'tileRefunds', s.refunds, s.refunds > 0);
+          setTile('statStandby', 'tileStandby', s.standby, false);
+          var pt = document.getElementById('tilePayments');
+          if (pt) pt.title = s.urgentPayments ? s.urgentPayments + ' order(s) blocked until a payment is recorded' : 'Record balance payments';
+          var at = document.getElementById('tileAdmin');
+          if (at) at.title = s.adminReady ? s.adminReady + ' decided \u2013 ready for you to act on' : 'Requests you sent to an admin';
         })
         .withFailureHandler(function () {
           Array.prototype.forEach.call(document.querySelectorAll('#statStrip .stat-value'), function (el) { el.textContent = '?'; });
@@ -730,13 +759,15 @@
             document.getElementById('holdBalanceMsg').textContent = 'Courier order on hold: this end customer still owes \u20b9' +
               Number(order.balanceDue).toLocaleString('en-IN') + '. Record the payment under Pending Payments \u2013 the order goes to Ops for posting automatically once the balance is cleared. Or ask an admin to approve sending it now.';
             renderExceptionBox('holdExBox', order, 'DISPATCH_WITH_BALANCE', 'Why should this go before the balance is paid?');
+            document.getElementById('holdBalanceMsg').innerHTML = escapeHtml(document.getElementById('holdBalanceMsg').textContent) +
+              '<div><button type="button" class="record-pay-btn" data-id="' + escapeHtml(order.trackerId) + '">Record payment</button></div>';
             document.getElementById('stageHoldBalance').classList.add('show');
           } else if (order.status === 'Sent to Ops') {
             // Ops login (Oct 2026): Ops picks the order up on the Operations page and asks for the gate pass there.
             closedMsg.textContent = (order.opsPickedUpAt || order.opsCutover
               ? 'With Ops' + (order.opsPickedUpBy ? ' \u2013 picked up by ' + order.opsPickedUpBy + (order.opsPickedUpAt ? ' at ' + order.opsPickedUpAt : '') : ' (already with them at go-live)') + '. '
               : 'Verified' + (order.verifiedAt ? ' ' + order.verifiedAt : '') + ' \u2013 waiting for Ops to pick it up on the Operations page. ') +
-              (order.dispatchType === 'Courier' ? 'Ops posts the packet and records the receipt \u2013 nothing for Accounts here.' : 'The gate pass request will appear in Needs Action when Ops asks for it.');
+              (order.dispatchType === 'Courier' ? 'Ops posts the packet and records the receipt \u2013 nothing for Accounts here.' : 'When Ops asks for the gate pass it shows on the Gate Passes Requested tile.');
             document.getElementById('stageClosed').classList.add('show');
           } else if (order.status === 'Posted') {
             closedMsg.textContent = 'Posted' + (order.courierName ? ' via ' + order.courierName : '') + (order.trackingNo ? ' (tracking ' + order.trackingNo + ')' : '') +
@@ -760,7 +791,8 @@
                 noteBox.textContent = '\u20b9' + Number(order.balanceDue).toLocaleString('en-IN') + ' is still outstanding. Dispatch approved by ' + dx.decidedBy + ' (' + dx.requestId + ') \u2013 the gate pass will carry this note.';
                 noteBox.style.display = 'block';
               } else {
-                warnBox.textContent = 'Blocked: End-customer order with \u20b9' + Number(order.balanceDue).toLocaleString('en-IN') + ' still outstanding. Record the payment, or ask an admin to approve dispatching with the balance due.';
+                warnBox.innerHTML = 'Blocked: End-customer order with \u20b9' + Number(order.balanceDue).toLocaleString('en-IN') + ' still outstanding. Record the payment, or ask an admin to approve dispatching with the balance due.' +
+                  '<div><button type="button" class="record-pay-btn" data-id="' + escapeHtml(order.trackerId) + '">Record payment</button></div>';
                 warnBox.style.display = 'block';
                 dispatchBtn.disabled = true;
                 renderExceptionBox('dispatchExBox', order, 'DISPATCH_WITH_BALANCE', 'Why should this go before the balance is paid?');
@@ -1117,5 +1149,6 @@
   <?!= include('lock_accounts'); ?>
   <?!= include('cancel_accounts'); ?>
   <?!= include('gatepass_accounts'); ?>
+  <?!= include('tiles_accounts'); ?>
 </body>
 </html>
