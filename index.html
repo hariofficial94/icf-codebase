@@ -1211,7 +1211,7 @@
       awaiting: function (o) { return o.awaitingDelivery; },
       transit: function (o) { return o.inTransit; }
     };
-    var ORDER_STAGES = ['Logged', 'On Hold - Balance Due', 'Sent to Ops', 'On Hold - Site Not Ready', 'Vehicle Confirmed', 'Gate-Verified', 'Posted'];
+    var ORDER_STAGES = ['Logged', 'On Hold - Balance Due', 'Sent to Ops', 'On Hold - Site Not Ready', 'Vehicle Confirmed', 'Gate-Verified', 'Posted', 'Cancelled'];
     document.getElementById('ordStage').innerHTML = '<option value="all">All</option>' +
       ORDER_STAGES.map(function (st) { return '<option value="' + st + '">' + st + '</option>'; }).join('');
 

@@ -1,7 +1,7 @@
 <!--
   Refunds on the Accounts page (Oct 2026). Pulled in by accounts.html with
   <?!= include('cancel_accounts'); ?> as the LAST line before </body>.
-  Adds a "Refunds to process" pane at the top of the right column: each
+  Adds a "Refunds to process" pane in the left column, under "Awaiting approval": each
   refund an admin approved, its amount and deadline. Accounts pays it and
   enters the UTR; the CRE is emailed. Server side: Cancellations.gs.
 -->
@@ -38,8 +38,9 @@
     '<button class="refresh-btn" id="cxAccRefresh" type="button">&#8635; Refresh</button></div>' +
     '<div class="field-hint" style="margin-top:0; margin-bottom:8px;">Cancelled orders the admin has asked you to refund, most urgent first. Pay it, then enter the UTR here – the CRE is told straight away.</div>' +
     '<div id="cxAccList" class="pending-empty">Loading...</div>';
-  var sideCol = document.querySelector('.side-col');
-  if (sideCol) sideCol.insertBefore(panel, sideCol.firstChild);
+  // Left column, under "Awaiting approval" (falls back to the right column if the layout changes).
+  var leftCol = document.querySelector('.left-col') || document.querySelector('.side-col');
+  if (leftCol) leftCol.insertBefore(panel, leftCol.children[1] || null);
   var list = document.getElementById('cxAccList');
 
   function render(items) {

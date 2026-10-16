@@ -1493,7 +1493,7 @@ function getCreSummary_() {
       if (Utilities.formatDate(logged, tz, 'yyyy-MM-dd') === todayStr) loggedToday++;
       if (logged >= weekAgo) {
         loggedThisWeek++;
-        valueThisWeek += Number(totalVals[i][0]) || 0;
+        if (!isCancelledStatus_(statusVals[i][0])) valueThisWeek += Number(totalVals[i][0]) || 0; // cancelled orders bring in no value
       }
     }
   }
@@ -4147,8 +4147,9 @@ function getMyOrders_() {
     var logged = dates[i][0] instanceof Date ? dates[i][0] : null;
     out.push({
       trackerId: id, institution: String(inst[i][0] || ''), phone: String(phones[i][0] || ''),
-      status: status, deliveryStatus: dstat, total: Number(tot[i][0]) || 0,
-      balance: computeBalanceDue(tot[i][0], adv[i][0]), priority: String(pri[i][0] || 'Normal'),
+      // Cancelled (Oct 2026): listed so the CRE can find it, but worth nothing and owing nothing.
+      status: status, deliveryStatus: dstat, total: isCancelledStatus_(status) ? 0 : (Number(tot[i][0]) || 0),
+      balance: isCancelledStatus_(status) ? 0 : computeBalanceDue(tot[i][0], adv[i][0]), priority: String(pri[i][0] || 'Normal'),
       paymentTerms: String(terms[i][0] || 'End Customer'),
       dateLoggedMs: logged ? logged.getTime() : 0,
       // same rules as getCreSummary_ -- tile number and pop-up always agree
