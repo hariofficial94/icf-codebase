@@ -1,0 +1,134 @@
+<!--
+  "Put an order on standby" for Admins and Directors (Oct 2026). Pulled in by
+  admin.html and dashboard.html as the LAST line before </body>. Adds one
+  card, shown only to an Admin or a Director. No request or approval step:
+  the order goes on standby straight away (setStandbyDirect_ in Ops.gs);
+  Ops, Accounts and the CRE are told. Self-contained styles, so it looks the
+  same on both pages.
+-->
+<style>
+  .sd-card { background: #fff; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.06); padding: 18px 20px; margin-bottom: 18px; border-left: 4px solid #6b4c9a; display: none; font-family: inherit; }
+  .sd-card.show { display: block; }
+  .sd-card h2 { font-size: 15px; color: #6b4c9a; margin: 0 0 4px; }
+  .sd-card .sd-sub { font-size: 12.5px; color: #666; margin-bottom: 10px; line-height: 1.45; }
+  .sd-card .sd-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-end; }
+  .sd-card .sd-row > div { flex: 1 1 160px; min-width: 0; }
+  .sd-card label { display: block; font-size: 11.5px; font-weight: 700; color: #555; margin: 8px 0 4px; }
+  .sd-card input, .sd-card select, .sd-card textarea { width: 100%; box-sizing: border-box; padding: 8px 10px; font-size: 14px; border: 1px solid #ccc; border-radius: 4px; font-family: inherit; background: #fff; }
+  .sd-card button { padding: 9px 16px; font-size: 13px; font-weight: 600; border-radius: 5px; cursor: pointer; border: 1px solid #6b4c9a; background: #6b4c9a; color: #fff; width: auto; margin: 0; }
+  .sd-card button.sd-light { background: #fff; color: #6b4c9a; }
+  .sd-card button:disabled { opacity: 0.6; cursor: not-allowed; }
+  .sd-order { margin-top: 10px; padding: 10px 12px; background: #faf8fd; border-radius: 6px; font-size: 13px; line-height: 1.5; display: none; }
+  .sd-order.show { display: block; }
+  .sd-msg { margin-top: 10px; font-size: 13px; display: none; padding: 8px 10px; border-radius: 4px; }
+  .sd-msg.show { display: block; }
+  .sd-msg.ok { background: #e7f4ea; color: #2c5a1e; }
+  .sd-msg.err { background: #fdecee; color: #B00020; }
+  .sd-msg.warn { background: #fff4e5; color: #7a5300; }
+</style>
+<script>
+(function () {
+  function esc(t) { return String(t == null ? '' : t).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+  var card = document.createElement('div');
+  card.className = 'sd-card';
+  card.innerHTML =
+    '<h2>Put an order on standby</h2>' +
+    '<div class="sd-sub">For a customer-side delay you already know about. No request or approval – it goes on standby now, the time stops counting against Ops, and Ops, Accounts and the CRE are told.</div>' +
+    '<div class="sd-row"><div><label for="sdQ">Quotation no. or customer phone</label><input type="text" id="sdQ" autocomplete="off"></div>' +
+    '<div style="flex:0 0 auto;"><button type="button" class="sd-light" id="sdFind">Find order</button></div></div>' +
+    '<div class="sd-order" id="sdOrder"></div>' +
+    '<div id="sdForm" style="display:none;">' +
+      '<div class="sd-row">' +
+        '<div><label for="sdReason">Reason</label><select id="sdReason"></select></div>' +
+        '<div><label for="sdFrom">Delay started on</label><input type="date" id="sdFrom"></div>' +
+        '<div><label for="sdResume">Resumes on</label><input type="date" id="sdResume"></div>' +
+      '</div>' +
+      '<label for="sdNote">Note</label><textarea id="sdNote" rows="2" placeholder="What the customer said"></textarea>' +
+      '<div style="margin-top:10px;"><button type="button" id="sdGo">Put on standby now</button></div>' +
+    '</div>' +
+    '<div class="sd-msg" id="sdMsg"></div>';
+
+  // Admin page: under the page header. Dashboard: above the data, next to the directors' panel.
+  var anchor = document.getElementById('loadingState');
+  var firstCard = document.querySelector('.wrap > .card');
+  if (window.ICF_PAGE === 'dashboard' && anchor && anchor.parentNode) anchor.parentNode.insertBefore(card, anchor);
+  else if (firstCard && firstCard.parentNode) firstCard.parentNode.insertBefore(card, firstCard.nextSibling);
+  else document.body.appendChild(card);
+
+  var order = null;
+  function msg(text, kind) { var m = document.getElementById('sdMsg'); m.innerHTML = text; m.className = 'sd-msg show ' + (kind || 'err'); }
+  function clearMsg() { document.getElementById('sdMsg').className = 'sd-msg'; }
+
+  function find() {
+    clearMsg();
+    var q = document.getElementById('sdQ').value.trim();
+    if (!q) return;
+    var btn = document.getElementById('sdFind');
+    btn.disabled = true;
+    document.getElementById('sdForm').style.display = 'none';
+    document.getElementById('sdOrder').className = 'sd-order';
+    authRun()
+      .withSuccessHandler(function (o) {
+        btn.disabled = false;
+        order = o;
+        var sb = o.standby || {};
+        var box = document.getElementById('sdOrder');
+        box.innerHTML = '<b>' + esc(o.institution) + '</b> – ' + esc(o.trackerId) + '<br>Stage: ' + esc(o.status) +
+          (sb.onStandby && sb.open ? '<br>Already on standby until ' + esc(sb.open.resume) + ' (' + esc(sb.open.reason) + ').' : '') +
+          (sb.open && !sb.onStandby ? '<br>A standby request is waiting (' + esc(sb.open.requestId) + ') – decide that one instead.' : '');
+        box.className = 'sd-order show';
+        if (!sb.eligible) {
+          if (!sb.onStandby && !sb.open) msg('This order can’t go on standby at stage "' + esc(o.status) + '" – only orders not yet dispatched can.', 'warn');
+          return;
+        }
+        document.getElementById('sdReason').innerHTML = '<option value="">– choose –</option>' + (sb.reasons || []).map(function (r) {
+          return '<option value="' + esc(r) + '">' + esc(r) + '</option>';
+        }).join('');
+        var from = document.getElementById('sdFrom');
+        from.value = sb.today; from.max = sb.today; from.min = sb.earliestFromYmd || '';
+        var resume = document.getElementById('sdResume');
+        resume.value = ''; resume.min = sb.today;
+        document.getElementById('sdNote').value = '';
+        document.getElementById('sdForm').style.display = 'block';
+      })
+      .withFailureHandler(function (e) { btn.disabled = false; msg(esc(e.message)); })
+      .lookupOrder(q);
+  }
+  document.getElementById('sdFind').addEventListener('click', find);
+  document.getElementById('sdQ').addEventListener('keydown', function (e) { if (e.key === 'Enter') find(); });
+
+  document.getElementById('sdGo').addEventListener('click', function () {
+    clearMsg();
+    if (!order) return;
+    var form = {
+      trackerId: order.trackerId,
+      reason: document.getElementById('sdReason').value,
+      note: document.getElementById('sdNote').value.trim(),
+      standbyFrom: document.getElementById('sdFrom').value,
+      resumeDate: document.getElementById('sdResume').value
+    };
+    if (!form.reason) return msg('Choose the reason.');
+    if (form.reason === 'Other' && !form.note) return msg('Write the reason in the note.');
+    if (!form.resumeDate) return msg('Choose the resume date.');
+    var btn = this;
+    btn.disabled = true; btn.textContent = 'Saving...';
+    authRun()
+      .withSuccessHandler(function (r) {
+        btn.disabled = false; btn.textContent = 'Put on standby now';
+        document.getElementById('sdForm').style.display = 'none';
+        msg('On standby until <b>' + esc(r.resume) + '</b> (' + esc(r.requestId) + '). Ops, Accounts and the CRE have been told.' +
+          (r.overLimits && r.overLimits.length ? '<br>Note – this goes past the usual limits: ' + esc(r.overLimits.join('; ')) + '.' : ''), r.overLimits && r.overLimits.length ? 'warn' : 'ok');
+        order = null;
+        if (typeof window.ICF_RELOAD === 'function') { try { window.ICF_RELOAD(); } catch (e) {} }
+      })
+      .withFailureHandler(function (e) { btn.disabled = false; btn.textContent = 'Put on standby now'; msg(esc(e.message)); })
+      .setStandbyDirect(form);
+  });
+
+  function showFor(staff) { card.classList.toggle('show', !!(staff && (staff.role === 'Admin' || staff.role === 'Director'))); }
+  document.addEventListener('icf-signed-in', function (e) { showFor(e.detail); });
+  if (window.ICF_STAFF) showFor(window.ICF_STAFF);
+  var prevClear = window.ICF_CLEAR;
+  window.ICF_CLEAR = function () { if (typeof prevClear === 'function') prevClear(); card.classList.remove('show'); order = null; };
+})();
+</script>

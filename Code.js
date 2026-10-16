@@ -91,7 +91,8 @@
  *      formulas that were never dragged down. Safe to run more than once.
  *      Then set a PIN for each person in the Staff tab (see STAFF & SIGN-IN).
  *
- * SHEET COLUMN LAYOUT (A to AV, 48 columns -- must match the sheet exactly):
+ * SHEET COLUMN LAYOUT (A to BE, 57 columns -- must match the sheet exactly;
+ * AW..BE are written by "Ops login: set up and go live" on the ICF Admin menu):
  *   A Tracker ID                       M Status                          Y Verification Code
  *   B Date Logged                      N Site Readiness Confirmed        Z Sent to Ops Timestamp
  *   C Institution / Customer           O Vehicle No.                    AA Received by Ops Timestamp
@@ -189,6 +190,16 @@
  *      logged before this column existed; every reader treats blank as
  *      "Vehicle", which is what all of those orders were.
  *
+ *   AW..BE (Ops login, Oct 2026) -- see the note at the top of Ops.js:
+ *     AW Ops Code / AX Picked Up By      -- who acknowledged (picked up) the order
+ *     AY Ops Cutover                     -- "Y" on orders already with Ops at go-live
+ *     AZ Gate Pass Requested By          -- the Ops person who asked for the gate pass
+ *     BA Postal Receipt URL              -- photo of the postal receipt (courier orders)
+ *     BB Customer Email / BC Customer Updates Consent -- captured at intake
+ *     BD Ops Alerts Sent / BE Customer Updates Sent   -- what the 10-minute sweep has sent
+ *   "Received by Ops Timestamp" (AA) is now stamped by the system the moment
+ *   Ops presses Acknowledge -- it is no longer typed in from paper.
+ *
  *   AV "CRE Code" -- the Staff Code of the CRE who OWNS the order: set at
  *      intake to whoever logged it, changed only by an Admin reassignment.
  *      Ownership decides whose Needs Action list / tiles an order counts in
@@ -258,7 +269,10 @@ var HEADERS = [
   'Verification-to-Pickup Time (Hrs)', 'Total Cycle Time (Hrs)',
   'Payment Terms Type', 'Balance Fully Paid Timestamp', 'Customer Phone Number',
   'State', 'District', 'Pincode', 'Wrapper PO PDF URL', 'Gate Pass PDF URL',
-  'Last Payment Timestamp', 'Dispatch Type', 'CRE Code'
+  'Last Payment Timestamp', 'Dispatch Type', 'CRE Code',
+  // Ops login (Oct 2026) -- appended at the end so no existing column moves. See Ops.js.
+  'Ops Code', 'Picked Up By', 'Ops Cutover', 'Gate Pass Requested By', 'Postal Receipt URL',
+  'Customer Email', 'Customer Updates Consent', 'Ops Alerts Sent', 'Customer Updates Sent'
 ];
 
 var DISPATCH_VEHICLE = 'Vehicle';
@@ -488,7 +502,7 @@ function doGet(e) {
     wrapper: 'index',
     accounts: 'accounts',
     verify: 'accounts',
-    ops: 'accounts',
+    ops: 'ops',          // Ops login (Oct 2026) -- was an old alias for Accounts
     delivery: 'accounts',
     dashboard: 'dashboard',
     admin: 'admin',
@@ -499,7 +513,7 @@ function doGet(e) {
     wrapper: 'ICF Internal PO Generator',
     accounts: 'ICF Accounts',
     verify: 'ICF Accounts',
-    ops: 'ICF Accounts',
+    ops: 'ICF Operations',
     delivery: 'ICF Accounts',
     dashboard: 'ICF Dashboard',
     admin: 'ICF Admin',
@@ -864,6 +878,12 @@ function submitOrder_(form) {
   set('Date Logged', dateLogged);
   set('Institution / Customer', form.institution);
   set('Customer Phone Number', (form.customerPhone || '').trim());
+  // Customer updates (Oct 2026): where order messages go, and whether the
+  // customer agreed to get them. Nothing is sent without "Y" here.
+  var custEmail = String(form.customerEmail || '').trim();
+  if (custEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(custEmail)) throw new Error('The customer email doesn’t look right – check it, or leave it blank.');
+  set('Customer Email', custEmail);
+  set('Customer Updates Consent', form.customerConsent ? 'Y' : 'N');
   set('CRE Name', form.creName);
   set('Total Order Value', total);
   set('Advance Received', advance);
@@ -1198,14 +1218,11 @@ function getNewEnquiries_() {
  * bounds worst-case payload size, not what the user can see.
  */
 function getPendingOrders_() {
-  // Courier orders at "Sent to Ops" are with Ops for posting and then with
-  // the CRE (postal receipt) -- Accounts has nothing to do on them, so they
-  // stay off this list. A courier order held for its balance DOES belong
-  // here: recording that payment is Accounts' job.
-  return getOrdersByStatuses_(
-    [STATUS_HOLD_BALANCE, 'Sent to Ops', 'On Hold - Site Not Ready', 'Vehicle Confirmed'],
-    function (it) { return it.status === 'Sent to Ops' && it.dispatchType === DISPATCH_COURIER; }
-  );
+  // Ops login (Oct 2026): orders at "Sent to Ops" and "Site Not Ready" are
+  // Ops' to move now (Operations page) -- Accounts only sees what needs
+  // Accounts: a courier order held for its balance, and gate passes Ops has
+  // requested ("Vehicle Confirmed").
+  return getOrdersByStatuses_([STATUS_HOLD_BALANCE, 'Vehicle Confirmed']);
 }
 
 // ================================================================
@@ -1259,11 +1276,9 @@ function getCREActionItems_() {
     var ds = deliveryStatusVals[i][0];
     var actionLabel;
 
-    if (status === 'Sent to Ops' && dispatchType === DISPATCH_COURIER) {
-      // Courier order with Ops -- the CRE is next in line, as soon as Ops
-      // hands over the postal receipt.
-      actionLabel = 'Awaiting postal receipt from Ops';
-    } else if (isDispatchedStatus_(status)) {
+    // Ops login (Oct 2026): Ops records the postal receipt themselves, so a
+    // courier order at "Sent to Ops" no longer waits on the CRE.
+    if (isDispatchedStatus_(status)) {
       if (ds === 'Delivered' || ds === 'Returned') continue; // already closed out
       actionLabel = ds || 'Pending';
     } else {
@@ -1607,7 +1622,9 @@ function lookupOrder_(trackerId) {
     'Priority Level', 'Customer Requested Delivery Date',
     'Vehicle No.', 'Payment Terms Type', 'Delivery Status',
     'State', 'District', 'Pincode', 'Wrapper PO PDF URL', 'Gate Pass PDF URL', 'Dispatch Type',
-    'Courier / Transport Name', 'Tracking / Consignment No.', 'CRE Code'
+    'Courier / Transport Name', 'Tracking / Consignment No.', 'CRE Code',
+    'Verified Date', 'Received by Ops Timestamp', 'Picked Up By', 'Ops Cutover', 'Gate Pass Requested By',
+    'Vehicle Confirmed Timestamp', 'Postal Receipt URL', 'Customer Email', 'Customer Updates Consent'
   ]);
   var ownerCode = resolveOwnerCode_(raw['CRE Code'], raw['CRE Name']);
   var ownerStaff = getStaffMap_(false)[ownerCode];
@@ -1642,6 +1659,16 @@ function lookupOrder_(trackerId) {
     dispatchType: normalizeDispatchType_(raw['Dispatch Type']),
     courierName: String(raw['Courier / Transport Name'] || ''),
     trackingNo: String(raw['Tracking / Consignment No.'] || ''),
+    // Ops login (Oct 2026): where the order is on the Ops side.
+    verifiedAt: toTimelineDisplay(raw['Verified Date']),
+    opsPickedUpAt: toTimelineDisplay(raw['Received by Ops Timestamp']),
+    opsPickedUpBy: String(raw['Picked Up By'] || ''),
+    opsCutover: String(raw['Ops Cutover'] || '') === 'Y',
+    gatePassRequestedBy: String(raw['Gate Pass Requested By'] || ''),
+    gatePassRequestedAt: toTimelineDisplay(raw['Vehicle Confirmed Timestamp']),
+    postalReceiptUrl: String(raw['Postal Receipt URL'] || ''),
+    customerEmail: String(raw['Customer Email'] || ''),
+    customerConsent: String(raw['Customer Updates Consent'] || '') === 'Y',
     ownerCode: ownerCode,
     ownerName: ownerStaff ? ownerStaff.name : String(raw['CRE Name'] || ''),
     access: describeAccess_(ownerCode, raw['Tracker ID'] || trackerId),
@@ -1907,9 +1934,16 @@ function confirmSiteReady_(trackerId) {
   assertNotOnStandby_(getRowFields(sheet, row, ['Status'])['Status']);
   if (typeof assertNoPendingRequest_ === 'function') assertNoPendingRequest_(sheet, row); // locked while a request waits (Oct 2026)
 
+  // Ops login (Oct 2026): site ready = the gate pass request goes to Accounts
+  // now, so that's the moment stamped as "requested".
+  if (getRowFields(sheet, row, ['Status'])['Status'] !== 'On Hold - Site Not Ready') {
+    throw new Error('This order isn\u2019t on hold for site readiness.');
+  }
   setRowFields(sheet, row, {
     'Site Readiness Confirmed': 'Y',
-    'Status': 'Vehicle Confirmed'
+    'Status': 'Vehicle Confirmed',
+    'Vehicle Confirmed Timestamp': new Date(),
+    'Gate Pass Requested By': CURRENT_STAFF_ ? CURRENT_STAFF_.name : ''
   });
   return { trackerId: id };
 }
@@ -1933,6 +1967,13 @@ function submitDispatch_(form) {
   ]);
   assertNotOnStandby_(data['Status']);
   if (typeof assertNoPendingRequest_ === 'function') assertNoPendingRequest_(sheet, row); // locked while a request waits (Oct 2026)
+  // Ops login (Oct 2026): a gate pass is issued only once Ops has asked for it
+  // from the Operations page (status "Vehicle Confirmed"), and only once.
+  if (data['Status'] !== 'Vehicle Confirmed') {
+    throw new Error(data['Status'] === 'Gate-Verified'
+      ? 'A gate pass has already been issued for this order.'
+      : 'Ops hasn’t requested a gate pass for this order yet (stage: "' + data['Status'] + '"). Ops requests it from the Operations page when the order is ready.');
+  }
   if (data['Site Readiness Confirmed'] !== 'Y') {
     throw new Error('Site readiness is not confirmed for this order -- dispatch is on hold until that is set to Yes.');
   }
@@ -2398,12 +2439,12 @@ var STAFF_SHEET_NAME = 'Staff';
 var ACTIVITY_LOG_SHEET_NAME = 'Activity Log';
 var STAFF_HEADERS = ['Staff Code', 'Staff Name', 'Role', 'Active', 'Set PIN', 'PIN Status', 'Last Sign-in',
                      'Email', 'Away From', 'Away To', 'Covered By'];
-var ROLES = ['CRE', 'Accounts', 'Director', 'Admin'];
+var ROLES = ['CRE', 'Accounts', 'Director', 'Admin', 'Ops'];
 var SESSION_SECONDS = 21600;   // 6 h -- CacheService maximum
 var LOCKOUT_ATTEMPTS = 5;
 var LOCKOUT_SECONDS = 900;     // 15 min
-var PAGE_ROLES = { cre: ['CRE'], accounts: ['Accounts'], dashboard: ['Director'], admin: [], settings: ['Director'] }; // Admin is always allowed...
-var PAGE_LABELS = { cre: 'the CRE page', accounts: 'the Accounts page', dashboard: 'the Owner Dashboard', admin: 'the Admin page', settings: 'the Settings page' };
+var PAGE_ROLES = { cre: ['CRE'], accounts: ['Accounts'], dashboard: ['Director'], admin: [], settings: ['Director'], ops: ['Ops'] }; // Admin is always allowed...
+var PAGE_LABELS = { cre: 'the CRE page', accounts: 'the Accounts page', dashboard: 'the Owner Dashboard', admin: 'the Admin page', settings: 'the Settings page', ops: 'the Operations page' };
 var DIRECTOR_ONLY_PAGES = { settings: true }; // ...except on these: Directors only, Admins too are refused (Oct 2026)
 
 /** May this role open this page? Admin may open everything except DIRECTOR_ONLY_PAGES. */
@@ -2426,21 +2467,24 @@ function apiMap_() {
     submitOrder:            { fn: submitOrder_,            roles: CRE, log: 'Logged order' },
     getCREActionItems:      { fn: getCREActionItems_,      roles: CRE },
     getCreSummary:          { fn: getCreSummary_,          roles: CRE },
-    submitPostalDispatch:   { fn: submitPostalDispatch_,   roles: CRE, log: 'Recorded postal dispatch' },
+    // Ops records the postal receipt themselves now (recordPosting in Ops.js); this stays for Admin corrections only.
+    submitPostalDispatch:   { fn: submitPostalDispatch_,   roles: [], log: 'Recorded postal dispatch' },
     submitDeliveryUpdate:   { fn: submitDeliveryUpdate_,   roles: CRE, log: 'Updated delivery status' },
     lookupOrder:            { fn: lookupOrder_,            roles: ANY },
     findOrders:             { fn: findOrders_,             roles: ANY },
     getMyOrders:            { fn: getMyOrders_,            roles: CRE },
     getOrderTimeline:       { fn: getOrderTimeline_,       roles: ANY },
-    getOrderLineItems:      { fn: getOrderLineItems_,      roles: ANY },
+    getOrderLineItems:      { fn: getOrderLineItems_,      roles: ['CRE', 'Accounts', 'Director', 'Ops'] },
     getPendingPayments:     { fn: getPendingPayments_,     roles: ['CRE', 'Accounts'] },
     getNewEnquiries:        { fn: getNewEnquiries_,        roles: ACC },
     getPendingOrders:       { fn: getPendingOrders_,       roles: ACC },
     getAccountsSummary:     { fn: getAccountsSummary_,     roles: ACC },
     submitVerification:     { fn: submitVerification_,     roles: ACC, log: 'Verified payment' },
     recordBalancePayment:   { fn: recordBalancePayment_,   roles: ACC, log: 'Recorded balance payment' },
-    submitPickupAndVehicle: { fn: submitPickupAndVehicle_, roles: ACC, log: 'Saved pickup & vehicle' },
-    confirmSiteReady:       { fn: confirmSiteReady_,       roles: ACC, log: 'Confirmed site ready' },
+    // Ops login (Oct 2026): pickup is now Ops' own Acknowledge button and the vehicle goes in with
+    // their gate pass request (Ops.js). The old Accounts form is kept for Admin corrections only.
+    submitPickupAndVehicle: { fn: submitPickupAndVehicle_, roles: [], log: 'Saved pickup & vehicle' },
+    confirmSiteReady:       { fn: confirmSiteReady_,       roles: ['Accounts', 'Ops'], log: 'Confirmed site ready' },
     submitDispatch:         { fn: submitDispatch_,         roles: ACC, log: 'Generated gate pass' },
     requestOrderAccess:     { fn: requestOrderAccess_,     roles: CRE, log: 'Requested order access' },
     requestPaymentException:{ fn: requestPaymentException_, roles: ACC, log: 'Requested payment exception' },
@@ -2474,6 +2518,11 @@ function apiMap_() {
   if (typeof cancellationApiMap_ === 'function') {
     var extra4 = cancellationApiMap_();
     for (var k4 in extra4) map[k4] = extra4[k4];
+  }
+  // Ops login, direct standby, notifications (Oct 2026) -- defined in Ops.gs.
+  if (typeof opsApiMap_ === 'function') {
+    var extra5 = opsApiMap_();
+    for (var k5 in extra5) map[k5] = extra5[k5];
   }
   return map;
 }
@@ -2537,6 +2586,7 @@ function activityDetail_(fnName, a, result) {
     default:
       var d = (typeof standbyActivityDetail_ === 'function') ? standbyActivityDetail_(fnName, a, result) : '';
       if (!d && typeof cancellationActivityDetail_ === 'function') d = cancellationActivityDetail_(fnName, a, result);
+      if (!d && typeof opsActivityDetail_ === 'function') d = opsActivityDetail_(fnName, a, result);
       return d;
   }
 }
@@ -2781,6 +2831,7 @@ function onOpen() {
     .addItem('Turn on approval alerts (every 10 min)', 'installAlertTrigger')
     .addItem('Run approval alert check now', 'checkApprovalAlerts')
     .addItem('Set up standby (tab + settings rows)', 'setupStandby')
+    .addItem('Ops login: set up and go live', 'setupOpsLogin')
     .addSeparator()
     .addItem('Sign everyone out', 'signEveryoneOut')
     .addToUi();
@@ -3962,6 +4013,10 @@ function checkApprovalAlerts() {
     // Standby timers (Oct 2026): auto-resume on the resume date, nudge the working day before.
     if (typeof processStandbyTimers_ === 'function') {
       try { sent += processStandbyTimers_(now, staffMap, cfg); } catch (e) { Logger.log('Standby timers failed: ' + e); }
+    }
+    // Ops login (Oct 2026): new-order notices, 24h nudges + escalation, customer updates.
+    if (typeof opsSweep_ === 'function') {
+      try { sent += opsSweep_(now, staffMap, cfg); } catch (e) { Logger.log('Ops sweep failed: ' + e); }
     }
     return sent;
   } finally {

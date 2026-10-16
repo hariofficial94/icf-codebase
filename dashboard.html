@@ -754,8 +754,8 @@
       } else if (t.balanceDue > 0) {
         rows.push(['Balance Outstanding', inrTl(t.balanceDue) + (t.paymentTermsType === 'PO Customer' ? ' (PO Customer terms)' : '')]);
       }
-      if (t.handoverToOpsDate) rows.push(['Handed to Ops Personnel', t.handoverToOpsDate]);
-      if (t.pickupByOpsDate) rows.push(['Pickup Noted by Ops', t.pickupByOpsDate]);
+      if (t.handoverToOpsDate) rows.push(['Sent to Ops (verified)', t.handoverToOpsDate]);
+      if (t.pickupByOpsDate) rows.push(['Picked up by Ops', t.pickupByOpsDate]);
       if (t.dispatchDate) rows.push([t.dispatchType === 'Courier' ? 'Date Posted' : 'Date of Dispatch', t.dispatchDate]);
       if (t.ewayBillNo) rows.push(['E-way Bill No.', t.ewayBillNo]);
       if (t.transportMode) rows.push(['Mode of Dispatch', t.transportMode + (t.courierName ? ' \u2013 ' + t.courierName : '')]);
@@ -1278,5 +1278,6 @@
     loadData();
   </script>
   <?!= include('standby_dashboard'); ?>
+  <?!= include('standby_direct'); ?>
 </body>
 </html>

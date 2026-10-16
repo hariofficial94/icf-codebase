@@ -366,6 +366,7 @@ function requestStandby_(form) {
   var note = String(form.note || '').trim();
   if (reason === 'Other' && !note) throw new Error('Describe the reason in the note.');
   var reportedBy = String(form.reportedBy || '').trim();
+  if (!reportedBy && me.role === 'Ops') reportedBy = me.name; // Ops login (Oct 2026): Ops raise it themselves
   if (!reportedBy) throw new Error('Enter the name of the ops person who reported the delay.');
 
   var sheet = getSheet();
@@ -420,7 +421,7 @@ function requestStandby_(form) {
 
   var url = appUrl_();
   var emailed = emailAdmins_('Standby request: ' + rec.trackerId + ' \u2013 ' + rec.reason,
-    '<p><b>' + sbEsc_(me.name) + '</b> (Accounts) is asking to put an order on <b>standby</b> because of a customer-side delay.</p>' +
+    '<p><b>' + sbEsc_(me.name) + '</b> (' + sbEsc_(me.role || 'Accounts') + ') is asking to put an order on <b>standby</b> because of a customer-side delay.</p>' +
     sbSummaryHtml_(rec) +
     (prelim.length ? '<p style="color:#9a5b00;">If approved, this will also need a director: ' + sbEsc_(prelim.join('; ')) + '.</p>' : '') +
     (url ? '<p><a href="' + url + '?page=admin&req=' + encodeURIComponent(requestId) + '" style="background:#1F3864;color:#fff;padding:10px 16px;border-radius:4px;text-decoration:none;font-weight:600;">Review request</a></p>' : '') +
@@ -832,6 +833,12 @@ function sbSettingsSchema_() {
     if (i < 4) { row.min = lim[i][0]; row.max = lim[i][1]; }
     rows.push(row);
   });
+  // Ops nudges (Oct 2026, Ops.gs): hours, 1 to 336.
+  if (typeof OPS_SETTINGS_ROWS !== 'undefined') {
+    OPS_SETTINGS_ROWS.forEach(function (r) {
+      rows.push({ label: r[0], def: r[1], help: r[2], kind: 'number', group: 'Ops nudges', min: 1, max: OPS_HOURS_CEILING });
+    });
+  }
   return rows;
 }
 
@@ -917,7 +924,8 @@ function saveSettings_(values) {
     if (o !== null && c !== null && o >= c) errors.push('Office closes must be later than Office opens.');
     [['Payment approval: remind after (office minutes)', 'Payment approval: escalate after (office minutes)'],
      ['CRE access request: remind after (office minutes)', 'CRE access request: escalate after (office minutes)'],
-     [SB_SETTINGS_ROWS[4][0], SB_SETTINGS_ROWS[5][0]]].forEach(function (p) {
+     [SB_SETTINGS_ROWS[4][0], SB_SETTINGS_ROWS[5][0]]].concat(typeof OPS_SETTINGS_ROWS !== 'undefined'
+      ? [[OPS_SETTINGS_ROWS[0][0], OPS_SETTINGS_ROWS[1][0]], [OPS_SETTINGS_ROWS[2][0], OPS_SETTINGS_ROWS[3][0]]] : []).forEach(function (p) {
       if (Number(get(p[0])) >= Number(get(p[1]))) errors.push('"' + p[1] + '" must be longer than "' + p[0] + '".');
     });
   }
@@ -959,6 +967,7 @@ function saveSettings_(values) {
   var cache = CacheService.getScriptCache();
   cache.remove('alert_settings');
   cache.remove('sb_settings');
+  cache.remove('ops_settings');
   if (changes.length) logActivity_(me, 'Changed settings', '', changes.join('; ').slice(0, 45000));
   return { changed: changes.length, changes: changes };
 }
@@ -970,7 +979,7 @@ function saveSettings_(values) {
 function standbyApiMap_() {
   var ACC = ['Accounts'], DIR = ['Director'];
   return {
-    requestStandby: { fn: requestStandby_, roles: ACC, log: 'Requested standby' },
+    requestStandby: { fn: requestStandby_, roles: ['Accounts', 'Ops'], log: 'Requested standby' },
     resumeStandby: { fn: resumeStandby_, roles: ['Accounts', 'Director'], log: 'Resumed standby early' },
     getStandbyPanel: { fn: getStandbyPanel_, roles: ACC },
     getStandbyAdmin: { fn: getStandbyAdmin_, roles: [] },

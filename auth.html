@@ -1,7 +1,7 @@
 <!--
   Shared staff sign-in for all three pages. Included by each page with
   <?!= include('auth'); ?> right after <body>, after the page sets
-  window.ICF_PAGE ('cre' | 'accounts' | 'dashboard').
+  window.ICF_PAGE ('cre' | 'accounts' | 'dashboard' | 'admin' | 'settings' | 'ops').
 
   What it gives each page:
     authRun()  -- a drop-in replacement for google.script.run. Same chain
@@ -106,7 +106,8 @@
       cre: 'CRE workspace \u2013 order intake and delivery updates.',
       accounts: 'Accounts \u2013 payment verification and dispatch.',
       dashboard: 'Owner dashboard.',
-      admin: 'Admin – access requests, leave cover and reassignment.'
+      admin: 'Admin – access requests, leave cover and reassignment.',
+      ops: 'Operations – pick up orders, print the PO, request gate passes.'
     };
     var STORE_KEY = 'icf_session_token';
     var token = null;
@@ -159,7 +160,7 @@
     }
 
     // ---- Admin extras: page links + approvals counter (every page) ----
-    var PAGES = [['dashboard', 'Dashboard'], ['cre', 'CRE page'], ['accounts', 'Accounts'], ['admin', 'Admin']];
+    var PAGES = [['dashboard', 'Dashboard'], ['cre', 'CRE page'], ['accounts', 'Accounts'], ['ops', 'Operations'], ['admin', 'Admin']];
     var apprTimer = null, lastApprTotal = null, lastNewestId = null;
 
     function pageUrl(base, key) { return key === 'cre' ? base : base + '?page=' + key; }

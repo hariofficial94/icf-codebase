@@ -59,12 +59,13 @@
   </div>
 
   <script>
-    var GROUPS = ['Office hours', 'Approvers', 'Approval timings', 'Standby limits'];
+    var GROUPS = ['Office hours', 'Approvers', 'Approval timings', 'Standby limits', 'Ops nudges'];
     var GROUP_NOTES = {
       'Office hours': 'Reminder and escalation clocks only run during these hours. Standbys end at the next office opening on or after their resume date.',
       'Approvers': 'Who is reminded first, and who gets the escalation when a request is still waiting.',
       'Approval timings': 'Counted in office minutes. The escalation must come after the reminder.',
-      'Standby limits': 'Past any of these, an admin\u2019s approval goes on to a director. The hard limits are fixed in the code.'
+      'Standby limits': 'Past any of these, an admin\u2019s approval goes on to a director. The hard limits are fixed in the code.',
+      'Ops nudges': 'Clock hours (not office minutes). Messages only go out during office hours \u2013 anything due at night goes the next morning. Time on standby doesn\u2019t count.'
     };
     var DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
     var data = null, original = {};

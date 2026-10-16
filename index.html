@@ -150,6 +150,8 @@
     .stage { display: none; margin-top: 22px; padding-top: 18px; border-top: 1px solid #e0e0e0; }
     .stage.show { display: block; }
     .signed-as { margin-top: 14px; font-size: 13px; color: #555; }
+    .consent-row { display: flex; gap: 8px; align-items: flex-start; margin-top: 14px; font-size: 13px; font-weight: 600; color: #333; cursor: pointer; }
+    .consent-row input { width: auto; margin-top: 2px; flex: 0 0 auto; }
     .signed-as b { color: #1F3864; }
     .dispatch-note { display: none; margin-top: 10px; padding: 10px 12px; background: #eef4fa; border: 1px solid #b9d0e8; border-radius: 6px; font-size: 12px; color: #1F3864; }
     .dispatch-note.show { display: block; }
@@ -223,7 +225,16 @@
 
           <label for="customerPhone">Customer Phone Number</label>
           <input type="tel" id="customerPhone" placeholder="e.g. 9847012345">
-          <div class="field-hint">Lets Accounts and CRE search for this order later by phone number, not just the Tracker ID.</div>
+          <div class="field-hint">Lets Accounts and CRE search for this order later by phone number, not just the Tracker ID. Order updates to the customer go to this number.</div>
+
+          <label for="customerEmail">Customer Email (optional)</label>
+          <input type="email" id="customerEmail" placeholder="e.g. purchase@hospital.org">
+
+          <label class="consent-row" for="customerConsent">
+            <input type="checkbox" id="customerConsent">
+            <span>The customer agreed to receive order updates (order confirmed, dispatched, delivered) from ICF on WhatsApp / email.</span>
+          </label>
+          <div class="field-hint">Ask the customer. Without this tick, no automatic messages go to them.</div>
 
           <label for="pincode">Customer Pincode</label>
           <input type="text" id="pincode" inputmode="numeric" maxlength="6" placeholder="e.g. 670001">
@@ -248,7 +259,7 @@
           <div id="productLines"></div>
           <button type="button" class="add-product-btn" id="addProductLine">+ Add Product</button>
           <div class="error" id="productError"></div>
-          <div class="dispatch-note" id="dispatchNote">Courier order: Ops will post this packet – no vehicle, e-way bill or gate pass. Once Accounts verifies payment, collect the postal receipt from Ops and record it under Look Up.</div>
+          <div class="dispatch-note" id="dispatchNote">Courier order: Ops will post this packet – no vehicle, e-way bill or gate pass. Once Accounts verifies payment, Ops posts it and records the receipt; you take delivery follow-up from there.</div>
 
           <label for="paymentTermsType">Payment Terms</label>
           <select id="paymentTermsType" required>
@@ -295,13 +306,13 @@
           <div class="tid" id="resultTrackerId"></div>
           <div id="resultPct" style="margin-top:6px; font-size:13px; color:#333;"></div>
           <div id="resultDispatch" style="margin-top:4px; font-size:13px; color:#2E74B5; font-weight:600;"></div>
-          <a id="resultLink" href="#" target="_blank">Open / Print Wrapper PO (PDF)</a>
+          <div id="resultNext" style="margin-top:8px; font-size:13px; color:#2c5a1e; font-weight:600;">Logged. No printout needed – Accounts verifies the payment, then Ops picks it up and prints the PO.</div>
         </div>
       </div>
 
       <div class="card" id="lookupCard">
         <h1 style="font-size:18px;">Look Up an Enquiry</h1>
-        <div class="subtitle">Find any enquiry by CRM quotation number, the customer's phone number, or the customer's name. Record the postal receipt for courier orders, and update delivery status once an order is dispatched.</div>
+        <div class="subtitle">Find any enquiry by CRM quotation number, the customer's phone number, or the customer's name. See where it is with Accounts and Ops, and update delivery status once it is dispatched.</div>
 
         <label for="lookupTrackerId">Quotation No., Phone Number or Customer Name</label>
         <input type="text" id="lookupTrackerId" placeholder="e.g. ICESPL-123-26-27, 6199, 98470 12345, or Booma">
@@ -330,28 +341,6 @@
           <div class="result" id="resultRequest"></div>
         </div>
 
-        <!-- Stage: Record Postal Dispatch (courier order, status = Sent to Ops) -->
-        <div class="stage" id="stagePostal">
-          <h2>Record Postal Dispatch</h2>
-          <div class="hint">Copy these from the postal receipt Ops handed you. Delivery status becomes In Transit.</div>
-          <label for="postalCourierName">Posted via (post office / courier)</label>
-          <input type="text" id="postalCourierName" list="courierOptions" placeholder="e.g. India Post">
-          <datalist id="courierOptions">
-            <option value="India Post"></option>
-            <option value="India Post – Speed Post"></option>
-            <option value="DTDC"></option>
-            <option value="Professional Couriers"></option>
-            <option value="Blue Dart"></option>
-          </datalist>
-          <label for="postalTrackingNo">Tracking / consignment no.</label>
-          <input type="text" id="postalTrackingNo">
-          <label for="postalPostedAt">Date &amp; time posted (on the receipt)</label>
-          <input type="datetime-local" id="postalPostedAt">
-          <label for="postalPickedUpAt">When Ops collected the packet (optional, if written on the PO)</label>
-          <input type="datetime-local" id="postalPickedUpAt">
-          <button id="btnPostal">Save Postal Dispatch</button>
-          <div class="error" id="errPostal"></div>
-        </div>
 
         <!-- Stage: Delivery Status Update (dispatched -- Gate-Verified or Posted -- not yet closed) -->
         <div class="stage" id="stageDelivery">
@@ -392,7 +381,7 @@
           <h3>Needs Action</h3>
           <button class="refresh-btn" id="refreshActionBtn" type="button">&#8635; Refresh</button>
         </div>
-        <div class="field-hint" style="margin-top:0;">Your orders waiting on a postal receipt or a delivery update – plus any you're covering or have been given access to.</div>
+        <div class="field-hint" style="margin-top:0;">Your dispatched orders waiting on a delivery update – plus any you're covering or have been given access to.</div>
         <div id="actionList" class="pending-empty">Loading...</div>
         <button type="button" class="show-more-btn" id="actionShowMore">Show all</button>
       </div>
@@ -756,6 +745,8 @@
         trackerId: document.getElementById('trackerId').value.trim(),
         institution: document.getElementById('institution').value.trim(),
         customerPhone: document.getElementById('customerPhone').value.trim(),
+        customerEmail: document.getElementById('customerEmail').value.trim(),
+        customerConsent: document.getElementById('customerConsent').checked,
         paymentTermsType: document.getElementById('paymentTermsType').value,
         totalValue: totalInput.value,
         advanceReceived: advanceInput.value,
@@ -773,7 +764,6 @@
           document.getElementById('resultPct').textContent = 'Advance: ' + result.advancePct + '% of total order value' + (result.priority === 'High' ? '  \u2014  PRIORITY: HIGH' : '');
           document.getElementById('resultDispatch').textContent = result.dispatchType === 'Courier'
             ? 'Courier order – goes to Ops for posting after payment verification.' : '';
-          document.getElementById('resultLink').href = result.pdfUrl;
           resultBox.classList.add('show');
           document.getElementById('poForm').reset();
           pctPreview.textContent = '';
@@ -804,7 +794,7 @@
     var details = document.getElementById('details');
     var actionList = document.getElementById('actionList');
 
-    var STAGE_IDS = ['stagePostal', 'stageDelivery', 'stageClosed', 'stageLocked'];
+    var STAGE_IDS = ['stageDelivery', 'stageClosed', 'stageLocked'];
     function isDispatched(status) { return status === 'Gate-Verified' || status === 'Posted'; }
     function hideAllStages() {
       STAGE_IDS.forEach(function (id) { document.getElementById(id).classList.remove('show'); });
@@ -829,8 +819,8 @@
         rows.push(['Balance Outstanding', '\u20b9' + Number(t.balanceDue).toLocaleString('en-IN') +
           (t.paymentTermsType === 'PO Customer' ? ' (PO Customer terms)' : '')]);
       }
-      if (t.handoverToOpsDate) rows.push(['Handed to Ops Personnel', t.handoverToOpsDate]);
-      if (t.pickupByOpsDate) rows.push(['Pickup Noted by Ops', t.pickupByOpsDate]);
+      if (t.handoverToOpsDate) rows.push(['Sent to Ops (verified)', t.handoverToOpsDate]);
+      if (t.pickupByOpsDate) rows.push(['Picked up by Ops', t.pickupByOpsDate]);
       if (t.dispatchDate) rows.push([t.dispatchType === 'Courier' ? 'Date Posted' : 'Date of Dispatch', t.dispatchDate]);
       if (t.ewayBillNo) rows.push(['E-way Bill No.', t.ewayBillNo]);
       if (t.transportMode) rows.push(['Mode of Dispatch', t.transportMode + (t.courierName ? ' \u2013 ' + t.courierName : '')]);
@@ -934,15 +924,14 @@
             '<div><b>Payment Terms:</b> ' + order.paymentTermsType + '</div>' +
             '<div><b>Balance Due:</b> \u20b9' + Number(order.balanceDue).toLocaleString('en-IN') + '</div>' +
             '<div id="detailsProducts"><b>Products:</b> loading...</div>' +
-            (order.wrapperPdfUrl ? '<div><a class="pdf-link" href="' + order.wrapperPdfUrl + '" target="_blank">Reprint Wrapper PO (PDF)</a></div>' : '');
+            (order.postalReceiptUrl ? '<div><a class="pdf-link" href="' + order.postalReceiptUrl + '" target="_blank">Postal receipt (photo from Ops)</a></div>' : '');
           details.classList.add('show');
           loadTimeline(order.trackerId);
           loadOrderProducts(order.trackerId);
           document.getElementById('btnDone').style.display = 'block';
 
           var access = order.access || { canAct: true };
-          var needsCreAction = (order.dispatchType === 'Courier' && order.status === 'Sent to Ops') ||
-            (isDispatched(order.status) && order.deliveryStatus !== 'Delivered' && order.deliveryStatus !== 'Returned');
+          var needsCreAction = isDispatched(order.status) && order.deliveryStatus !== 'Delivered' && order.deliveryStatus !== 'Returned';
           if (access.canAct && access.note) {
             var noteEl = document.getElementById('accessNote');
             noteEl.textContent = access.note;
@@ -951,10 +940,13 @@
 
           if (needsCreAction && !access.canAct) {
             showLockedStage(order, access);
-          } else if (order.dispatchType === 'Courier' && order.status === 'Sent to Ops') {
-            ['postalCourierName', 'postalTrackingNo', 'postalPostedAt', 'postalPickedUpAt'].forEach(function (id) { document.getElementById(id).value = ''; });
-            document.getElementById('errPostal').classList.remove('show');
-            document.getElementById('stagePostal').classList.add('show');
+          } else if (order.status === 'Sent to Ops') {
+            // Ops login (Oct 2026): Ops picks it up and records the dispatch on the Operations page.
+            document.getElementById('closedMessage').textContent = (order.opsPickedUpAt || order.opsCutover
+              ? 'With Ops' + (order.opsPickedUpBy ? ' – picked up by ' + order.opsPickedUpBy + (order.opsPickedUpAt ? ' at ' + order.opsPickedUpAt : '') : '') + '. '
+              : 'Verified by Accounts and waiting for Ops to pick it up. ') +
+              (order.dispatchType === 'Courier' ? 'Ops posts it and records the receipt – you take delivery follow-up from there.' : 'Ops requests the gate pass when it’s ready.');
+            document.getElementById('stageClosed').classList.add('show');
           } else if (isDispatched(order.status) && order.deliveryStatus !== 'Delivered' && order.deliveryStatus !== 'Returned') {
             document.getElementById('deliveryStatus').value = '';
             document.getElementById('deliveryCourierName').value = '';
@@ -1096,39 +1088,6 @@
         .requestOrderAccess({ trackerId: lookupTrackerIdInput.value.trim(), reason: reason });
     });
 
-    document.getElementById('btnPostal').addEventListener('click', function () {
-      var btn = this;
-      var err = document.getElementById('errPostal');
-      err.classList.remove('show');
-      var courierName = document.getElementById('postalCourierName').value.trim();
-      var trackingNo = document.getElementById('postalTrackingNo').value.trim();
-      var postedAt = document.getElementById('postalPostedAt').value;
-      if (!courierName || !trackingNo || !postedAt) {
-        err.textContent = 'Enter who it was posted with, the tracking number, and the date & time posted.';
-        err.classList.add('show');
-        return;
-      }
-      btn.disabled = true; btn.textContent = 'Saving...';
-      authRun()
-        .withSuccessHandler(function () {
-          btn.disabled = false; btn.textContent = 'Save Postal Dispatch';
-          runLookup(lookupTrackerIdInput.value.trim()); // re-open: now shows the delivery update stage
-          loadActionList();
-          loadCreSummary();
-          loadApprovals();
-        })
-        .withFailureHandler(function (e) {
-          btn.disabled = false; btn.textContent = 'Save Postal Dispatch';
-          err.textContent = 'Error: ' + e.message; err.classList.add('show');
-        })
-        .submitPostalDispatch({
-          trackerId: lookupTrackerIdInput.value.trim(),
-          courierName: courierName,
-          trackingNo: trackingNo,
-          postedAt: postedAt,
-          pickedUpAt: document.getElementById('postalPickedUpAt').value
-        });
-    });
 
     // ---------- Needs Action panel (CRE) ----------
     var allActionItems = [];

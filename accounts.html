@@ -128,7 +128,7 @@
     </div>
     <div class="stat-card">
       <div class="stat-value" id="statReadyDispatch">&ndash;</div>
-      <div class="stat-label">Ready to Dispatch</div>
+      <div class="stat-label">Gate Passes Requested</div>
     </div>
     <div class="stat-card">
       <div class="stat-value" id="statPaymentsToday">&ndash;</div>
@@ -150,7 +150,7 @@
 
     <div class="card">
       <h1>ICF Accounts</h1>
-      <div class="subtitle">Look up an order to verify payment, log ops personnel's pickup/vehicle details, or generate the gate pass – all from this one page. Delivery status updates are now handled by the CRE on the PO Generator page.</div>
+      <div class="subtitle">Look up an order to verify payment or generate the gate pass Ops has requested. Ops picks orders up and requests gate passes on their own Operations page; the CRE handles delivery updates.</div>
 
       <label for="trackerId">Tracker ID (CRM Quotation No.) or Customer Phone Number</label>
       <input type="text" id="trackerId" placeholder="e.g. ICESPL-123-26-27, last few digits, or the customer's phone number">
@@ -180,7 +180,7 @@
         <button type="button" class="link-btn" id="noAdvanceLink">Customer hasn’t paid anything? Request approval to proceed without an advance</button>
         <div class="error" id="errVerify"></div>
         <div class="result" id="resultVerify">
-          <div style="font-size:13px; color:#333;">Verification Code – write this on the physical PO:</div>
+          <div style="font-size:13px; color:#333;">Verification Code – Ops is shown it to write on the PO they print:</div>
           <div class="code" id="resultCode"></div>
           <div style="font-size:12px; color:#595959; margin-top:6px;" id="resultVerifyNote"></div>
         </div>
@@ -193,28 +193,11 @@
         <div class="ex-box" id="holdExBox"></div>
       </div>
 
-      <!-- Stage: Pickup & Vehicle (status = Sent to Ops) -->
-      <div class="stage" id="stagePickupVehicle">
-        <h2>Pickup &amp; Vehicle Details</h2>
-        <div class="hint">Enter everything ops personnel have written on the returned paper in one go: when it was picked up, the vehicle, and whether the site is confirmed ready.</div>
-        <label for="receivedTimestamp">Time ops personnel noted for pickup</label>
-        <input type="datetime-local" id="receivedTimestamp">
-        <label for="vehicleNo">Vehicle No.</label>
-        <input type="text" id="vehicleNo">
-        <label for="siteReadiness">Site Readiness Confirmed with Customer</label>
-        <select id="siteReadiness">
-          <option value="">-- select --</option>
-          <option value="Y">Yes</option>
-          <option value="N">No – hold dispatch</option>
-        </select>
-        <button class="stage-btn" id="btnPickupVehicle">Save Details</button>
-        <div class="error" id="errPickupVehicle"></div>
-      </div>
 
       <!-- Stage: On hold, site not ready -->
       <div class="stage" id="stageHold">
         <h2>On Hold – Site Not Ready</h2>
-        <div class="hold-box">Vehicle and pickup details are saved. Dispatch is on hold because the site was not confirmed ready. Once the customer confirms, click below – there is no need to re-enter the vehicle details.</div>
+        <div class="hold-box">Ops has the vehicle on file but the customer’s site isn’t ready. Ops normally confirms this from the Operations page; if the customer tells you first, click below – the gate pass request then comes to your Needs Action list.</div>
         <button class="hold-btn" id="btnConfirmReady">Site Confirmed Ready Now</button>
         <div class="error" id="errHold"></div>
       </div>
@@ -222,6 +205,7 @@
       <!-- Stage: Dispatch / Gate Pass (status = Vehicle Confirmed) -->
       <div class="stage" id="stageDispatch">
         <h2>Generate E-way Bill &amp; Gate Pass</h2>
+        <div class="hint" id="dispatchRequestedNote"></div>
         <div class="warn-box" id="dispatchBlockWarning" style="display:none;"></div>
         <div class="note-box" id="dispatchDeferredNote" style="display:none;"></div>
         <div class="ex-box" id="dispatchExBox"></div>
@@ -351,7 +335,7 @@
       if (e.target === modalOverlay) closeModal();
     });
 
-    var STAGE_IDS = ['stageVerify', 'stageHoldBalance', 'stagePickupVehicle', 'stageHold', 'stageDispatch', 'stageClosed'];
+    var STAGE_IDS = ['stageVerify', 'stageHoldBalance', 'stageHold', 'stageDispatch', 'stageClosed'];
     function hideAllStages() {
       STAGE_IDS.forEach(function (id) { document.getElementById(id).classList.remove('show'); });
       ['resultVerify', 'resultDispatch'].forEach(function (id) {
@@ -380,8 +364,8 @@
         rows.push(['Balance Outstanding', '\u20b9' + Number(t.balanceDue).toLocaleString('en-IN') +
           (t.paymentTermsType === 'PO Customer' ? ' (PO Customer terms)' : '')]);
       }
-      if (t.handoverToOpsDate) rows.push(['Handed to Ops Personnel', t.handoverToOpsDate]);
-      if (t.pickupByOpsDate) rows.push(['Pickup Noted by Ops', t.pickupByOpsDate]);
+      if (t.handoverToOpsDate) rows.push(['Sent to Ops (verified)', t.handoverToOpsDate]);
+      if (t.pickupByOpsDate) rows.push(['Picked up by Ops', t.pickupByOpsDate]);
       if (t.dispatchDate) rows.push([t.dispatchType === 'Courier' ? 'Date Posted' : 'Date of Dispatch', t.dispatchDate]);
       if (t.ewayBillNo) rows.push(['E-way Bill No.', t.ewayBillNo]);
       if (t.transportMode) rows.push(['Mode of Dispatch', t.transportMode + (t.courierName ? ' \u2013 ' + t.courierName : '')]);
@@ -747,15 +731,17 @@
               Number(order.balanceDue).toLocaleString('en-IN') + '. Record the payment under Pending Payments \u2013 the order goes to Ops for posting automatically once the balance is cleared. Or ask an admin to approve sending it now.';
             renderExceptionBox('holdExBox', order, 'DISPATCH_WITH_BALANCE', 'Why should this go before the balance is paid?');
             document.getElementById('stageHoldBalance').classList.add('show');
-          } else if (order.dispatchType === 'Courier' && order.status === 'Sent to Ops') {
-            closedMsg.textContent = 'Courier order with Ops for posting. The CRE records the postal receipt and follows up on delivery \u2013 nothing for Accounts here.';
+          } else if (order.status === 'Sent to Ops') {
+            // Ops login (Oct 2026): Ops picks the order up on the Operations page and asks for the gate pass there.
+            closedMsg.textContent = (order.opsPickedUpAt || order.opsCutover
+              ? 'With Ops' + (order.opsPickedUpBy ? ' \u2013 picked up by ' + order.opsPickedUpBy + (order.opsPickedUpAt ? ' at ' + order.opsPickedUpAt : '') : ' (already with them at go-live)') + '. '
+              : 'Verified' + (order.verifiedAt ? ' ' + order.verifiedAt : '') + ' \u2013 waiting for Ops to pick it up on the Operations page. ') +
+              (order.dispatchType === 'Courier' ? 'Ops posts the packet and records the receipt \u2013 nothing for Accounts here.' : 'The gate pass request will appear in Needs Action when Ops asks for it.');
             document.getElementById('stageClosed').classList.add('show');
           } else if (order.status === 'Posted') {
             closedMsg.textContent = 'Posted' + (order.courierName ? ' via ' + order.courierName : '') + (order.trackingNo ? ' (tracking ' + order.trackingNo + ')' : '') +
               ' \u2013 Delivery Status is "' + (order.deliveryStatus || 'In Transit') + '". The CRE owns delivery updates from here.';
             document.getElementById('stageClosed').classList.add('show');
-          } else if (order.status === 'Sent to Ops') {
-            document.getElementById('stagePickupVehicle').classList.add('show');
           } else if (order.status === 'On Hold - Site Not Ready') {
             document.getElementById('stageHold').classList.add('show');
           } else if (order.status === 'Vehicle Confirmed') {
@@ -766,6 +752,8 @@
             noteBox.style.display = 'none';
             dispatchBtn.disabled = false;
             document.getElementById('dispatchExBox').innerHTML = '';
+            document.getElementById('dispatchRequestedNote').textContent = 'Requested by ' + (order.gatePassRequestedBy || 'Ops') +
+              (order.gatePassRequestedAt ? ' at ' + order.gatePassRequestedAt : '') + (order.vehicleNo ? ' \u2013 vehicle ' + order.vehicleNo : '') + '.';
             if (order.paymentTermsType === 'End Customer' && order.balanceDue > 0) {
               var dx = order.paymentExceptions && order.paymentExceptions.dispatch;
               if (dx && dx.status === 'Approved') {
@@ -982,8 +970,8 @@
             (result.heldForBalance
             ? 'Courier order ON HOLD: \u20b9' + Number(result.balanceDue).toLocaleString('en-IN') + ' is still due from this end customer. Record it under Pending Payments; the order goes to Ops automatically once cleared.'
             : (result.dispatchType === 'Courier'
-              ? 'Courier order \u2013 now "Sent to Ops." Hand the file to ops personnel to post the packet. No vehicle or gate pass needed; the CRE records the postal receipt.'
-              : 'This PO is now marked "Sent to Ops." Hand the physical file to ops personnel.'));
+              ? 'Courier order \u2013 now in the Ops queue. No printout: Ops picks it up on the Operations page, posts it and records the receipt.'
+              : 'Now in the Ops queue. No printout: Ops picks it up on the Operations page, prints the PO and requests the gate pass when ready.'));
           loadPaymentsList();
           document.getElementById('resultVerify').classList.add('show');
           loadActionList();
@@ -997,43 +985,6 @@
         .submitVerification({ trackerId: trackerIdInput.value.trim(), bankReference: bankReference, amountReceived: amountRaw });
     });
 
-    // ---------- Stage: Pickup & Vehicle ----------
-    document.getElementById('btnPickupVehicle').addEventListener('click', function () {
-      var btn = this;
-      var err = document.getElementById('errPickupVehicle');
-      err.classList.remove('show');
-      var ts = document.getElementById('receivedTimestamp').value;
-      var vehicleNo = document.getElementById('vehicleNo').value.trim();
-      var siteReadiness = document.getElementById('siteReadiness').value;
-      if (!ts || !vehicleNo || !siteReadiness) {
-        err.textContent = 'Enter the pickup time, vehicle number, and site readiness.';
-        err.classList.add('show');
-        return;
-      }
-      btn.disabled = true; btn.textContent = 'Saving...';
-      authRun()
-        .withSuccessHandler(function (res) {
-          btn.disabled = false; btn.textContent = 'Save Details';
-          document.getElementById('stagePickupVehicle').classList.remove('show');
-          if (res.siteReady) {
-            lookupBtn.click();
-          } else {
-            document.getElementById('stageHold').classList.add('show');
-          }
-          loadActionList();
-          loadAccountsSummary();
-        })
-        .withFailureHandler(function (e) {
-          btn.disabled = false; btn.textContent = 'Save Details';
-          err.textContent = 'Error: ' + e.message; err.classList.add('show');
-        })
-        .submitPickupAndVehicle({
-          trackerId: trackerIdInput.value.trim(),
-          receivedTimestamp: ts,
-          vehicleNo: vehicleNo,
-          siteReadiness: siteReadiness
-        });
-    });
 
     // ---------- Stage: Hold ----------
     document.getElementById('btnConfirmReady').addEventListener('click', function () {
