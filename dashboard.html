@@ -143,6 +143,9 @@
     table.data-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
     table.data-table tr:last-child td { border-bottom: none; }
     table.data-table tr.drill-row { cursor: pointer; }
+    table.data-table .sb-btn { padding: 4px 10px; font-size: 11.5px; font-weight: 700; color: #6b4c9a; background: #fff; border: 1px solid #c9b8e3; border-radius: 12px; cursor: pointer; white-space: nowrap; }
+    table.data-table .sb-btn:hover { background: #f1eefa; }
+    table.data-table .sb-on { font-size: 11px; font-weight: 700; color: #6b4c9a; white-space: nowrap; }
     table.data-table tr.drill-row:hover td { background: #F3F7FC; }
     table.data-table tr.drill-row td.drill-id { color: #1F5FA8; font-weight: 600; text-decoration: underline; text-decoration-color: #c7d6ea; }
     #orderTlOverlay { z-index: 1100; }
@@ -523,6 +526,21 @@
         : '<div class="empty-state" style="padding:14px;">Nothing here right now.</div>';
     }
 
+    // Orders that can be put on standby (not yet dispatched) -- same list as SB_ELIGIBLE in Standby.gs.
+    var STANDBY_ELIGIBLE = ['Sent to Ops', 'On Hold - Site Not Ready', 'Vehicle Confirmed', 'On Hold - Balance Due'];
+    // After a standby is set from a list: reload the data and redraw the open list.
+    window.ICF_AFTER_STANDBY = function (r) {
+      // Mark the row in the open list straight away; refresh the numbers behind it.
+      Array.prototype.forEach.call(document.querySelectorAll('.sb-btn'), function (b) {
+        if (r && b.getAttribute('data-id') === r.trackerId) b.outerHTML = '<span class="sb-on">On standby</span>';
+      });
+      allOrders.forEach(function (o) { if (r && o.id === r.trackerId) o.status = 'On Standby'; });
+      setTimeout(function () {
+        var ov = document.querySelector('.sd-overlay'); if (ov) ov.classList.remove('show');
+      }, 2200);
+      if (typeof window.ICF_RELOAD === 'function') window.ICF_RELOAD();
+    };
+
     // ---------------- KPI drill-down modal ----------------
     var drillOverlay = document.getElementById('drillOverlay');
     var drillTitleEl = document.getElementById('drillTitle');
@@ -711,6 +729,7 @@
         return;
       }
       var showAging = currentDrillKey === 'aging';
+      var canStandby = typeof window.ICF_OPEN_STANDBY === 'function' && window.ICF_CAN_SET_STANDBY && window.ICF_CAN_SET_STANDBY();
       var showLate = currentDrillKey === 'pastDue';
       var sorted = rows.slice().sort(function (a, b) {
         if (showLate) return b.daysLate - a.daysLate;
@@ -721,6 +740,7 @@
         (showLate ? '<th>Due date</th><th>Days late</th>' : '') +
         (showAging ? '<th>Days at stage</th>' : '<th>Status</th>') +
         '<th class="num">Order value</th><th class="num">Balance due</th><th>Date logged</th>' +
+        (canStandby ? '<th></th>' : '') +
         '</tr></thead><tbody>' +
         sorted.map(function (o) {
           return '<tr class="drill-row" data-id="' + escDrill(o.id) + '" title="Open the order timeline"><td class="drill-id">' + o.id + '</td><td>' + o.institution + '</td><td>' + (o.cre || '\u2013') + '</td>' +
@@ -729,10 +749,17 @@
             (showAging ? '<td>' + o.daysAtStage + '</td>' : '<td>' + combinedStatus(o) + '</td>') +
             '<td class="num">' + fmtINR(o.total) + '</td>' +
             '<td class="num">' + (o.balanceDue > 0 ? fmtINR(o.balanceDue) : '\u2013') + '</td>' +
-            '<td>' + fmtDateShort(o.dateLogged) + '</td></tr>';
+            '<td>' + fmtDateShort(o.dateLogged) + '</td>' +
+            (canStandby ? '<td>' + (o.status === 'On Standby' ? '<span class="sb-on">On standby</span>'
+              : STANDBY_ELIGIBLE.indexOf(o.status) !== -1 ? '<button type="button" class="sb-btn" data-id="' + escDrill(o.id) + '" title="Customer delay \u2013 pause this order">Standby</button>' : '') + '</td>' : '') +
+            '</tr>';
         }).join('') + '</tbody></table>';
       Array.prototype.forEach.call(tableEl.querySelectorAll('tr.drill-row'), function (tr) {
         tr.addEventListener('click', function () { openOrderTimeline(tr.getAttribute('data-id')); });
+      });
+      // Standby straight from the list (Oct 2026) -- see standby_direct.html.
+      Array.prototype.forEach.call(tableEl.querySelectorAll('.sb-btn'), function (b) {
+        b.addEventListener('click', function (ev) { ev.stopPropagation(); window.ICF_OPEN_STANDBY(b.getAttribute('data-id')); });
       });
     }
 

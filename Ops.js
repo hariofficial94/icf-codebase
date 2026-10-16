@@ -342,11 +342,100 @@ function acknowledgeOrder_(form) {
   } finally {
     lock.releaseLock();
   }
+  // The PO is made now, with the verification and pick-up printed on it. The
+  // pick-up is already saved -- if the PDF fails, Ops can press "Prepare PO".
+  var pdfUrl = '', poError = '';
+  try { pdfUrl = opsBuildPo_(sheet, row); } catch (e) { poError = 'The PO couldn\u2019t be prepared (' + e.message + '). Tap "Prepare PO" to try again.'; }
   return {
     trackerId: String(f['Tracker ID']), pickedUpAt: opsFmt_(now), pickedUpBy: me.name,
-    wrapperPdfUrl: String(f['Wrapper PO PDF URL'] || ''), verificationCode: String(f['Verification Code'] || ''),
+    wrapperPdfUrl: pdfUrl, poError: poError, verificationCode: String(f['Verification Code'] || ''),
     dispatchType: normalizeDispatchType_(f['Dispatch Type'])
   };
+}
+
+/**
+ * Builds the Wrapper PO from what the system knows (see generateWrapperPdf)
+ * and saves its link in "Wrapper PO PDF URL". Returns the link.
+ */
+function opsBuildPo_(sheet, row) {
+  var f = getRowFields(sheet, row, ['Tracker ID', 'Date Logged', 'Institution / Customer', 'CRE Name', 'Total Order Value',
+    'Advance Received', 'Customer Requested Delivery Date', 'Priority Level', 'Payment Terms Type', 'State', 'District',
+    'Pincode', 'Dispatch Type', 'Verified By', 'Verified Date', 'Verification Code', 'Bank Reference / UTR',
+    'Picked Up By', 'Received by Ops Timestamp', 'Ops Cutover']);
+  var id = String(f['Tracker ID']);
+  var total = Number(f['Total Order Value']) || 0, advance = Number(f['Advance Received']) || 0;
+  var pct = total > 0 ? Math.round((advance / total) * 1000) / 10 : 0;
+  var pickedAt = opsFmt_(f['Received by Ops Timestamp']);
+  var url = generateWrapperPdf(id, f['Date Logged'], String(f['Institution / Customer'] || ''), String(f['CRE Name'] || ''), total, advance, pct,
+    f['Customer Requested Delivery Date'] || '', f['Priority Level'] === 'High' ? 'High' : 'Normal', f['Payment Terms Type'] || 'End Customer',
+    f['State'], f['District'], f['Pincode'], getOrderLineItems_(id), normalizeDispatchType_(f['Dispatch Type']), {
+      verifiedBy: String(f['Verified By'] || ''),
+      verifiedAt: opsFmt_(f['Verified Date']),
+      verificationCode: String(f['Verification Code'] || ''),
+      utr: String(f['Bank Reference / UTR'] || ''),
+      pickedUpBy: String(f['Picked Up By'] || '') || (String(f['Ops Cutover'] || '').toUpperCase() === 'Y' ? 'With Ops at go-live' : ''),
+      pickedUpAt: pickedAt
+    });
+  setRowFields(sheet, row, { 'Wrapper PO PDF URL': url });
+  return url;
+}
+
+/** Ops: make (or re-make) the PO for an order already picked up. form = { trackerId } */
+function preparePo_(form) {
+  opsAssertLive_();
+  var sheet = getSheet();
+  var row = resolveTrackerId(sheet, String((form && form.trackerId) || ''));
+  if (row === -1) throw new Error('Order not found.');
+  var f = getRowFields(sheet, row, ['Tracker ID', 'Status', 'Received by Ops Timestamp', 'Ops Cutover']);
+  if (!opsIsAcked_(f['Received by Ops Timestamp'], f['Ops Cutover'])) throw new Error('Pick the order up first.');
+  if (f['Status'] === 'Cancelled') throw new Error('This order has been cancelled.');
+  return { trackerId: String(f['Tracker ID']), wrapperPdfUrl: opsBuildPo_(sheet, row) };
+}
+
+// ================================================================
+// Accounts -- gate passes Ops has asked for (pop-up from the top tile)
+// ================================================================
+/** Every order at "Vehicle Confirmed", with what Accounts needs to issue the gate pass in one place. */
+function getGatePassQueue_() {
+  var data = opsReadOrders_();
+  var items = {};
+  data.rows.forEach(function (o) {
+    if (String(o.get('Status')) !== 'Vehicle Confirmed') return;
+    var id = String(o.get('Tracker ID'));
+    var terms = String(o.get('Payment Terms Type') || 'End Customer');
+    var balance = computeBalanceDue(o.get('Total Order Value'), o.get('Advance Received'));
+    var approved = balance > 0 && terms === 'End Customer' ? isPaymentExceptionApproved_(id, PX_DISPATCH) : false;
+    var pending = (typeof pendingRequestFor_ === 'function') ? pendingRequestFor_(id) : null;
+    items[id.toLowerCase()] = {
+      trackerId: id,
+      institution: String(o.get('Institution / Customer') || ''),
+      location: [o.get('District'), o.get('State')].filter(function (x) { return String(x || '').trim(); }).join(', '),
+      priority: o.get('Priority Level') === 'High' ? 'High' : 'Normal',
+      vehicleNo: String(o.get('Vehicle No.') || ''),
+      requestedBy: String(o.get('Gate Pass Requested By') || ''),
+      requestedAt: opsFmt_(o.get('Vehicle Confirmed Timestamp')),
+      requestedAtMs: opsMs_(o.get('Vehicle Confirmed Timestamp')),
+      paymentTerms: terms,
+      balanceDue: balance,
+      blocked: terms === 'End Customer' && balance > 0 && !approved,
+      approvedBalanceNote: approved ? 'Dispatch with \u20b9' + formatAmount(balance) + ' due was approved \u2013 the gate pass carries the note.' : '',
+      poBalanceNote: terms === 'PO Customer' && balance > 0 ? '\u20b9' + formatAmount(balance) + ' balance allowed under the customer\u2019s own PO \u2013 noted on the gate pass.' : '',
+      pending: pending ? pending.label + ' (waiting for ' + pending.waitingFor + ')' : '',
+      products: []
+    };
+  });
+  if (Object.keys(items).length) {
+    getAllLineItems_().forEach(function (it) {
+      var k = String(it.trackerId).toLowerCase();
+      if (items[k]) items[k].products.push({ product: it.product, quantity: it.quantity });
+    });
+  }
+  var out = Object.keys(items).map(function (k) { return items[k]; });
+  out.sort(function (a, b) {
+    if (a.priority !== b.priority) return a.priority === 'High' ? -1 : 1;
+    return (a.requestedAtMs || 0) - (b.requestedAtMs || 0);
+  });
+  return out;
 }
 
 /**
@@ -937,6 +1026,8 @@ function opsApiMap_() {
     acknowledgeOrder: { fn: acknowledgeOrder_, roles: OPS, log: 'Acknowledged & picked up' },
     requestGatePass:  { fn: requestGatePass_,  roles: OPS, log: 'Requested gate pass' },
     recordPosting:    { fn: recordPosting_,    roles: OPS, log: 'Recorded postal dispatch' },
+    preparePo:        { fn: preparePo_,        roles: OPS, log: 'Prepared PO' },
+    getGatePassQueue: { fn: getGatePassQueue_, roles: ['Accounts'] },
     setStandbyDirect: { fn: setStandbyDirect_, roles: ['Director'], log: 'Put order on standby directly' }
   };
 }

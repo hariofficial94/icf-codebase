@@ -789,6 +789,8 @@ function appendSectionTable(body, heading, rows) {
   hp.editAsText().setBold(true).setFontSize(11).setForegroundColor('#2E74B5');
   hp.setSpacingBefore(10).setSpacingAfter(4);
 
+  // appendTable only takes text -- a pincode or quantity read from the sheet can be a number.
+  rows = rows.map(function (r) { return r.map(function (c) { return c == null ? '' : String(c); }); });
   var table = body.appendTable(rows);
   table.setBorderWidth(0.5);
   table.setColumnWidth(0, 220);
@@ -800,6 +802,7 @@ function appendSectionTable(body, heading, rows) {
     var valuePara = table.getCell(i, 1).getChild(0).asParagraph();
     valuePara.editAsText().setBold(false).setFontSize(9.5);
   }
+  return table;
 }
 
 // ================================================================
@@ -932,13 +935,10 @@ function submitOrder_(form) {
 
   writeLineItems(trackerId, lineItems);
 
-  var pdfUrl = generateWrapperPdf(trackerId, dateLogged, form.institution, form.creName, total, advance, advancePct, form.requestedDeliveryDate, priority, paymentTermsType, form.state, form.district, form.pincode, lineItems, dispatchType);
-
-  // Saved so the PDF can be reprinted later from the Look Up screen without
-  // regenerating it -- see the AR/AS note in the column layout comment above.
-  setRowFields(sheet, newRow, { 'Wrapper PO PDF URL': pdfUrl });
-
-  return { trackerId: trackerId, advancePct: advancePct, pdfUrl: pdfUrl, priority: priority, dispatchType: dispatchType };
+  // Ops login (Oct 2026): no PDF at intake any more -- nobody prints here. The
+  // Wrapper PO is generated when Ops picks the order up, with the payment
+  // verification and pick-up filled in by the system (opsBuildPo_, Ops.gs).
+  return { trackerId: trackerId, advancePct: advancePct, priority: priority, dispatchType: dispatchType };
 }
 
 /** Writes the AJ (verification-to-pickup) and AK (total cycle) formulas into one row. */
@@ -1038,7 +1038,17 @@ function lookupPincodeFromApi(trimmed) {
   }
 }
 
-function generateWrapperPdf(trackerId, dateLogged, institution, creName, total, advance, advancePct, requestedDeliveryDate, priority, paymentTermsType, state, district, pincode, lineItems, dispatchType) {
+/**
+ * The Internal PO (Wrapper) that Ops prints. Since the Ops login (Oct 2026)
+ * it is generated when Ops picks the order up (opsBuildPo_ in Ops.gs), so
+ * everything the system already knows is printed rather than hand-written:
+ * who verified the payment and when, the verification code, the UTR, and
+ * who picked it up and when. The order value is NOT printed -- only the
+ * advance as a % of it. sys = { verifiedBy, verifiedAt, verificationCode,
+ * utr, pickedUpBy, pickedUpAt } (all strings).
+ */
+function generateWrapperPdf(trackerId, dateLogged, institution, creName, total, advance, advancePct, requestedDeliveryDate, priority, paymentTermsType, state, district, pincode, lineItems, dispatchType, sys) {
+  sys = sys || {};
   var isCourier = dispatchType === DISPATCH_COURIER;
   var folder = getOrCreateFolder(PDF_FOLDER_NAME);
   var safeName = sanitizeForFilename(trackerId);
@@ -1066,10 +1076,16 @@ function generateWrapperPdf(trackerId, dateLogged, institution, creName, total, 
   h.setSpacingAfter(4);
 
   var sub = body.appendParagraph(
-    'To be created by the CRE at intake. Product/pricing detail is not re-entered here \u2013 see attached CRM-generated PO.'
+    'Printed by Operations from the ICF Order Tracker when the order was picked up. Every field below comes from the system – nothing to fill by hand except remarks.'
   );
   sub.editAsText().setItalic(true).setFontSize(9).setForegroundColor('#595959');
-  sub.setSpacingAfter(14);
+  sub.setSpacingAfter(10);
+
+  if (sys.verificationCode) {
+    var codeLine = body.appendParagraph('Verification code: ' + sys.verificationCode);
+    codeLine.editAsText().setBold(true).setFontSize(16).setForegroundColor('#1F3864');
+    codeLine.setSpacingAfter(6);
+  }
 
   var deliveryDateStr = requestedDeliveryDate
     ? Utilities.formatDate(new Date(requestedDeliveryDate), Session.getScriptTimeZone(), 'dd-MMM-yyyy')
@@ -1077,7 +1093,7 @@ function generateWrapperPdf(trackerId, dateLogged, institution, creName, total, 
 
   appendSectionTable(body, '1. Order Reference', [
     ['Tracker ID', trackerId],
-    ['Date', Utilities.formatDate(dateLogged, Session.getScriptTimeZone(), 'dd-MMM-yyyy')],
+    ['Date', dateLogged instanceof Date ? Utilities.formatDate(dateLogged, Session.getScriptTimeZone(), 'dd-MMM-yyyy') : String(dateLogged || '')],
     ['Institution / Customer Name', institution],
     ['CRE Name', creName],
     ['Location (District, State)', [district, state].filter(function (v) { return v; }).join(', ')],
@@ -1085,46 +1101,31 @@ function generateWrapperPdf(trackerId, dateLogged, institution, creName, total, 
     ['Customer Requested Delivery Date', deliveryDateStr],
     ['Priority Level', priority],
     ['Dispatch Type', isCourier ? 'Courier / Post (packet)' : 'Vehicle'],
-    ['Payment Terms', paymentTermsType === 'PO Customer' ? 'PO Customer \u2013 partial/deferred payment allowed' : 'End Customer \u2013 full payment required before dispatch']
+    ['Payment Terms', paymentTermsType === 'PO Customer' ? 'PO Customer – partial/deferred payment allowed' : 'End Customer – full payment required before dispatch']
   ]);
 
-  appendSectionTable(body, '2. Order Items', (lineItems || []).map(function (it) {
-    return [it.product, String(it.quantity) + (Number(it.quantity) === 1 ? ' unit' : ' units')];
+  appendSectionTable(body, '2. Order Items', (lineItems && lineItems.length ? lineItems : [{ product: 'No products on record', quantity: '' }]).map(function (it) {
+    return [String(it.product), it.quantity === '' ? '' : String(it.quantity) + (Number(it.quantity) === 1 ? ' unit' : ' units')];
   }));
 
-  appendSectionTable(body, '3. Order Value', [
-    ['Total Order Value (Rs.)', formatAmount(total)],
-    ['Advance Received (Rs.)', formatAmount(advance)],
-    ['Advance as % of Total', advancePct + '%']
+  var payTable = appendSectionTable(body, '3. Payment Verification (from the system)', [
+    ['Advance received (% of order value)', advancePct + '%'],
+    ['Payment verified by', sys.verifiedBy || ''],
+    ['Verified on', sys.verifiedAt || ''],
+    ['Verification Code', sys.verificationCode || ''],
+    ['Bank Reference / UTR No.', sys.utr || '']
+  ]);
+  try { payTable.getCell(3, 1).getChild(0).asParagraph().editAsText().setBold(true).setFontSize(12).setForegroundColor('#1F3864'); } catch (e) { /* styling only */ }
+
+  appendSectionTable(body, isCourier ? '4. Operations (from the system)' : '4. Operations Handoff (from the system)', [
+    ['Picked up by (Operations)', sys.pickedUpBy || ''],
+    ['Picked up at', sys.pickedUpAt || ''],
+    [isCourier ? 'Posting' : 'Vehicle, site readiness & gate pass',
+     isCourier ? 'Courier, tracking no. and receipt photo are recorded on the Operations page.'
+               : 'Recorded on the Operations page when the gate pass is requested.']
   ]);
 
-  appendSectionTable(body, '4. Attachments (staple behind this sheet)', [
-    ['Attachments', '[ ] CRM-generated PO      [ ] Original institution-side PO']
-  ]);
-
-  appendSectionTable(body, '5. Payment Verification (filled by Accounts)', [
-    ['Payment Verified By', ''],
-    ['Verification Code (from Accounts Verification tool)', ''],
-    ['Bank Reference / UTR No.', ''],
-    ['Accounts Seal / Sign-off', '']
-  ]);
-
-  if (isCourier) {
-    appendSectionTable(body, '6. Postal Dispatch (filled by ops personnel, by hand)', [
-      ['Packet picked up by Operations \u2013 Sign & Time', ''],
-      ['Posted via (Post office / Courier name)', ''],
-      ['Tracking / Consignment No. (from receipt)', ''],
-      ['Postal receipt handed to CRE \u2013 CRE Sign & Time', '']
-    ]);
-  } else {
-    appendSectionTable(body, '6. Operations Handoff (filled by ops personnel, by hand)', [
-      ['Received by Operations \u2013 Sign & Time', ''],
-      ['Vehicle No. (filled on dispatch)', ''],
-      ['Site Readiness Confirmed (Y/N, Date, By)', '']
-    ]);
-  }
-
-  appendSectionTable(body, '7. Remarks', [
+  appendSectionTable(body, '5. Remarks', [
     ['Remarks / Linked Tracker ID', '']
   ]);
 

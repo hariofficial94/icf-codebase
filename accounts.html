@@ -180,7 +180,7 @@
         <button type="button" class="link-btn" id="noAdvanceLink">Customer hasn’t paid anything? Request approval to proceed without an advance</button>
         <div class="error" id="errVerify"></div>
         <div class="result" id="resultVerify">
-          <div style="font-size:13px; color:#333;">Verification Code – Ops is shown it to write on the PO they print:</div>
+          <div style="font-size:13px; color:#333;">Verification Code – printed on the PO when Ops picks the order up:</div>
           <div class="code" id="resultCode"></div>
           <div style="font-size:12px; color:#595959; margin-top:6px;" id="resultVerifyNote"></div>
         </div>
@@ -1116,5 +1116,6 @@
   <?!= include('excess_accounts'); ?>
   <?!= include('lock_accounts'); ?>
   <?!= include('cancel_accounts'); ?>
+  <?!= include('gatepass_accounts'); ?>
 </body>
 </html>

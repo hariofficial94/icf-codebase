@@ -1,7 +1,11 @@
 <!--
   "Put an order on standby" for Admins and Directors (Oct 2026). Pulled in by
-  admin.html and dashboard.html as the LAST line before </body>. Adds one
-  card, shown only to an Admin or a Director. No request or approval step:
+  admin.html and dashboard.html as the LAST line before </body>.
+    Admin page: one card under the page header.
+    Dashboard: no card -- a "Standby" button on each eligible order in the
+      tile pop-ups opens this form in a small pop-up
+      (window.ICF_OPEN_STANDBY(trackerId), called from dashboard.html).
+  Shown only to an Admin or a Director. No request or approval step:
   the order goes on standby straight away (setStandbyDirect_ in Ops.gs);
   Ops, Accounts and the CRE are told. Self-contained styles, so it looks the
   same on both pages.
@@ -25,6 +29,10 @@
   .sd-msg.ok { background: #e7f4ea; color: #2c5a1e; }
   .sd-msg.err { background: #fdecee; color: #B00020; }
   .sd-msg.warn { background: #fff4e5; color: #7a5300; }
+  .sd-overlay { display: none; position: fixed; inset: 0; background: rgba(20,30,45,0.45); z-index: 1200; align-items: flex-start; justify-content: center; padding: 50px 16px; overflow-y: auto; }
+  .sd-overlay.show { display: flex; }
+  .sd-overlay .sd-card { display: block; width: 100%; max-width: 560px; margin: 0; position: relative; }
+  .sd-x { position: absolute; top: 10px; right: 12px; background: none !important; border: none !important; color: #888 !important; font-size: 20px !important; padding: 2px 8px !important; }
 </style>
 <script>
 (function () {
@@ -48,12 +56,25 @@
     '</div>' +
     '<div class="sd-msg" id="sdMsg"></div>';
 
-  // Admin page: under the page header. Dashboard: above the data, next to the directors' panel.
-  var anchor = document.getElementById('loadingState');
-  var firstCard = document.querySelector('.wrap > .card');
-  if (window.ICF_PAGE === 'dashboard' && anchor && anchor.parentNode) anchor.parentNode.insertBefore(card, anchor);
-  else if (firstCard && firstCard.parentNode) firstCard.parentNode.insertBefore(card, firstCard.nextSibling);
-  else document.body.appendChild(card);
+  var MODAL = window.ICF_PAGE === 'dashboard';
+  var overlay = null;
+  if (MODAL) {
+    // Dashboard: the form lives in a pop-up, opened from an order in a tile's list.
+    overlay = document.createElement('div');
+    overlay.className = 'sd-overlay';
+    overlay.appendChild(card);
+    document.body.appendChild(overlay);
+    var x = document.createElement('button');
+    x.type = 'button'; x.className = 'sd-x'; x.innerHTML = '&times;';
+    card.appendChild(x);
+    x.addEventListener('click', function () { overlay.classList.remove('show'); });
+    overlay.addEventListener('click', function (e) { if (e.target === overlay) overlay.classList.remove('show'); });
+    card.querySelector('.sd-row').style.display = 'none'; // the order is already chosen
+  } else {
+    var firstCard = document.querySelector('.wrap > .card');
+    if (firstCard && firstCard.parentNode) firstCard.parentNode.insertBefore(card, firstCard.nextSibling);
+    else document.body.appendChild(card);
+  }
 
   var order = null;
   function msg(text, kind) { var m = document.getElementById('sdMsg'); m.innerHTML = text; m.className = 'sd-msg show ' + (kind || 'err'); }
@@ -119,16 +140,30 @@
         msg('On standby until <b>' + esc(r.resume) + '</b> (' + esc(r.requestId) + '). Ops, Accounts and the CRE have been told.' +
           (r.overLimits && r.overLimits.length ? '<br>Note – this goes past the usual limits: ' + esc(r.overLimits.join('; ')) + '.' : ''), r.overLimits && r.overLimits.length ? 'warn' : 'ok');
         order = null;
-        if (typeof window.ICF_RELOAD === 'function') { try { window.ICF_RELOAD(); } catch (e) {} }
+        if (MODAL && typeof window.ICF_AFTER_STANDBY === 'function') { try { window.ICF_AFTER_STANDBY(r); } catch (e) {} }
+        else if (typeof window.ICF_RELOAD === 'function') { try { window.ICF_RELOAD(); } catch (e) {} }
       })
       .withFailureHandler(function (e) { btn.disabled = false; btn.textContent = 'Put on standby now'; msg(esc(e.message)); })
       .setStandbyDirect(form);
   });
 
-  function showFor(staff) { card.classList.toggle('show', !!(staff && (staff.role === 'Admin' || staff.role === 'Director'))); }
+  function allowed(staff) { return !!(staff && (staff.role === 'Admin' || staff.role === 'Director')); }
+  function showFor(staff) { if (!MODAL) card.classList.toggle('show', allowed(staff)); }
   document.addEventListener('icf-signed-in', function (e) { showFor(e.detail); });
   if (window.ICF_STAFF) showFor(window.ICF_STAFF);
   var prevClear = window.ICF_CLEAR;
-  window.ICF_CLEAR = function () { if (typeof prevClear === 'function') prevClear(); card.classList.remove('show'); order = null; };
+  window.ICF_CLEAR = function () { if (typeof prevClear === 'function') prevClear(); card.classList.remove('show'); if (overlay) overlay.classList.remove('show'); order = null; };
+
+  /** Dashboard: open the standby form for one order. */
+  window.ICF_CAN_SET_STANDBY = function () { return allowed(window.ICF_STAFF); };
+  window.ICF_OPEN_STANDBY = function (trackerId) {
+    if (!overlay || !allowed(window.ICF_STAFF)) return;
+    clearMsg();
+    document.getElementById('sdForm').style.display = 'none';
+    document.getElementById('sdOrder').className = 'sd-order';
+    document.getElementById('sdQ').value = trackerId;
+    overlay.classList.add('show');
+    find();
+  };
 })();
 </script>

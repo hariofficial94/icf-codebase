@@ -229,10 +229,11 @@
 
     function acknowledge(id, btn) {
       if (!confirm('Pick up ' + id + ' now?\n\nThe system records this moment as your pick-up time.')) return;
-      if (btn) { btn.disabled = true; btn.textContent = 'Saving...'; }
+      if (btn) { btn.disabled = true; btn.textContent = 'Picking up \u2013 preparing the PO...'; }
       authRun()
         .withSuccessHandler(function (r) {
-          toast('Picked up at ' + r.pickedUpAt + '. Print the PO now.');
+          if (r.poError) toast('Picked up at ' + r.pickedUpAt + '. ' + r.poError, true);
+          else toast('Picked up at ' + r.pickedUpAt + '. The PO is ready to print.');
           loadQueue();
           openOrder(r.trackerId);
         })
@@ -277,14 +278,17 @@
 
       // Actions first -- that's what Ops opens the order for.
       if (o.status === 'Sent to Ops' && !o.acked) {
-        h += '<div class="panel"><h2>Pick it up</h2><div class="hint" style="margin-top:0;">Tap when you start on this order. The system records the time, then the PO print unlocks.</div>' +
+        h += '<div class="panel"><h2>Pick it up</h2><div class="hint" style="margin-top:0;">Tap when you start on this order. The system records the time and prepares the PO with the payment verification and your pick-up printed on it.</div>' +
           '<div class="acts" style="display:flex;margin-top:12px;"><button type="button" class="btn green" id="ackBtn">Acknowledge &amp; pick up</button></div></div>';
       }
       if (o.acked && (o.status === 'Sent to Ops' || o.status === 'On Hold - Site Not Ready' || o.status === 'Vehicle Confirmed')) {
         h += '<div class="panel"><h2>Internal PO</h2>' +
-          (o.wrapperPdfUrl ? '<a class="print" href="' + esc(o.wrapperPdfUrl) + '" target="_blank">Print PO (PDF)</a>' : '<div class="hint">No PO file on record – ask the CRE.</div>') +
-          (o.verificationCode ? '<div class="code-box">Write this verification code on the printed PO<div class="code">' + esc(o.verificationCode) + '</div></div>' : '') +
-          '</div>';
+          (o.wrapperPdfUrl
+            ? '<a class="print" href="' + esc(o.wrapperPdfUrl) + '" target="_blank">Print PO (PDF)</a>' +
+              '<div style="text-align:center;margin-top:8px;"><button type="button" class="btn-ghost" id="poBtn">Make a fresh copy</button></div>'
+            : '<div style="display:flex;"><button type="button" class="btn" id="poBtn">Prepare PO</button></div>') +
+          (o.verificationCode ? '<div class="code-box">Verification code (printed on the PO)<div class="code">' + esc(o.verificationCode) + '</div></div>' : '') +
+          '<div class="err" id="poErr"></div></div>';
       }
       if (o.status === 'Sent to Ops' && o.acked && o.dispatchType !== 'Courier') h += gatePassForm(o);
       if (o.status === 'Sent to Ops' && o.acked && o.dispatchType === 'Courier') h += postingForm(o);
@@ -379,6 +383,17 @@
     function bindOrder(o) {
       var ackBtn = document.getElementById('ackBtn');
       if (ackBtn) ackBtn.addEventListener('click', function () { acknowledge(o.trackerId, ackBtn); });
+
+      var poBtn = document.getElementById('poBtn');
+      if (poBtn) poBtn.addEventListener('click', function () {
+        hideErr('poErr');
+        var label = poBtn.textContent;
+        poBtn.disabled = true; poBtn.textContent = 'Preparing the PO...';
+        authRun()
+          .withSuccessHandler(function () { toast('The PO is ready to print.'); openOrder(o.trackerId); })
+          .withFailureHandler(function (e) { poBtn.disabled = false; poBtn.textContent = label; showErr('poErr', e.message); })
+          .preparePo({ trackerId: o.trackerId });
+      });
 
       // Gate pass
       Array.prototype.forEach.call(document.querySelectorAll('input[name=gpSite]'), function (r) {

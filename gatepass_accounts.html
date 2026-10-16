@@ -1,0 +1,184 @@
+<!--
+  Gate passes from the top tile (Oct 2026). Pulled in by accounts.html as the
+  LAST line before </body>. Makes the "Gate Passes Requested" tile clickable:
+  it turns red while Ops is waiting, and opens a pop-up listing every gate
+  pass Ops has asked for, each with the e-way bill form right there -- no
+  scrolling to Needs Action. Uses getGatePassQueue_ (Ops.gs) and the same
+  submitDispatch_ as the main page. An order that is blocked (end customer
+  with a balance and no approval) opens in the main look-up instead, where
+  "Request admin approval" lives.
+-->
+<style>
+  .gp-tile { cursor: pointer; transition: box-shadow 0.15s, transform 0.15s; }
+  .gp-tile:hover { box-shadow: 0 4px 16px rgba(31,56,100,0.18); transform: translateY(-1px); }
+  .gp-tile .gp-hint { font-size: 10.5px; color: #2E74B5; font-weight: 700; margin-top: 4px; }
+  .gp-tile.alert { box-shadow: 0 0 0 2px #B00020 inset, 0 2px 10px rgba(0,0,0,0.08); }
+  .gp-overlay { display: none; position: fixed; inset: 0; background: rgba(20,30,45,0.45); z-index: 1100; align-items: flex-start; justify-content: center; padding: 40px 16px; overflow-y: auto; }
+  .gp-overlay.show { display: flex; }
+  .gp-box { background: #fff; border-radius: 8px; width: 100%; max-width: 620px; max-height: 88vh; display: flex; flex-direction: column; box-shadow: 0 8px 30px rgba(0,0,0,0.25); }
+  .gp-head { display: flex; justify-content: space-between; align-items: center; padding: 16px 18px; border-bottom: 1px solid #e5e5e5; }
+  .gp-head h3 { margin: 0; font-size: 14px; color: #1F3864; text-transform: uppercase; letter-spacing: 0.03em; }
+  .gp-head button { width: auto; margin: 0; padding: 2px 8px; background: transparent; color: #888; font-size: 20px; border: none; cursor: pointer; }
+  .gp-body { padding: 14px 18px 18px; overflow-y: auto; }
+  .gp-empty { font-size: 13px; color: #888; font-style: italic; padding: 14px 0; text-align: center; }
+  .gp-item { border: 1px solid #e0e0e0; border-left: 4px solid #2E74B5; border-radius: 6px; padding: 12px 14px; margin-bottom: 12px; background: #fafbfc; }
+  .gp-item.high { border-left-color: #B00020; }
+  .gp-item .t { display: flex; justify-content: space-between; gap: 8px; font-weight: 700; color: #1F3864; font-size: 14px; }
+  .gp-item .t .p { font-size: 11px; padding: 2px 7px; border-radius: 9px; background: #eef1f4; color: #1F3864; white-space: nowrap; height: fit-content; }
+  .gp-item .t .p.high { background: #B00020; color: #fff; }
+  .gp-item .m { font-size: 12.5px; color: #555; margin-top: 3px; line-height: 1.45; }
+  .gp-item .note { margin-top: 8px; font-size: 12px; padding: 6px 9px; border-radius: 4px; background: #fff4e5; color: #7a5300; }
+  .gp-item .note.bad { background: #fdecee; color: #B00020; }
+  .gp-item .acts { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+  .gp-item .acts button { width: auto; margin: 0; padding: 8px 14px; font-size: 12.5px; font-weight: 600; border-radius: 5px; cursor: pointer; border: 1px solid #1F3864; background: #1F3864; color: #fff; }
+  .gp-item .acts button.light { background: #fff; color: #1F3864; }
+  .gp-item .acts button:disabled { opacity: 0.6; cursor: not-allowed; }
+  .gp-form { display: none; margin-top: 10px; padding-top: 10px; border-top: 1px dashed #ddd; }
+  .gp-form.show { display: block; }
+  .gp-form label { display: block; font-size: 11.5px; font-weight: 700; color: #555; margin: 8px 0 3px; }
+  .gp-form input, .gp-form select { width: 100%; box-sizing: border-box; padding: 8px 10px; font-size: 13.5px; border: 1px solid #ccc; border-radius: 4px; background: #fff; }
+  .gp-form .row { display: flex; gap: 8px; }
+  .gp-form .row > div { flex: 1; min-width: 0; }
+  .gp-res { margin-top: 8px; font-size: 13px; display: none; padding: 8px 10px; border-radius: 4px; }
+  .gp-res.show { display: block; }
+  .gp-res.ok { background: #e7f4ea; color: #2c5a1e; }
+  .gp-res.err { background: #fdecee; color: #B00020; }
+  .gp-res a { color: #1F3864; font-weight: 700; }
+</style>
+
+<div class="gp-overlay" id="gpOverlay">
+  <div class="gp-box">
+    <div class="gp-head"><h3 id="gpTitle">Gate passes requested by Ops</h3><button type="button" id="gpClose">&times;</button></div>
+    <div class="gp-body" id="gpBody"></div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var valueEl = document.getElementById('statReadyDispatch');
+  if (!valueEl) return;
+  var tile = valueEl.parentNode;
+  tile.classList.add('gp-tile');
+  tile.title = 'Open the gate passes Ops has asked for';
+  var hint = document.createElement('div');
+  hint.className = 'gp-hint';
+  hint.textContent = 'Tap to issue';
+  tile.appendChild(hint);
+
+  // Red while anything is waiting -- follows the number the page already loads.
+  function syncAlert() {
+    var n = parseInt(valueEl.textContent, 10);
+    tile.classList.toggle('alert', n > 0);
+    hint.style.visibility = n > 0 ? 'visible' : 'hidden';
+  }
+  new MutationObserver(syncAlert).observe(valueEl, { childList: true, characterData: true, subtree: true });
+  syncAlert();
+
+  var overlay = document.getElementById('gpOverlay');
+  var body = document.getElementById('gpBody');
+  var ITEMS = [];
+  function esc(t) { return String(t == null ? '' : t).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+  function close() { overlay.classList.remove('show'); }
+  document.getElementById('gpClose').addEventListener('click', close);
+  overlay.addEventListener('click', function (e) { if (e.target === overlay) close(); });
+
+  function refreshPage() {
+    ['loadAccountsSummary', 'loadActionList', 'loadApprovals'].forEach(function (fn) {
+      if (typeof window[fn] === 'function') { try { window[fn](); } catch (e) {} }
+    });
+  }
+
+  function load() {
+    body.innerHTML = '<div class="gp-empty">Loading...</div>';
+    authRun()
+      .withSuccessHandler(function (items) { ITEMS = items || []; render(); })
+      .withFailureHandler(function (e) { body.innerHTML = '<div class="gp-empty">Could not load: ' + esc(e.message) + '</div>'; })
+      .getGatePassQueue();
+  }
+
+  function render() {
+    document.getElementById('gpTitle').textContent = 'Gate passes requested by Ops (' + ITEMS.length + ')';
+    if (!ITEMS.length) { body.innerHTML = '<div class="gp-empty">Nothing waiting. Ops hasn’t asked for any gate pass.</div>'; return; }
+    body.innerHTML = ITEMS.map(function (it, i) {
+      var desc = it.products.map(function (p) { return p.product; }).join('; ');
+      var qty = it.products.map(function (p) { return p.quantity; }).join(', ');
+      var blockedNote = it.blocked
+        ? '<div class="note bad">Blocked: end customer with ₹' + Number(it.balanceDue).toLocaleString('en-IN') + ' still due. Record the payment, or open the order to ask an admin to approve dispatch with the balance.</div>' : '';
+      var pendingNote = it.pending ? '<div class="note">Waiting for a decision: ' + esc(it.pending) + '. Nothing can be done until it’s decided.</div>' : '';
+      var okNote = (it.approvedBalanceNote || it.poBalanceNote) ? '<div class="note">' + esc(it.approvedBalanceNote || it.poBalanceNote) + '</div>' : '';
+      var canIssue = !it.blocked && !it.pending;
+      return '<div class="gp-item' + (it.priority === 'High' ? ' high' : '') + '" data-i="' + i + '">' +
+        '<div class="t"><span>' + esc(it.institution) + '</span><span class="p' + (it.priority === 'High' ? ' high' : '') + '">' + (it.priority === 'High' ? 'HIGH' : 'Normal') + '</span></div>' +
+        '<div class="m">' + esc(it.trackerId) + (it.location ? ' · ' + esc(it.location) : '') + '<br>' +
+          'Vehicle <b>' + esc(it.vehicleNo || '–') + '</b> · asked by ' + esc(it.requestedBy || 'Ops') + (it.requestedAt ? ' at ' + esc(it.requestedAt) : '') +
+          (desc ? '<br>' + it.products.map(function (p) { return esc(p.quantity) + ' × ' + esc(p.product); }).join(', ') : '') + '</div>' +
+        blockedNote + pendingNote + okNote +
+        '<div class="acts">' +
+          (canIssue ? '<button type="button" class="go">Issue gate pass</button>' : '') +
+          '<button type="button" class="light open">Open full order</button>' +
+        '</div>' +
+        (canIssue ? '<div class="gp-form">' +
+          '<label>E-way Bill No.</label><input type="text" class="f-eway">' +
+          '<div class="row"><div><label>Item description</label><input type="text" class="f-desc" value="' + esc(desc) + '"></div>' +
+          '<div style="flex:0 0 110px;"><label>Quantity</label><input type="text" class="f-qty" value="' + esc(qty) + '"></div></div>' +
+          '<div class="row"><div><label>Transport mode</label><select class="f-mode"><option value="ICF Vehicle">ICF Vehicle</option><option value="Third-Party Courier">Third-Party Courier</option></select></div>' +
+          '<div><label>Transporter (if third-party)</label><input type="text" class="f-courier"></div></div>' +
+          '<label>Tracking / consignment no. (if known now)</label><input type="text" class="f-track">' +
+          '<div class="acts"><button type="button" class="issue">Generate gate pass</button></div>' +
+        '</div>' : '') +
+        '<div class="gp-res"></div>' +
+      '</div>';
+    }).join('');
+
+    Array.prototype.forEach.call(body.querySelectorAll('.gp-item'), function (el) {
+      var it = ITEMS[Number(el.getAttribute('data-i'))];
+      var res = el.querySelector('.gp-res');
+      el.querySelector('.open').addEventListener('click', function () {
+        close();
+        if (typeof trackerIdInput !== 'undefined' && typeof lookupBtn !== 'undefined') {
+          trackerIdInput.value = it.trackerId;
+          lookupBtn.click();
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+      });
+      var go = el.querySelector('.go');
+      if (go) go.addEventListener('click', function () {
+        el.querySelector('.gp-form').classList.add('show');
+        go.style.display = 'none';
+        el.querySelector('.f-eway').focus();
+      });
+      var issue = el.querySelector('.issue');
+      if (issue) issue.addEventListener('click', function () {
+        res.className = 'gp-res';
+        var eway = el.querySelector('.f-eway').value.trim();
+        if (!eway) { res.textContent = 'Enter the E-way Bill No.'; res.className = 'gp-res show err'; return; }
+        issue.disabled = true; issue.textContent = 'Generating...';
+        authRun()
+          .withSuccessHandler(function (r) {
+            el.querySelector('.gp-form').classList.remove('show');
+            el.querySelector('.acts').style.display = 'none';
+            res.innerHTML = 'Gate pass <b>' + esc(r.gatePassNo) + '</b> issued. <a href="' + esc(r.pdfUrl) + '" target="_blank">Open / print the gate pass</a>';
+            res.className = 'gp-res show ok';
+            refreshPage();
+          })
+          .withFailureHandler(function (e) {
+            issue.disabled = false; issue.textContent = 'Generate gate pass';
+            res.textContent = e.message; res.className = 'gp-res show err';
+          })
+          .submitDispatch({
+            trackerId: it.trackerId, ewayBillNo: eway,
+            itemDescription: el.querySelector('.f-desc').value.trim(),
+            itemQty: el.querySelector('.f-qty').value.trim(),
+            transportMode: el.querySelector('.f-mode').value,
+            courierName: el.querySelector('.f-courier').value.trim(),
+            trackingNo: el.querySelector('.f-track').value.trim()
+          });
+      });
+    });
+  }
+
+  tile.addEventListener('click', function () { overlay.classList.add('show'); load(); });
+  var prevClear = window.ICF_CLEAR;
+  window.ICF_CLEAR = function () { if (typeof prevClear === 'function') prevClear(); close(); ITEMS = []; };
+})();
+</script>
