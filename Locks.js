@@ -42,15 +42,24 @@ function pendingRequestFor_(trackerId) {
       }
     });
   }
+  // Cancellation request raised by a CRE (Oct 2026, Cancellations.gs).
+  if (typeof cxPendingFor_ === 'function') {
+    var cx = cxPendingFor_(trackerId);
+    if (cx) hits.push(cx);
+  }
   if (!hits.length) return null;
   var h = hits[0];
   h.requestedAt = h.requestedAtMs ? Utilities.formatDate(new Date(h.requestedAtMs), Session.getScriptTimeZone(), 'dd-MMM, hh:mm a') : '';
   return h;
 }
 
-/** Throws if the order at this row has a request waiting. */
+/** Throws if the order at this row has a request waiting -- or has been cancelled (Oct 2026). */
 function assertNoPendingRequest_(sheet, row) {
-  var id = getRowFields(sheet, row, ['Tracker ID'])['Tracker ID'];
+  var rf = getRowFields(sheet, row, ['Tracker ID', 'Status']);
+  var id = rf['Tracker ID'];
+  if (rf['Status'] === 'Cancelled') {
+    throw new Error('This order has been cancelled, so nothing more can be done on it. Any refund is under "Refunds to process".');
+  }
   var p = pendingRequestFor_(id);
   if (p) {
     throw new Error('This order is waiting for ' + p.waitingFor + ' to decide "' + p.label + '" (' + p.requestId + ', asked by ' +
@@ -69,7 +78,11 @@ function withdrawRequest_(form) {
   lock.waitLock(20000);
   var out;
   try {
-    if (id.indexOf('SB-') === 0) {
+    if (id.indexOf('CX-') === 0) {
+      lock.releaseLock(); // withdrawCancellation_ takes the lock itself
+      var cxOut = withdrawCancellation_({ requestId: id }); // only the CRE who raised it, or an Admin
+      return { requestId: id, trackerId: cxOut.trackerId, label: 'Cancellation' };
+    } else if (id.indexOf('SB-') === 0) {
       var list = readStandby_();
       var s = sbFind_(list, id);
       if (!s) throw new Error('Request not found.');

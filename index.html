@@ -819,6 +819,8 @@
       var rows = [];
       if (t.enquiryDate) rows.push(['Date of Enquiry', t.enquiryDate]);
       if (t.advancePaymentVerifiedDate) rows.push(['Advance Payment Verified', t.advancePaymentVerifiedDate]);
+      if (t.verifiedBy) rows.push(['Verified By', t.verifiedBy]);
+      if (t.verificationCode) rows.push(['Verification Code', t.verificationCode]);
       rows.push(['Total Order Value', '\u20b9' + Number(t.totalOrderValue).toLocaleString('en-IN')]);
       rows.push(['Advance Received', '\u20b9' + Number(t.advanceReceived).toLocaleString('en-IN')]);
       if (t.fullPaymentDate) {
@@ -833,6 +835,8 @@
       if (t.ewayBillNo) rows.push(['E-way Bill No.', t.ewayBillNo]);
       if (t.transportMode) rows.push(['Mode of Dispatch', t.transportMode + (t.courierName ? ' \u2013 ' + t.courierName : '')]);
       if (t.dispatchType === 'Courier' && t.trackingNo) rows.push(['Tracking No.', t.trackingNo]);
+      if (t.cancelledDate) rows.push(['Order Cancelled', t.cancelledDate + (t.cancelledBy ? ' \u2013 ' + t.cancelledBy : '')]);
+      if (t.refundStatus) rows.push(['Refund', t.refundStatus + (t.refundAmount ? ' \u2013 \u20b9' + Number(t.refundAmount).toLocaleString('en-IN') : '')]);
       if (t.deliveryDate) {
         rows.push(['Date of Delivery', t.deliveryDate]);
       } else if (t.deliveryStatus) {
@@ -916,6 +920,7 @@
     }
 
     function showOrder(order) {
+          window.ICF_CURRENT_ORDER = order; // read by cancel_cre (Oct 2026)
           lookupTrackerIdInput.value = order.trackerId; // normalize the box to the real Tracker ID, even if searched by phone or name
           details.innerHTML =
             '<div><b>Institution:</b> ' + order.institution + '</div>' +
@@ -960,6 +965,10 @@
           } else if (isDispatched(order.status)) {
             document.getElementById('closedMessage').textContent =
               'Closed \u2013 Delivery Status is "' + order.deliveryStatus + '". Nothing further to do here.';
+            document.getElementById('stageClosed').classList.add('show');
+          } else if (order.status === 'Cancelled') {
+            document.getElementById('closedMessage').textContent =
+              'This order has been cancelled. Any refund and its status are shown below and in the Order Timeline.';
             document.getElementById('stageClosed').classList.add('show');
           } else if (order.status === 'On Hold - Balance Due') {
             document.getElementById('closedMessage').textContent =
@@ -1369,5 +1378,6 @@
       window.scrollTo({ top: 0, behavior: 'smooth' });
     });
   </script>
+  <?!= include('cancel_cre'); ?>
 </body>
 </html>

@@ -1,0 +1,143 @@
+<!--
+  Order cancellations on the Admin page (Oct 2026). Pulled in by admin.html
+  with <?!= include('cancel_admin'); ?> as the LAST line before </body>.
+  Adds one card under the page header. Server side: Cancellations.gs.
+-->
+<style>
+  .cx-card { border-left: 4px solid #a33a32; }
+  .cx-card h2 { color: #a33a32; }
+  .cx-grid { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; margin-top: 10px; }
+  .cx-grid > div { display: flex; flex-direction: column; }
+  .cx-grid label { margin: 0 0 4px 0; font-size: 12px; }
+  .cx-grid input[type=number], .cx-grid input[type=date] { width: 160px; }
+  .cx-refund-toggle { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; color: #333; margin-top: 10px; cursor: pointer; }
+  .cx-refund-toggle input { width: auto; margin: 0; }
+  .cx-money { font-size: 12px; color: #555; margin-top: 4px; }
+  .cx-money b { color: #1F3864; }
+  .status.Processing { background: #e3edf8; color: #1F5FA8; }
+  .status.Processed { background: #e3f1dc; color: #2c5a1e; }
+  .status.Withdrawn, .status.NotRequired { background: #eee; color: #666; }
+  .cx-late { color: #B00020; font-weight: 700; }
+</style>
+
+<script>
+(function () {
+  function esc(t) { return String(t == null ? '' : t).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+  function inr(n) { return '₹' + Math.round(Number(n) || 0).toLocaleString('en-IN'); }
+  var focusId = String(window.ICF_REQ_ID || '');
+
+  var card = document.createElement('div');
+  card.className = 'card cx-card';
+  card.innerHTML =
+    '<h2>Order cancellations</h2>' +
+    '<div class="subtitle">CREs asking to cancel an order before dispatch. Approving marks the order Cancelled (it stays on file but leaves every list and total). If money was received, say whether it’s refunded, how much, and by when – Accounts is emailed the deadline.</div>' +
+    '<div id="cxPending" class="empty">Loading...</div>' +
+    '<h2 style="margin-top:18px;">Refunds with Accounts</h2>' +
+    '<div class="table-scroll" id="cxOpen"></div>' +
+    '<details><summary>Recent decisions</summary><div class="table-scroll" id="cxRecent"></div></details>' +
+    '<div class="actions"><button type="button" class="secondary" id="cxRefreshAdmin">&#8635; Refresh cancellations</button></div>';
+  var firstCard = document.querySelector('.wrap > .card');
+  if (firstCard && firstCard.parentNode) firstCard.parentNode.insertBefore(card, firstCard.nextSibling);
+
+  function render(d) {
+    var pending = d.pending.slice().sort(function (a, b) { return (b.requestId === focusId) - (a.requestId === focusId); });
+    var box = document.getElementById('cxPending');
+    if (!pending.length) {
+      box.className = 'empty';
+      box.textContent = focusId.indexOf('CX-') === 0 ? 'Request ' + focusId + ' has already been decided. Nothing waiting now.' : 'No cancellation requests waiting.';
+    } else {
+      box.className = '';
+      box.innerHTML = pending.map(function (r) {
+        var hasMoney = r.amountReceived > 0;
+        return '<div class="req' + (r.requestId === focusId ? ' focus' : '') + '" data-id="' + esc(r.requestId) + '" data-max="' + r.amountReceived + '">' +
+          '<div class="req-top"><div>' +
+            '<div class="req-title">Cancel – ' + esc(r.trackerId) + '</div>' +
+            '<div class="req-meta">' + esc(r.institution) + ' – CRE: ' + esc(r.ownerName) + '</div>' +
+            '<div class="req-meta">Asked by ' + esc(r.requestedByName) + ' (' + esc(r.requestedBy) + '), order at “' + esc(r.statusBefore) + '”</div>' +
+            '<div class="cx-money">Order value <b>' + inr(r.orderValue) + '</b> &middot; Received <b>' + inr(r.amountReceived) + '</b></div>' +
+          '</div><div class="req-when">' + esc(r.requestedAt) + '</div></div>' +
+          '<div class="req-reason">' + esc(r.reason) + '</div>' +
+          '<label class="cx-refund-toggle"><input type="checkbox" class="cx-refund"' + (hasMoney ? ' checked' : '') + '> Refund due to the customer</label>' +
+          '<div class="cx-grid cx-refund-fields"' + (hasMoney ? '' : ' style="display:none;"') + '>' +
+            '<div><label>Refund amount (&#8377;)</label><input type="number" class="cx-amt" min="1" max="' + r.amountReceived + '" value="' + (hasMoney ? r.amountReceived : '') + '"></div>' +
+            '<div><label>Accounts to refund by</label><input type="date" class="cx-deadline" min="' + esc(d.today) + '" value="' + esc(d.defaultDeadline) + '"></div>' +
+          '</div>' +
+          '<div class="cx-grid"><div style="flex:1 1 260px;"><label>Note (needed to decline)</label><input type="text" class="cx-note" style="width:100%;" placeholder="e.g. Deduct transport already booked"></div></div>' +
+          '<div class="actions"><button type="button" class="approve">Approve cancellation</button><button type="button" class="decline">Decline</button></div>' +
+          '<div class="msg"></div></div>';
+      }).join('');
+      Array.prototype.forEach.call(box.querySelectorAll('.req'), function (el) {
+        var chk = el.querySelector('.cx-refund');
+        chk.addEventListener('change', function () { el.querySelector('.cx-refund-fields').style.display = chk.checked ? '' : 'none'; });
+        el.querySelector('.approve').addEventListener('click', function () { decide(el, true); });
+        el.querySelector('.decline').addEventListener('click', function () { decide(el, false); });
+      });
+    }
+
+    document.getElementById('cxOpen').innerHTML = d.refundsOpen.length
+      ? '<table><tr><th>Order</th><th>Refund</th><th>Due by</th></tr>' + d.refundsOpen.map(function (r) {
+          var late = r.daysLeft !== null && r.daysLeft < 0;
+          return '<tr><td>' + esc(r.trackerId) + '<div class="sub">' + esc(r.institution) + '</div></td>' +
+            '<td>' + inr(r.refundAmount) + '<div class="sub">approved by ' + esc(r.decidedBy) + '</div></td>' +
+            '<td>' + esc(r.refundDeadline) + '<div class="sub' + (late ? ' cx-late' : '') + '">' +
+              (r.daysLeft === null ? '' : late ? (-r.daysLeft) + ' day(s) late' : r.daysLeft === 0 ? 'due today' : r.daysLeft + ' day(s) left') + '</div></td></tr>';
+        }).join('') + '</table>'
+      : '<div class="empty">No refunds waiting with Accounts.</div>';
+
+    document.getElementById('cxRecent').innerHTML = d.recent.length
+      ? '<table><tr><th>Order</th><th>Decision</th><th>Refund</th></tr>' + d.recent.map(function (r) {
+          var rs = r.refundStatus || '';
+          return '<tr><td>' + esc(r.trackerId) + '<div class="sub">' + esc(r.institution) + ' – ' + esc(r.requestedAt) + '</div></td>' +
+            '<td><span class="status ' + esc(r.status) + '">' + esc(r.status) + '</span><div class="sub">' + esc(r.decidedBy) + (r.adminNote ? ' – ' + esc(r.adminNote) : '') + '</div></td>' +
+            '<td>' + (rs && rs !== 'Not required'
+              ? '<span class="status ' + esc(rs) + '">' + esc(rs) + '</span> ' + inr(r.refundAmount) +
+                '<div class="sub">' + (rs === 'Processed' ? esc(r.refundProcessedAt) + ', UTR ' + esc(r.refundUtr) : 'due ' + esc(r.refundDeadline)) + '</div>'
+              : (r.status === 'Approved' ? '<span class="status NotRequired">None</span>' : '–')) + '</td></tr>';
+        }).join('') + '</table>'
+      : '<div class="empty">None yet.</div>';
+  }
+
+  function decide(el, approve) {
+    var m = el.querySelector('.msg');
+    var refund = el.querySelector('.cx-refund').checked;
+    var amt = el.querySelector('.cx-amt').value, dl = el.querySelector('.cx-deadline').value, note = el.querySelector('.cx-note').value.trim();
+    var showErr = function (t) { m.textContent = t; m.className = 'msg show err'; };
+    if (!approve && !note) { showErr('Add a note so the CRE knows why it’s declined.'); return; }
+    if (approve && refund) {
+      var max = Number(el.getAttribute('data-max')) || 0;
+      if (!(Number(amt) > 0)) { showErr('Enter the refund amount, or untick “Refund due”.'); return; }
+      if (Number(amt) > max + 0.5) { showErr('The refund can’t be more than the ' + inr(max) + ' received.'); return; }
+      if (!dl) { showErr('Pick the date Accounts must refund by.'); return; }
+    }
+    if (approve && !window.confirm('Cancel this order' + (refund ? ' and ask Accounts to refund ' + inr(amt) + '?' : ' with no refund?'))) return;
+    var btns = el.querySelectorAll('button');
+    Array.prototype.forEach.call(btns, function (b) { b.disabled = true; });
+    authRun()
+      .withSuccessHandler(function (res) {
+        m.textContent = res.declined ? 'Declined. The CRE has been told and the order is unlocked.'
+          : 'Cancelled.' + (res.refund ? ' Refund of ' + inr(res.refundAmount) + ' sent to Accounts, due by ' + res.refundDeadline + '.' : ' No refund.') + ' The CRE has been emailed.';
+        m.className = 'msg show ok';
+        setTimeout(load, 1500);
+        if (window.ICF_REFRESH_APPROVALS) window.ICF_REFRESH_APPROVALS();
+      })
+      .withFailureHandler(function (e) {
+        Array.prototype.forEach.call(btns, function (b) { b.disabled = false; });
+        showErr('Error: ' + e.message);
+      })
+      .decideCancellation({ requestId: el.getAttribute('data-id'), approve: approve, note: note, refund: approve && refund, refundAmount: Number(amt) || 0, refundDeadline: dl });
+  }
+
+  function load() {
+    authRun()
+      .withSuccessHandler(render)
+      .withFailureHandler(function (e) { var b = document.getElementById('cxPending'); b.className = 'empty'; b.textContent = 'Could not load cancellations: ' + e.message; })
+      .getCancellationsAdmin();
+  }
+  document.getElementById('cxRefreshAdmin').addEventListener('click', load);
+  var mainRefresh = document.getElementById('refreshBtn');
+  if (mainRefresh) mainRefresh.addEventListener('click', load);
+  var prevReload = window.ICF_RELOAD;
+  window.ICF_RELOAD = function () { if (typeof prevReload === 'function') prevReload(); load(); };
+  load();
+})();
+</script>

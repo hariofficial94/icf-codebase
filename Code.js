@@ -1344,6 +1344,7 @@ function getPendingPayments_() {
   var results = [];
   for (var i = numRows - 1; i >= 0; i--) { // most recent first
     if (scope && !scope.ownsOrCovers(owners[i])) continue;
+    if (isCancelledStatus_(statusVals[i][0])) continue; // cancelled (Oct 2026): nothing to chase
     var total = Number(totalVals[i][0]) || 0;
     var advance = Number(advanceVals[i][0]) || 0;
     var balanceDue = computeBalanceDue(total, advance);
@@ -1404,6 +1405,7 @@ function getAccountsSummary_() {
   var newEnquiries = 0, outstandingTotal = 0, readyToDispatch = 0, paymentsToday = 0;
   for (var i = 0; i < numRows; i++) {
     var status = statusVals[i][0];
+    if (isCancelledStatus_(status)) continue; // cancelled (Oct 2026): not outstanding
     if (status === 'Logged') newEnquiries++;
     if (status === 'Vehicle Confirmed') readyToDispatch++;
 
@@ -1480,7 +1482,7 @@ function getCreSummary_() {
     totalLogged++;
     var status = statusVals[i][0];
     var ds = deliveryStatusVals[i][0];
-    var closed = (isDispatchedStatus_(status) && (ds === 'Delivered' || ds === 'Returned'));
+    var closed = (isDispatchedStatus_(status) && (ds === 'Delivered' || ds === 'Returned')) || isCancelledStatus_(status);
 
     if (priorityVals[i][0] === 'High' && !closed) highPriorityPending++;
     if (isDispatchedStatus_(status) && ds !== 'Delivered' && ds !== 'Returned') awaitingDeliveryUpdate++;
@@ -1653,7 +1655,9 @@ function lookupOrder_(trackerId) {
     // Request waiting for a decision (Oct 2026): the order is locked until it's decided or withdrawn.
     pendingRequest: (typeof pendingRequestFor_ === 'function') ? pendingRequestFor_(raw['Tracker ID'] || trackerId) : null,
     // Standby (Oct 2026): request/approval state for the Accounts page. Never throws.
-    standby: (typeof standbyInfoForOrder_ === 'function') ? standbyInfoForOrder_(raw['Tracker ID'] || trackerId, raw['Status'] || '') : null
+    standby: (typeof standbyInfoForOrder_ === 'function') ? standbyInfoForOrder_(raw['Tracker ID'] || trackerId, raw['Status'] || '') : null,
+    // Cancellation request / refund (Oct 2026). Never throws.
+    cancellation: (typeof cxInfoForOrder_ === 'function') ? cxInfoForOrder_(raw['Tracker ID'] || trackerId) : null
   };
 }
 
@@ -1693,16 +1697,25 @@ function getOrderTimeline_(trackerId) {
     'Sent to Ops Timestamp', 'Received by Ops Timestamp', 'Dispatch Timestamp',
     'E-way Bill No.', 'Transport Mode', 'Courier / Transport Name',
     'Total Order Value', 'Advance Received', 'Delivered Timestamp',
-    'Delivery Status', 'Status', 'Payment Terms Type', 'Dispatch Type', 'Tracking / Consignment No.'
+    'Delivery Status', 'Status', 'Payment Terms Type', 'Dispatch Type', 'Tracking / Consignment No.',
+    'Verified By', 'Verification Code'
   ]);
 
   var total = Number(raw['Total Order Value']) || 0;
   var advance = Number(raw['Advance Received']) || 0;
+  var cx = (typeof cxInfoForOrder_ === 'function' && raw['Status'] === 'Cancelled') ? cxInfoForOrder_(raw['Tracker ID'] || trackerId) : null;
+  if (cx && cx.status !== 'Approved') cx = null;
 
   return {
+    cancelledDate: cx ? cx.decidedAt : '',
+    cancelledBy: cx ? cx.decidedBy : '',
+    refundStatus: cx && cx.refundStatus && cx.refundStatus !== 'Not required' ? cx.refundStatus : '',
+    refundAmount: cx ? cx.refundAmount : 0,
     trackerId: raw['Tracker ID'] || trackerId,
     enquiryDate: toTimelineDisplay(raw['Date Logged']),
     advancePaymentVerifiedDate: toTimelineDisplay(raw['Verified Date']),
+    verifiedBy: String(raw['Verified By'] || ''),
+    verificationCode: String(raw['Verification Code'] || ''),
     fullPaymentDate: toTimelineDisplay(raw['Balance Fully Paid Timestamp']),
     handoverToOpsDate: toTimelineDisplay(raw['Sent to Ops Timestamp']),
     pickupByOpsDate: toTimelineDisplay(raw['Received by Ops Timestamp']),
@@ -2457,6 +2470,11 @@ function apiMap_() {
     var extra3 = lockApiMap_();
     for (var k3 in extra3) map[k3] = extra3[k3];
   }
+  // Order cancellation + refund (Oct 2026) -- defined in Cancellations.gs.
+  if (typeof cancellationApiMap_ === 'function') {
+    var extra4 = cancellationApiMap_();
+    for (var k4 in extra4) map[k4] = extra4[k4];
+  }
   return map;
 }
 
@@ -2516,7 +2534,10 @@ function activityDetail_(fnName, a, result) {
     case 'decideAccessRequest': return (a.requestId || '') + ' \u2013 ' + (a.approve ? 'approved' : 'declined');
     case 'setStaffCover': return (a.staffCode || '') + (a.coveredBy ? ' away ' + (a.awayFrom || '') + ' to ' + (a.awayTo || '') + ', covered by ' + a.coveredBy : ' \u2013 cover cleared');
     case 'reassignOrders': return (a.fromCode || '') + ' \u2192 ' + (a.toCode || '') + ': ' + (result.moved || 0) + ' order(s)' + (a.trackerId ? ' (' + a.trackerId + ')' : '');
-    default: return (typeof standbyActivityDetail_ === 'function') ? standbyActivityDetail_(fnName, a, result) : '';
+    default:
+      var d = (typeof standbyActivityDetail_ === 'function') ? standbyActivityDetail_(fnName, a, result) : '';
+      if (!d && typeof cancellationActivityDetail_ === 'function') d = cancellationActivityDetail_(fnName, a, result);
+      return d;
   }
 }
 
@@ -3128,9 +3149,10 @@ function getAdminData_() {
     var insts = sheet.getRange(2, getHeaderIndex('Institution / Customer'), n, 1).getValues();
     var ds = sheet.getRange(2, getHeaderIndex('Delivery Status'), n, 1).getValues();
     var owners = readOrderOwners_(sheet, n);
+    var sts = sheet.getRange(2, getHeaderIndex('Status'), n, 1).getValues();
     for (var i = 0; i < n; i++) {
       inst[String(ids[i][0]).toLowerCase()] = insts[i][0];
-      var closed = ds[i][0] === 'Delivered' || ds[i][0] === 'Returned';
+      var closed = ds[i][0] === 'Delivered' || ds[i][0] === 'Returned' || isCancelledStatus_(sts[i][0]);
       if (!closed && ids[i][0]) openCount[owners[i] || '(none)'] = (openCount[owners[i] || '(none)'] || 0) + 1;
     }
   }
@@ -3244,10 +3266,11 @@ function reassignOrders_(form) {
     var n = lastRow - 1;
     var owners = readOrderOwners_(sheet, n);
     var ds = sheet.getRange(2, getHeaderIndex('Delivery Status'), n, 1).getValues();
+    var sts = sheet.getRange(2, getHeaderIndex('Status'), n, 1).getValues();
     var moved = 0;
     for (var i = 0; i < n; i++) {
       if (owners[i] !== fromCode) continue;
-      if (ds[i][0] === 'Delivered' || ds[i][0] === 'Returned') continue;
+      if (ds[i][0] === 'Delivered' || ds[i][0] === 'Returned' || isCancelledStatus_(sts[i][0])) continue;
       sheet.getRange(i + 2, codeCol).setValue(toCode);
       sheet.getRange(i + 2, nameCol).setValue(to.name);
       moved++;
@@ -3571,8 +3594,10 @@ function getApprovalSummary_() {
   var ar = readAccessRequests_().filter(function (r) { return r.status === 'Pending'; });
   // Standby requests waiting for an admin (Oct 2026). "Pending Director" ones are the directors', not counted here.
   var sb = (typeof readStandby_ === 'function') ? readStandby_().filter(function (r) { return r.status === 'Pending'; }) : [];
+  // Cancellation requests (Oct 2026) count with the rest.
+  var cx = (typeof cxPendingCount_ === 'function') ? cxPendingCount_() : [];
   var oldest = null;
-  px.concat(ar, sb).forEach(function (r) {
+  px.concat(ar, sb, cx).forEach(function (r) {
     if (r.requestedAtMs && (oldest === null || r.requestedAtMs < oldest)) oldest = r.requestedAtMs;
   });
   var cfg = getAlertSettings_();
@@ -3587,11 +3612,12 @@ function getApprovalSummary_() {
     payments: px.length,
     access: ar.length,
     standby: sb.length,
-    total: px.length + ar.length + sb.length,
+    cancellations: cx.length,
+    total: px.length + ar.length + sb.length + cx.length,
     overdue: overdue, // past the target in OFFICE time -- a request left overnight isn't overdue at 9:30
 
     oldestMinutes: oldest === null ? null : Math.max(0, Math.floor((now - oldest) / 60000)),
-    newestId: px.concat(ar, sb).reduce(function (m, r) { return (!m || (r.requestedAtMs || 0) > m.t) ? { id: r.requestId, t: r.requestedAtMs || 0 } : m; }, null)
+    newestId: px.concat(ar, sb, cx).reduce(function (m, r) { return (!m || (r.requestedAtMs || 0) > m.t) ? { id: r.requestId, t: r.requestedAtMs || 0 } : m; }, null)
   };
 }
 
@@ -3689,7 +3715,7 @@ function orderSnapshot_() {
     out[id.toLowerCase()] = {
       trackerId: id, institution: String(inst[i][0] || ''), status: String(st[i][0] || ''),
       balance: computeBalanceDue(tot[i][0], adv[i][0]),
-      closed: ds[i][0] === 'Delivered' || ds[i][0] === 'Returned',
+      closed: ds[i][0] === 'Delivered' || ds[i][0] === 'Returned' || isCancelledStatus_(st[i][0]),
       ownerName: (staffMap[owners[i]] || {}).name || ''
     };
   }
@@ -4117,7 +4143,7 @@ function getMyOrders_() {
     if (!id) continue;
     if (scope && owners[i] !== scope.me.code) continue;
     var status = String(st[i][0] || ''), dstat = String(ds[i][0] || '');
-    var closed = isDispatchedStatus_(status) && (dstat === 'Delivered' || dstat === 'Returned');
+    var closed = (isDispatchedStatus_(status) && (dstat === 'Delivered' || dstat === 'Returned')) || isCancelledStatus_(status);
     var logged = dates[i][0] instanceof Date ? dates[i][0] : null;
     out.push({
       trackerId: id, institution: String(inst[i][0] || ''), phone: String(phones[i][0] || ''),

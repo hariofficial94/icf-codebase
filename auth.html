@@ -207,7 +207,7 @@
             appr.classList.add(s.overdue ? 'overdue' : 'waiting');
             appr.innerHTML = '<span class="n"><b>' + s.total + '</b></span> waiting for approval' +
               (s.overdue ? ' \u2013 ' + s.overdue + ' overdue' : ' \u2013 oldest ' + fmtAge(s.oldestMinutes));
-            appr.title = s.payments + ' payment approval(s), ' + s.access + ' CRE access request(s)' + (s.overdue ? ', ' + s.overdue + ' past the target' : '');
+            appr.title = s.payments + ' payment approval(s), ' + s.access + ' CRE access request(s)' + (s.cancellations ? ', ' + s.cancellations + ' cancellation request(s)' : '') + (s.overdue ? ', ' + s.overdue + ' past the target' : '');
           }
           // A new request since the last check: pulse to catch the eye.
           var newest = s.newestId ? s.newestId.id : null;

@@ -1,0 +1,308 @@
+<!--
+  Order cancellation + refunds on the CRE page (Oct 2026). Pulled in by
+  index.html with <?!= include('cancel_cre'); ?> as the LAST line before
+  </body>, so it can use the page's globals (runLookup, escHtml, isDispatched,
+  lookupTrackerIdInput, window.ICF_CURRENT_ORDER). Server side: Cancellations.gs.
+  Adds:
+    - a box under a looked-up order: "Request cancellation", or where the request stands
+    - a "Cancellations & refunds" pane in the left column (tick "Informed the customer" -> OK)
+    - an "All refunds" pop-up with the same filters as the other pop-ups
+-->
+<style>
+  .cx-box { margin-top: 14px; padding: 12px 14px; border: 1px solid #ecd0cf; border-left: 4px solid #a33a32; border-radius: 6px; background: #fdf8f8; font-size: 13px; display: none; }
+  .cx-box.show { display: block; }
+  .cx-box h2 { font-size: 14px; color: #a33a32; margin: 0 0 6px 0; }
+  .cx-box .cx-line { margin: 3px 0; color: #333; }
+  .cx-box .cx-line b { color: #1F3864; }
+  .cx-box .cx-muted { color: #777; font-size: 12px; }
+  .cx-box textarea { width: 100%; padding: 8px 10px; font-size: 13px; border: 1px solid #ccc; border-radius: 4px; font-family: inherit; resize: vertical; box-sizing: border-box; }
+  .cx-box .cx-toggle { width: auto; margin: 0; padding: 0; background: none; border: none; color: #a33a32; font-size: 13px; font-weight: 700; cursor: pointer; }
+  .cx-box .cx-btn { width: auto; margin-top: 8px; padding: 8px 14px; background: #a33a32; color: #fff; border: none; border-radius: 4px; font-size: 13px; font-weight: 600; cursor: pointer; }
+  .cx-box .cx-btn.light { background: #fff; color: #a33a32; border: 1px solid #d9a7a2; }
+  .cx-box .cx-btn:disabled { background: #ccc; color: #fff; border-color: #ccc; cursor: not-allowed; }
+  .cx-err { color: #B00020; font-size: 12px; margin-top: 6px; display: none; }
+  .cx-err.show { display: block; }
+  .side-panel.cx-panel { border-left: 4px solid #a33a32; margin-top: 14px; }
+  .cx-panel .cx-head-btns { display: flex; gap: 6px; }
+  .cx-item { padding: 9px 10px; border: 1px solid #e0e0e0; border-radius: 4px; margin-bottom: 6px; background: #fafafa; }
+  .cx-item .cx-open { cursor: pointer; }
+  .cx-item .cx-inst { font-size: 13px; font-weight: 600; color: #1F3864; }
+  .cx-item .cx-id { font-size: 11px; color: #888; }
+  .cx-tag { display: inline-block; font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 10px; margin-top: 5px; }
+  .cx-tag.Pending { background: #fff1dc; color: #9a5b00; }
+  .cx-tag.Declined { background: #f8d7da; color: #B00020; }
+  .cx-tag.Processing { background: #e3edf8; color: #1F5FA8; }
+  .cx-tag.Processed, .cx-tag.NoRefund { background: #e3f1dc; color: #2c5a1e; }
+  .cx-ack { margin-top: 7px; display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; color: #333; }
+  .cx-ack label { display: flex; align-items: center; gap: 6px; margin: 0; font-weight: 600; cursor: pointer; }
+  .cx-ack input { width: auto; margin: 0; }
+  .cx-ack button { width: auto; margin: 0; padding: 4px 14px; font-size: 12px; font-weight: 700; background: #2c7a2c; color: #fff; border: none; border-radius: 4px; cursor: pointer; }
+  .cx-ack button:disabled { background: #c9cfd4; cursor: not-allowed; }
+  .cx-count { display: inline-block; min-width: 16px; padding: 0 5px; margin-left: 6px; border-radius: 9px; background: #a33a32; color: #fff; font-size: 10px; text-align: center; vertical-align: middle; display: none; }
+  .cx-late { color: #B00020; font-weight: 700; }
+</style>
+
+<div class="modal-overlay" id="cxRefundsOverlay">
+  <div class="modal-box orders-box">
+    <div class="modal-header">
+      <h3>All refunds</h3>
+      <button type="button" class="modal-close" id="cxRefundsClose">&times;</button>
+    </div>
+    <div class="modal-body">
+      <input type="text" class="orders-search" id="cxSearch" placeholder="Search by customer name or quotation no.">
+      <div class="orders-filters">
+        <div><label>CRE</label><select id="cxFltCre"><option value="all">All CREs</option></select></div>
+        <div><label>Logged from</label><input type="date" id="cxFltFrom"></div>
+        <div><label>Logged to</label><input type="date" id="cxFltTo"></div>
+        <div><label>Min. refund (&#8377;)</label><input type="number" id="cxFltMin" placeholder="e.g. 10000" min="0"></div>
+        <div><label>Max. refund (&#8377;)</label><input type="number" id="cxFltMax" placeholder="e.g. 500000" min="0"></div>
+        <div><label>Order type</label><select id="cxFltType"><option value="all">All</option><option value="End Customer">End Customer</option><option value="PO Customer">PO Customer</option></select></div>
+        <div><label>Refund status</label><select id="cxFltStatus"><option value="all">All</option><option value="Processing">Processing</option><option value="Processed">Processed</option></select></div>
+        <button type="button" class="clear-btn" id="cxFltClear">Clear filters</button>
+      </div>
+      <div class="orders-summary" id="cxRefundsSummary"></div>
+      <div class="orders-table-wrap" id="cxRefundsTable"><div class="orders-empty">Loading...</div></div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  function esc(t) { return String(t == null ? '' : t).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+  function inr(n) { return '₹' + Math.round(Number(n) || 0).toLocaleString('en-IN'); }
+  function openOrder(id) {
+    try {
+      lookupTrackerIdInput.value = id; runLookup(id);
+      var card = document.getElementById('lookupCard');
+      if (card && card.scrollIntoView) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } catch (e) {}
+  }
+
+  // =============== 1. Box under the looked-up order ===============
+  var details = document.getElementById('details');
+  var doneBtn = document.getElementById('btnDone');
+  var box = document.createElement('div');
+  box.className = 'cx-box';
+  if (doneBtn && doneBtn.parentNode) doneBtn.parentNode.insertBefore(box, doneBtn);
+  function hideBox() { box.classList.remove('show'); box.innerHTML = ''; }
+
+  function renderBox(o) {
+    var cx = o.cancellation;
+    var me = window.ICF_STAFF || {};
+    var dispatched = (typeof isDispatched === 'function') ? isDispatched(o.status) : false;
+
+    if (cx && cx.status === 'Pending') {
+      var mine = me.code && (cx.requestedBy === me.code || o.ownerCode === me.code);
+      box.innerHTML = '<h2>Cancellation requested</h2>' +
+        '<div class="cx-line">Asked by <b>' + esc(cx.requestedByName) + '</b> on ' + esc(cx.requestedAt) + ' – waiting for the admin.</div>' +
+        '<div class="cx-line"><b>Reason:</b> ' + esc(cx.reason) + '</div>' +
+        '<div class="cx-line cx-muted">Accounts can’t move the order on until the admin decides.</div>' +
+        (mine ? '<button type="button" class="cx-btn light" id="cxWithdraw">Withdraw request</button>' : '') +
+        '<div class="cx-err" id="cxErr"></div>';
+      box.classList.add('show');
+      var w = document.getElementById('cxWithdraw');
+      if (w) w.addEventListener('click', function () {
+        if (!window.confirm('Withdraw the cancellation request for ' + o.trackerId + '? The order carries on as normal.')) return;
+        w.disabled = true; w.textContent = 'Withdrawing...';
+        authRun()
+          .withSuccessHandler(function () { loadPanel(); openOrder(o.trackerId); })
+          .withFailureHandler(function (e) { w.disabled = false; w.textContent = 'Withdraw request'; showErr(e.message); })
+          .withdrawCancellation({ requestId: cx.requestId });
+      });
+      return;
+    }
+
+    if (o.status === 'Cancelled' && cx && cx.status === 'Approved') {
+      var refund = cx.refundStatus && cx.refundStatus !== 'Not required';
+      box.innerHTML = '<h2>Order cancelled</h2>' +
+        '<div class="cx-line">Approved by <b>' + esc(cx.decidedBy) + '</b> on ' + esc(cx.decidedAt) + (cx.adminNote ? ' – ' + esc(cx.adminNote) : '') + '</div>' +
+        (refund
+          ? '<div class="cx-line"><b>Refund:</b> ' + inr(cx.refundAmount) + ' – <span class="cx-tag ' + esc(cx.refundStatus) + '">' + esc(cx.refundStatus) + '</span>' +
+            (cx.refundStatus === 'Processed' ? ' on ' + esc(cx.refundProcessedAt) + ', UTR <b>' + esc(cx.refundUtr) + '</b>' : ' – Accounts to pay by <b>' + esc(cx.refundDeadline) + '</b>') + '</div>'
+          : '<div class="cx-line">No refund due.</div>');
+      box.classList.add('show');
+      return;
+    }
+
+    if (o.status === 'Cancelled' || dispatched) { hideBox(); return; }
+    var canAct = !o.access || o.access.canAct;
+    if (!canAct) { hideBox(); return; }
+
+    var declined = cx && cx.status === 'Declined'
+      ? '<div class="cx-line cx-muted">An earlier request was declined by ' + esc(cx.decidedBy) + (cx.adminNote ? ': “' + esc(cx.adminNote) + '”' : '') + '.</div>' : '';
+    box.innerHTML = '<button type="button" class="cx-toggle" id="cxToggle">&#10006; Customer wants to cancel this order?</button>' + declined +
+      '<div id="cxForm" style="display:none; margin-top:8px;">' +
+        '<div class="cx-line">Received so far: <b>' + inr(o.advanceAmount) + '</b>. The admin decides, and if a refund is due, sets the amount and the date Accounts must pay by.</div>' +
+        '<label for="cxReason" style="margin-top:8px;">Reason the customer gave</label>' +
+        '<textarea id="cxReason" rows="2" placeholder="e.g. Customer bought locally, wants the advance back"></textarea>' +
+        '<button type="button" class="cx-btn" id="cxSubmit">Send cancellation request to admin</button>' +
+      '</div>' +
+      '<div class="cx-err" id="cxErr"></div>';
+    box.classList.add('show');
+    document.getElementById('cxToggle').addEventListener('click', function () {
+      var f = document.getElementById('cxForm');
+      f.style.display = f.style.display === 'none' ? 'block' : 'none';
+    });
+    document.getElementById('cxSubmit').addEventListener('click', function () {
+      var btn = this, reason = document.getElementById('cxReason').value.trim();
+      if (reason.length < 5) { showErr('Add the reason the customer gave.'); return; }
+      if (!window.confirm('Send a request to cancel ' + o.trackerId + ' (' + o.institution + ')?\n\nThe order is locked until the admin decides.')) return;
+      btn.disabled = true; btn.textContent = 'Sending...';
+      authRun()
+        .withSuccessHandler(function () { loadPanel(); openOrder(o.trackerId); })
+        .withFailureHandler(function (e) { btn.disabled = false; btn.textContent = 'Send cancellation request to admin'; showErr(e.message); })
+        .requestCancellation({ trackerId: o.trackerId, reason: reason });
+    });
+  }
+  function showErr(m) { var e = document.getElementById('cxErr'); if (e) { e.textContent = 'Error: ' + m; e.classList.add('show'); } }
+
+  if (details && window.MutationObserver) {
+    new MutationObserver(function () {
+      var o = window.ICF_CURRENT_ORDER;
+      if (details.classList.contains('show') && o) renderBox(o); else hideBox();
+    }).observe(details, { attributes: true, attributeFilter: ['class'] });
+  }
+
+  // =============== 2. Pane in the left column ===============
+  var panel = document.createElement('div');
+  panel.className = 'side-panel cx-panel';
+  panel.innerHTML =
+    '<div class="side-panel-header"><h3>Cancellations &amp; refunds<span class="cx-count" id="cxCount">0</span></h3>' +
+      '<div class="cx-head-btns"><button class="refresh-btn" id="cxAllBtn" type="button" title="Every refund, with filters">All refunds</button>' +
+      '<button class="refresh-btn" id="cxRefresh" type="button">&#8635;</button></div></div>' +
+    '<div class="field-hint" style="margin-top:0; margin-bottom:8px;">Your cancellation requests and where each refund stands. Once a refund is processed, tell the customer, tick the box and press OK.</div>' +
+    '<div id="cxList" class="pending-empty">Loading...</div>';
+  var leftCol = document.querySelector('.left-col');
+  if (leftCol) leftCol.appendChild(panel);
+  var list = document.getElementById('cxList');
+
+  function renderPanel(items) {
+    items = items || [];
+    var badge = document.getElementById('cxCount');
+    var todo = items.filter(function (it) { return it.canAck; }).length;
+    badge.textContent = items.length; badge.style.display = items.length ? 'inline-block' : 'none';
+    badge.style.background = todo ? '#2c7a2c' : '#a33a32';
+    if (!items.length) { list.className = 'pending-empty'; list.textContent = 'No cancellations to follow up.'; return; }
+    list.className = '';
+    list.innerHTML = items.map(function (it) {
+      return '<div class="cx-item" data-req="' + esc(it.requestId) + '">' +
+        '<div class="cx-open" data-id="' + esc(it.trackerId) + '">' +
+          '<div class="cx-inst">' + esc(it.institution) + '</div>' +
+          '<div class="cx-id">' + esc(it.trackerId) + (it.refundAmount ? ' · refund ' + inr(it.refundAmount) : '') + '</div>' +
+          '<div><span class="cx-tag ' + esc(it.stage) + '">' + esc(it.statusText) + '</span></div>' +
+          '<div class="cx-id" style="margin-top:3px;">' + esc(it.when) + '</div>' +
+        '</div>' +
+        (it.canAck
+          ? '<div class="cx-ack"><label><input type="checkbox" class="cx-chk"> ' + esc(it.ackLabel) + '</label><button type="button" class="cx-ok" disabled>OK</button></div>'
+          : '') +
+        '</div>';
+    }).join('');
+    Array.prototype.forEach.call(list.querySelectorAll('.cx-open'), function (el) {
+      el.addEventListener('click', function () { openOrder(el.getAttribute('data-id')); });
+    });
+    Array.prototype.forEach.call(list.querySelectorAll('.cx-item'), function (item) {
+      var chk = item.querySelector('.cx-chk'), ok = item.querySelector('.cx-ok');
+      if (!chk) return;
+      chk.addEventListener('change', function () { ok.disabled = !chk.checked; });
+      ok.addEventListener('click', function () {
+        ok.disabled = true; chk.disabled = true; ok.textContent = '...';
+        authRun()
+          .withSuccessHandler(function () { item.parentNode && item.parentNode.removeChild(item); loadPanel(); })
+          .withFailureHandler(function (e) { ok.disabled = false; chk.disabled = false; ok.textContent = 'OK'; window.alert('Could not save: ' + e.message); })
+          .acknowledgeCancellation({ requestId: item.getAttribute('data-req') });
+      });
+    });
+  }
+  function loadPanel() {
+    authRun()
+      .withSuccessHandler(renderPanel)
+      .withFailureHandler(function () { list.className = 'pending-empty'; list.textContent = 'Could not load the list.'; })
+      .getCancellationPanel();
+  }
+  document.getElementById('cxRefresh').addEventListener('click', loadPanel);
+
+  // =============== 3. "All refunds" pop-up ===============
+  var overlay = document.getElementById('cxRefundsOverlay');
+  var refunds = [];
+  var FILTER_IDS = ['cxFltCre', 'cxFltFrom', 'cxFltTo', 'cxFltMin', 'cxFltMax', 'cxFltType', 'cxFltStatus'];
+  function resetFilters() {
+    document.getElementById('cxSearch').value = '';
+    FILTER_IDS.forEach(function (id) { var el = document.getElementById(id); el.value = el.tagName === 'SELECT' ? 'all' : ''; });
+  }
+  function fmtDay(ms) { return ms ? new Date(ms).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '–'; }
+  function renderRefunds() {
+    var q = document.getElementById('cxSearch').value.trim().toLowerCase();
+    var v = function (id) { return document.getElementById(id).value; };
+    var fromMs = v('cxFltFrom') ? new Date(v('cxFltFrom') + 'T00:00:00+05:30').getTime() : null;
+    var toMs = v('cxFltTo') ? new Date(v('cxFltTo') + 'T23:59:59+05:30').getTime() : null;
+    var min = v('cxFltMin') ? Number(v('cxFltMin')) : null, max = v('cxFltMax') ? Number(v('cxFltMax')) : null;
+    var rows = refunds.filter(function (r) {
+      if (q && r.institution.toLowerCase().indexOf(q) === -1 && r.trackerId.toLowerCase().indexOf(q) === -1) return false;
+      if (v('cxFltCre') !== 'all' && r.cre !== v('cxFltCre')) return false;
+      if (fromMs && !(r.dateLoggedMs >= fromMs)) return false;
+      if (toMs && !(r.dateLoggedMs <= toMs)) return false;
+      if (min !== null && r.refundAmount < min) return false;
+      if (max !== null && r.refundAmount > max) return false;
+      if (v('cxFltType') !== 'all' && r.paymentTerms !== v('cxFltType')) return false;
+      if (v('cxFltStatus') !== 'all' && r.refundStatus !== v('cxFltStatus')) return false;
+      return true;
+    });
+    var total = rows.reduce(function (s, r) { return s + r.refundAmount; }, 0);
+    var open = rows.filter(function (r) { return r.refundStatus === 'Processing'; });
+    document.getElementById('cxRefundsSummary').innerHTML = '<b>' + rows.length + '</b> refund' + (rows.length === 1 ? '' : 's') +
+      ' &middot; <b>' + inr(total) + '</b> in all' +
+      (open.length ? ' &middot; <b>' + inr(open.reduce(function (s, r) { return s + r.refundAmount; }, 0)) + '</b> still processing' : '') +
+      ' &middot; click a row to open the order';
+    var tbl = document.getElementById('cxRefundsTable');
+    if (!rows.length) { tbl.innerHTML = '<div class="orders-empty">' + (refunds.length ? 'No refunds match.' : 'No refunds yet.') + '</div>'; return; }
+    tbl.innerHTML = '<table class="orders-table"><thead><tr>' +
+      '<th>Quotation No.</th><th>Customer</th><th>CRE</th><th>Type</th><th class="num">Order value</th><th class="num">Refund</th><th>Status</th><th>Due / paid</th><th>Logged</th>' +
+      '</tr></thead><tbody>' + rows.map(function (r) {
+        var due = r.refundStatus === 'Processed'
+          ? esc(r.processedAt) + '<div style="font-size:11px;color:#888;">UTR ' + esc(r.utr) + '</div>'
+          : esc(r.deadline) + (r.daysLeft !== null && r.daysLeft < 0 ? ' <span class="cx-late">' + (-r.daysLeft) + 'd late</span>' : '');
+        return '<tr data-id="' + esc(r.trackerId) + '"><td>' + esc(r.trackerId) + '</td><td>' + esc(r.institution) + '</td><td>' + esc(r.cre) + '</td>' +
+          '<td>' + esc(r.paymentTerms) + '</td><td class="num">' + inr(r.orderValue) + '</td><td class="num">' + inr(r.refundAmount) + '</td>' +
+          '<td><span class="cx-tag ' + esc(r.refundStatus) + '">' + esc(r.refundStatus) + '</span></td><td>' + due + '</td><td>' + fmtDay(r.dateLoggedMs) + '</td></tr>';
+      }).join('') + '</tbody></table>';
+    Array.prototype.forEach.call(tbl.querySelectorAll('tbody tr'), function (tr) {
+      tr.addEventListener('click', function () { overlay.classList.remove('show'); openOrder(tr.getAttribute('data-id')); });
+    });
+  }
+  function openRefunds() {
+    resetFilters();
+    document.getElementById('cxRefundsSummary').innerHTML = '';
+    document.getElementById('cxRefundsTable').innerHTML = '<div class="orders-empty">Loading...</div>';
+    overlay.classList.add('show');
+    authRun()
+      .withSuccessHandler(function (rows) {
+        refunds = rows || [];
+        var sel = document.getElementById('cxFltCre'), seen = {};
+        sel.innerHTML = '<option value="all">All CREs</option>' + refunds.map(function (r) { return r.cre; })
+          .filter(function (c) { if (!c || seen[c]) return false; seen[c] = 1; return true; }).sort()
+          .map(function (c) { return '<option value="' + esc(c) + '">' + esc(c) + '</option>'; }).join('');
+        renderRefunds();
+      })
+      .withFailureHandler(function (e) { document.getElementById('cxRefundsTable').innerHTML = '<div class="orders-empty">Could not load: ' + esc(e.message) + '</div>'; })
+      .getRefundsReport();
+  }
+  document.getElementById('cxAllBtn').addEventListener('click', openRefunds);
+  document.getElementById('cxSearch').addEventListener('input', renderRefunds);
+  FILTER_IDS.forEach(function (id) { document.getElementById(id).addEventListener(/Min|Max/.test(id) ? 'input' : 'change', renderRefunds); });
+  document.getElementById('cxFltClear').addEventListener('click', function () { resetFilters(); renderRefunds(); });
+  document.getElementById('cxRefundsClose').addEventListener('click', function () { overlay.classList.remove('show'); });
+  overlay.addEventListener('click', function (e) { if (e.target === overlay) overlay.classList.remove('show'); });
+
+  // =============== Sign-in hooks ===============
+  var prevClear = window.ICF_CLEAR, prevReload = window.ICF_RELOAD;
+  window.ICF_CLEAR = function () {
+    if (typeof prevClear === 'function') prevClear();
+    hideBox(); overlay.classList.remove('show'); refunds = [];
+    list.className = 'pending-empty'; list.textContent = 'Loading...';
+    document.getElementById('cxCount').style.display = 'none';
+  };
+  window.ICF_RELOAD = function () { if (typeof prevReload === 'function') prevReload(); loadPanel(); };
+  loadPanel();
+  setInterval(function () { if (window.ICF_STAFF) loadPanel(); }, 120000);
+})();
+</script>

@@ -142,6 +142,18 @@
     table.data-table td { padding: 7px 8px; border-bottom: 1px solid #f2f2f2; color: #333; }
     table.data-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
     table.data-table tr:last-child td { border-bottom: none; }
+    table.data-table tr.drill-row { cursor: pointer; }
+    table.data-table tr.drill-row:hover td { background: #F3F7FC; }
+    table.data-table tr.drill-row td.drill-id { color: #1F5FA8; font-weight: 600; text-decoration: underline; text-decoration-color: #c7d6ea; }
+    #orderTlOverlay { z-index: 1100; }
+    .otl-head { font-size: 13px; color: #555; margin-bottom: 12px; line-height: 1.5; }
+    .otl-head b { color: #1F3864; }
+    .otl-card { border: 1px solid #e6e9ee; border-radius: 8px; padding: 12px 14px; margin-bottom: 12px; }
+    .timeline-title { font-size: 11px; text-transform: uppercase; letter-spacing: 0.03em; color: #888; font-weight: 700; margin-bottom: 8px; }
+    .timeline-row { display: flex; justify-content: space-between; gap: 10px; padding: 5px 0; border-bottom: 1px dashed #eee; font-size: 13px; }
+    .timeline-row:last-child { border-bottom: none; }
+    .timeline-row .tl-label { color: #555; }
+    .timeline-row .tl-value { color: #1F3864; font-weight: 600; text-align: right; }
 
     /* Exceptions list */
     .exc-item { display: flex; justify-content: space-between; align-items: center; padding: 9px 10px; border: 1px solid #e0e0e0; border-radius: 5px; margin-bottom: 6px; background: #fafafa; }
@@ -273,6 +285,16 @@
         <button type="button" class="modal-close" id="drillCloseBtn">&times;</button>
       </div>
       <div class="modal-body" id="drillBody"></div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="orderTlOverlay">
+    <div class="modal-box" style="max-width:560px;">
+      <div class="modal-header">
+        <h3 id="orderTlTitle">Order</h3>
+        <button type="button" class="modal-close" id="orderTlCloseBtn">&times;</button>
+      </div>
+      <div class="modal-body" id="orderTlBody"></div>
     </div>
   </div>
 
@@ -701,7 +723,7 @@
         '<th class="num">Order value</th><th class="num">Balance due</th><th>Date logged</th>' +
         '</tr></thead><tbody>' +
         sorted.map(function (o) {
-          return '<tr><td>' + o.id + '</td><td>' + o.institution + '</td><td>' + (o.cre || '\u2013') + '</td>' +
+          return '<tr class="drill-row" data-id="' + escDrill(o.id) + '" title="Open the order timeline"><td class="drill-id">' + o.id + '</td><td>' + o.institution + '</td><td>' + (o.cre || '\u2013') + '</td>' +
             '<td>' + o.paymentTerms + '</td>' +
             (showLate ? '<td>' + fmtDateShort(o.reqDeliveryDate) + '</td><td class="late-days">' + o.daysLate + '</td>' : '') +
             (showAging ? '<td>' + o.daysAtStage + '</td>' : '<td>' + combinedStatus(o) + '</td>') +
@@ -709,7 +731,85 @@
             '<td class="num">' + (o.balanceDue > 0 ? fmtINR(o.balanceDue) : '\u2013') + '</td>' +
             '<td>' + fmtDateShort(o.dateLogged) + '</td></tr>';
         }).join('') + '</tbody></table>';
+      Array.prototype.forEach.call(tableEl.querySelectorAll('tr.drill-row'), function (tr) {
+        tr.addEventListener('click', function () { openOrderTimeline(tr.getAttribute('data-id')); });
+      });
     }
+
+    // ---------------- Order timeline pop-up (opens over the drill-down list) ----------------
+    var orderTlOverlay = document.getElementById('orderTlOverlay');
+    var orderTlBody = document.getElementById('orderTlBody');
+    function inrTl(n) { return '\u20b9' + Number(n || 0).toLocaleString('en-IN'); }
+
+    function timelineRowsHtml(t) {
+      var rows = [];
+      if (t.enquiryDate) rows.push(['Date of Enquiry', t.enquiryDate]);
+      if (t.advancePaymentVerifiedDate) rows.push(['Advance Payment Verified', t.advancePaymentVerifiedDate]);
+      if (t.verifiedBy) rows.push(['Verified By', t.verifiedBy]);
+      if (t.verificationCode) rows.push(['Verification Code', t.verificationCode]);
+      rows.push(['Total Order Value', inrTl(t.totalOrderValue)]);
+      rows.push(['Advance Received', inrTl(t.advanceReceived)]);
+      if (t.fullPaymentDate) {
+        rows.push(['Full Payment Received', t.fullPaymentDate]);
+      } else if (t.balanceDue > 0) {
+        rows.push(['Balance Outstanding', inrTl(t.balanceDue) + (t.paymentTermsType === 'PO Customer' ? ' (PO Customer terms)' : '')]);
+      }
+      if (t.handoverToOpsDate) rows.push(['Handed to Ops Personnel', t.handoverToOpsDate]);
+      if (t.pickupByOpsDate) rows.push(['Pickup Noted by Ops', t.pickupByOpsDate]);
+      if (t.dispatchDate) rows.push([t.dispatchType === 'Courier' ? 'Date Posted' : 'Date of Dispatch', t.dispatchDate]);
+      if (t.ewayBillNo) rows.push(['E-way Bill No.', t.ewayBillNo]);
+      if (t.transportMode) rows.push(['Mode of Dispatch', t.transportMode + (t.courierName ? ' \u2013 ' + t.courierName : '')]);
+      if (t.dispatchType === 'Courier' && t.trackingNo) rows.push(['Tracking No.', t.trackingNo]);
+      if (t.cancelledDate) rows.push(['Order Cancelled', t.cancelledDate + (t.cancelledBy ? ' \u2013 ' + t.cancelledBy : '')]);
+      if (t.refundStatus) rows.push(['Refund', t.refundStatus + (t.refundAmount ? ' \u2013 ' + inrTl(t.refundAmount) : '')]);
+      if (t.deliveryDate) {
+        rows.push(['Date of Delivery', t.deliveryDate]);
+      } else if (t.deliveryStatus) {
+        rows.push(['Current Delivery Status', t.deliveryStatus]);
+      }
+      return rows.map(function (r) {
+        return '<div class="timeline-row"><span class="tl-label">' + escDrill(r[0]) + '</span><span class="tl-value">' + escDrill(r[1]) + '</span></div>';
+      }).join('');
+    }
+
+    function openOrderTimeline(id) {
+      var o = allOrders.filter(function (x) { return x.id === id; })[0] || {};
+      document.getElementById('orderTlTitle').textContent = id;
+      orderTlBody.innerHTML =
+        '<div class="otl-head"><b>' + escDrill(o.institution || '') + '</b>' +
+        (o.cre ? ' &middot; CRE: ' + escDrill(o.cre) : '') + (o.paymentTerms ? ' &middot; ' + escDrill(o.paymentTerms) : '') +
+        (o.id ? '<br>Status: ' + combinedStatus(o) : '') + '</div>' +
+        '<div class="otl-card"><div class="timeline-title">Order Timeline</div><div id="otlRows" style="color:#888;font-size:13px;">Loading timeline\u2026</div></div>' +
+        '<div class="otl-card"><div class="timeline-title">Products</div><div id="otlProducts" style="color:#888;font-size:13px;">Loading\u2026</div></div>';
+      orderTlOverlay.classList.add('show');
+      authRun()
+        .withSuccessHandler(function (t) {
+          var el = document.getElementById('otlRows');
+          if (!el || document.getElementById('orderTlTitle').textContent !== id) return; // another order was opened meanwhile
+          el.style.color = ''; el.innerHTML = t ? timelineRowsHtml(t) : 'No timeline found.';
+        })
+        .withFailureHandler(function (err) {
+          var el = document.getElementById('otlRows');
+          if (el) el.innerHTML = '<span style="color:#B00020;">Could not load timeline: ' + escDrill(err && err.message ? err.message : 'unknown error') + '</span>';
+        })
+        .getOrderTimeline(id);
+      authRun()
+        .withSuccessHandler(function (items) {
+          var el = document.getElementById('otlProducts');
+          if (!el || document.getElementById('orderTlTitle').textContent !== id) return;
+          el.style.color = '';
+          el.innerHTML = (items && items.length)
+            ? items.map(function (it) { return '<div class="timeline-row"><span class="tl-label">' + escDrill(it.product) + '</span><span class="tl-value">' + escDrill(it.quantity) + '</span></div>'; }).join('')
+            : '<span style="color:#888;">No product lines recorded for this order.</span>';
+        })
+        .withFailureHandler(function () {
+          var el = document.getElementById('otlProducts');
+          if (el) el.innerHTML = '<span style="color:#888;">Could not load products.</span>';
+        })
+        .getOrderLineItems(id);
+    }
+    document.getElementById('orderTlCloseBtn').addEventListener('click', function () { orderTlOverlay.classList.remove('show'); });
+    orderTlOverlay.addEventListener('click', function (e) { if (e.target === orderTlOverlay) orderTlOverlay.classList.remove('show'); });
 
     function openKpiDrilldown(key, label) {
       currentDrillKey = key;
@@ -1079,7 +1179,8 @@
       document.getElementById('dashboardBody').style.display = 'none';
       authRun()
         .withSuccessHandler(function (orders) {
-          allOrders = orders || [];
+          // Cancelled orders (Oct 2026) stay on file but count nowhere on the dashboard.
+          allOrders = (orders || []).filter(function (o) { return o.status !== 'Cancelled'; });
           document.getElementById('loadingState').style.display = 'none';
           if (allOrders.length === 0) {
             document.getElementById('loadingState').style.display = 'block';

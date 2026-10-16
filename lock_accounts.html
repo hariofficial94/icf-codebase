@@ -52,6 +52,10 @@
       '<div class="lk-actions"><input type="text" class="lk-note" placeholder="Why withdraw? (optional)"><button type="button" class="lk-withdraw">Withdraw request</button></div>' +
       '<div class="error lk-err"></div>';
     banner.classList.add('show');
+    if (p.kind === 'cancel') { // a CRE's cancellation request: only that CRE or an admin can withdraw it (Oct 2026)
+      banner.querySelector('.lk-actions').innerHTML = '<span>The CRE has asked to cancel this order. Wait for the admin’s decision – if it’s approved with a refund, it will appear under “Refunds to process”.</span>';
+      return;
+    }
     banner.querySelector('.lk-withdraw').addEventListener('click', function () {
       var btn = this, err = banner.querySelector('.lk-err');
       err.classList.remove('show');

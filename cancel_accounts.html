@@ -1,0 +1,96 @@
+<!--
+  Refunds on the Accounts page (Oct 2026). Pulled in by accounts.html with
+  <?!= include('cancel_accounts'); ?> as the LAST line before </body>.
+  Adds a "Refunds to process" pane at the top of the right column: each
+  refund an admin approved, its amount and deadline. Accounts pays it and
+  enters the UTR; the CRE is emailed. Server side: Cancellations.gs.
+-->
+<style>
+  .side-panel.cx-acc { border-left: 4px solid #a33a32; }
+  .cx-acc .cx-count { display: none; min-width: 16px; padding: 0 5px; margin-left: 6px; border-radius: 9px; background: #a33a32; color: #fff; font-size: 10px; text-align: center; vertical-align: middle; }
+  .cx-ref { padding: 9px 10px; border: 1px solid #e0e0e0; border-radius: 4px; margin-bottom: 8px; background: #fafafa; font-size: 12px; }
+  .cx-ref.late { border-color: #e2a19a; background: #fdf3f2; }
+  .cx-ref .cx-top { display: flex; justify-content: space-between; gap: 8px; }
+  .cx-ref .cx-inst { font-size: 13px; font-weight: 600; color: #1F3864; }
+  .cx-ref .cx-amt { font-size: 14px; font-weight: 700; color: #a33a32; white-space: nowrap; }
+  .cx-ref .cx-sub { color: #777; margin-top: 2px; }
+  .cx-ref .cx-due { margin-top: 4px; font-weight: 700; color: #1F5FA8; }
+  .cx-ref.late .cx-due { color: #B00020; }
+  .cx-ref .cx-pay { margin-top: 8px; display: none; }
+  .cx-ref .cx-pay.show { display: block; }
+  .cx-ref input { width: 100%; padding: 6px 8px; font-size: 12.5px; border: 1px solid #ccc; border-radius: 4px; margin: 3px 0 5px; box-sizing: border-box; }
+  .cx-ref button { width: auto; margin: 0; padding: 5px 12px; font-size: 12px; font-weight: 700; border-radius: 4px; cursor: pointer; }
+  .cx-ref .cx-open-pay { background: #fff; color: #a33a32; border: 1px solid #d9a7a2; margin-top: 7px; }
+  .cx-ref .cx-done { background: #2c7a2c; color: #fff; border: none; }
+  .cx-ref button:disabled { background: #ccc; color: #fff; border-color: #ccc; cursor: not-allowed; }
+  .cx-ref .cx-msg { font-size: 12px; margin-top: 5px; color: #B00020; }
+</style>
+
+<script>
+(function () {
+  function esc(t) { return String(t == null ? '' : t).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+  function inr(n) { return '₹' + Math.round(Number(n) || 0).toLocaleString('en-IN'); }
+
+  var panel = document.createElement('div');
+  panel.className = 'side-panel cx-acc';
+  panel.innerHTML =
+    '<div class="side-panel-header"><h3>Refunds to process<span class="cx-count" id="cxAccCount">0</span></h3>' +
+    '<button class="refresh-btn" id="cxAccRefresh" type="button">&#8635; Refresh</button></div>' +
+    '<div class="field-hint" style="margin-top:0; margin-bottom:8px;">Cancelled orders the admin has asked you to refund, most urgent first. Pay it, then enter the UTR here – the CRE is told straight away.</div>' +
+    '<div id="cxAccList" class="pending-empty">Loading...</div>';
+  var sideCol = document.querySelector('.side-col');
+  if (sideCol) sideCol.insertBefore(panel, sideCol.firstChild);
+  var list = document.getElementById('cxAccList');
+
+  function render(items) {
+    items = items || [];
+    var badge = document.getElementById('cxAccCount');
+    badge.textContent = items.length; badge.style.display = items.length ? 'inline-block' : 'none';
+    if (!items.length) { list.className = 'pending-empty'; list.textContent = 'No refunds waiting.'; return; }
+    list.className = '';
+    list.innerHTML = items.map(function (r) {
+      var late = r.daysLeft !== null && r.daysLeft < 0;
+      var due = r.daysLeft === null ? '' : late ? (-r.daysLeft) + ' day' + (r.daysLeft === -1 ? '' : 's') + ' late'
+        : r.daysLeft === 0 ? 'due today' : r.daysLeft + ' day' + (r.daysLeft === 1 ? '' : 's') + ' left';
+      return '<div class="cx-ref' + (late ? ' late' : '') + '" data-req="' + esc(r.requestId) + '">' +
+        '<div class="cx-top"><div><div class="cx-inst">' + esc(r.institution) + '</div><div class="cx-sub">' + esc(r.trackerId) + '</div></div>' +
+        '<div class="cx-amt">' + inr(r.refundAmount) + '</div></div>' +
+        '<div class="cx-due">Refund by ' + esc(r.deadline) + ' – ' + due + '</div>' +
+        '<div class="cx-sub">Approved by ' + esc(r.approvedBy) + ' on ' + esc(r.approvedAt) + ' &middot; received ' + inr(r.amountReceived) + ' &middot; CRE ' + esc(r.cre) + '</div>' +
+        (r.adminNote ? '<div class="cx-sub">Note: ' + esc(r.adminNote) + '</div>' : '') +
+        '<button type="button" class="cx-open-pay">Mark refund paid</button>' +
+        '<div class="cx-pay"><input type="text" class="cx-utr" placeholder="Refund UTR / bank reference"><input type="text" class="cx-note" placeholder="Note (optional)">' +
+        '<button type="button" class="cx-done">Refund processed</button></div>' +
+        '<div class="cx-msg"></div></div>';
+    }).join('');
+    Array.prototype.forEach.call(list.querySelectorAll('.cx-ref'), function (el) {
+      var openBtn = el.querySelector('.cx-open-pay'), pay = el.querySelector('.cx-pay'), done = el.querySelector('.cx-done'), msg = el.querySelector('.cx-msg');
+      openBtn.addEventListener('click', function () { pay.classList.add('show'); openBtn.style.display = 'none'; el.querySelector('.cx-utr').focus(); });
+      done.addEventListener('click', function () {
+        var utr = el.querySelector('.cx-utr').value.trim();
+        msg.textContent = '';
+        if (utr.length < 6) { msg.textContent = 'Enter the UTR of the refund.'; return; }
+        if (!window.confirm('Mark ' + el.querySelector('.cx-amt').textContent + ' as refunded with UTR ' + utr + '?')) return;
+        done.disabled = true; done.textContent = 'Saving...';
+        authRun()
+          .withSuccessHandler(function () { load(); })
+          .withFailureHandler(function (e) { done.disabled = false; done.textContent = 'Refund processed'; msg.textContent = 'Error: ' + e.message; })
+          .markRefundProcessed({ requestId: el.getAttribute('data-req'), utr: utr, note: el.querySelector('.cx-note').value.trim() });
+      });
+    });
+  }
+
+  function load() {
+    authRun()
+      .withSuccessHandler(render)
+      .withFailureHandler(function () { list.className = 'pending-empty'; list.textContent = 'Could not load refunds.'; })
+      .getRefundsToProcess();
+  }
+  document.getElementById('cxAccRefresh').addEventListener('click', load);
+  var prevClear = window.ICF_CLEAR, prevReload = window.ICF_RELOAD;
+  window.ICF_CLEAR = function () { if (typeof prevClear === 'function') prevClear(); list.className = 'pending-empty'; list.textContent = 'Loading...'; document.getElementById('cxAccCount').style.display = 'none'; };
+  window.ICF_RELOAD = function () { if (typeof prevReload === 'function') prevReload(); load(); };
+  load();
+  setInterval(function () { if (window.ICF_STAFF) load(); }, 120000);
+})();
+</script>
