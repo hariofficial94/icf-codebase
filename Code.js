@@ -4190,6 +4190,23 @@ function findOrders_(query) {
       dateLoggedMs: dates[i][0] instanceof Date ? dates[i][0].getTime() : 0
     });
   }
+  // Nothing found by name? Try spellings that are close (Oct 2026): "Shivaparasa"
+  // finds "Shivaprasad", "sreekant" finds "Sreekanth Chundi".
+  if (!hits.length && nameish && lower.replace(/[^a-z]/g, '').length >= 4) {
+    for (var j = 0; j < n; j++) {
+      var jid = String(ids[j][0] || '').trim();
+      if (!jid || !nameLooksLike_(lower, String(inst[j][0] || ''))) continue;
+      hits.push({
+        trackerId: jid, institution: String(inst[j][0] || ''), phone: String(phones[j][0] || ''),
+        status: String(st[j][0] || ''), deliveryStatus: String(ds[j][0] || ''), total: Number(tot[j][0]) || 0,
+        cre: String(creNames[j][0] || ''), matchedOn: 'Similar name',
+        dateLoggedMs: dates[j][0] instanceof Date ? dates[j][0].getTime() : 0
+      });
+    }
+    // A spelling guess is never opened straight away -- the person picks it from the list.
+    hits.sort(function (a, b) { return b.dateLoggedMs - a.dateLoggedMs; });
+    return { matches: hits.slice(0, 30), total: hits.length, fuzzy: true };
+  }
   // A number that matches quotation numbers shouldn't also drag in every phone
   // number that happens to contain it (same rule the lookup always had).
   if (hits.some(function (h) { return h.matchedOn === 'Quotation no.'; })) {
@@ -4198,6 +4215,47 @@ function findOrders_(query) {
   hits.sort(function (a, b) { return b.dateLoggedMs - a.dateLoggedMs; });
   if (hits.length === 1) return { matches: [], order: lookupOrder_(hits[0].trackerId), total: 1 };
   return { matches: hits.slice(0, 30), total: hits.length };
+}
+
+/**
+ * Is the typed name close to this customer's name? Letters only, case
+ * ignored. Compared with the whole name and with each run of 1-3 words in it,
+ * allowing about one wrong letter in four (typos, h/no h, missing letters).
+ */
+function nameLooksLike_(typed, name) {
+  var q = String(typed || '').toLowerCase().replace(/[^a-z]/g, '');
+  if (q.length < 4) return false;
+  var words = String(name || '').toLowerCase().split(/[^a-z]+/).filter(Boolean);
+  if (!words.length) return false;
+  var allowed = Math.max(1, Math.floor(q.length / 4));
+  var candidates = [words.join('')];
+  for (var i = 0; i < words.length; i++) {
+    for (var k = 1; k <= 3 && i + k <= words.length; k++) candidates.push(words.slice(i, i + k).join(''));
+  }
+  for (var c = 0; c < candidates.length; c++) {
+    var t = candidates[c];
+    if (Math.abs(t.length - q.length) > allowed) {
+      // A long name: also try the start of it, so a first name alone still matches.
+      if (t.length > q.length && editDistance_(q, t.slice(0, q.length)) <= allowed) return true;
+      continue;
+    }
+    if (editDistance_(q, t) <= allowed) return true;
+  }
+  return false;
+}
+
+/** Levenshtein distance (letters inserted, removed or changed). */
+function editDistance_(a, b) {
+  var prev = [], cur = [], i, j;
+  for (j = 0; j <= b.length; j++) prev[j] = j;
+  for (i = 1; i <= a.length; i++) {
+    cur = [i];
+    for (j = 1; j <= b.length; j++) {
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a.charAt(i - 1) === b.charAt(j - 1) ? 0 : 1));
+    }
+    prev = cur;
+  }
+  return prev[b.length];
 }
 
 /**

@@ -253,10 +253,27 @@
       sheet.classList.add('show');
       sheet.scrollTop = 0;
       authRun()
-        .withSuccessHandler(function (o) { CURRENT = o; renderOrder(o); })
+        .withSuccessHandler(function (o) {
+          if (o && o.matches) { renderMatches(o, id); return; }
+          CURRENT = o; renderOrder(o);
+        })
         .withFailureHandler(function (e) { document.getElementById('sheetBody').innerHTML = '<div class="panel"><div class="err show">' + esc(e.message) + '</div></div>'; })
         .getOpsOrder(id);
     }
+    // Several orders match the search (or only a close spelling): pick one.
+    function renderMatches(res, q) {
+      document.getElementById('sheetTitle').textContent = res.fuzzy ? 'Did you mean\u2026' : res.matches.length + ' orders match';
+      document.getElementById('sheetBody').innerHTML = '<div class="panel"><div class="hint" style="margin-top:0;margin-bottom:8px;">' +
+        (res.fuzzy ? 'No exact match for \u201c' + esc(q) + '\u201d.' : 'Choose the order.') + '</div>' +
+        res.matches.map(function (m) {
+          return '<div class="card" data-id="' + esc(m.trackerId) + '" style="margin-bottom:8px;"><div class="inst">' + esc(m.institution) + '</div>' +
+            '<div class="id">' + esc(m.trackerId) + ' \u00b7 ' + esc(m.status) + '</div></div>';
+        }).join('') + '</div>';
+      Array.prototype.forEach.call(document.querySelectorAll('#sheetBody .card'), function (el) {
+        el.addEventListener('click', function () { openOrder(el.getAttribute('data-id')); });
+      });
+    }
+
     function closeSheet() { document.getElementById('sheet').classList.remove('show'); CURRENT = null; }
     document.getElementById('sheetBack').addEventListener('click', function () { closeSheet(); loadQueue(); });
 

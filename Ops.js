@@ -255,8 +255,19 @@ function getOpsQueue_() {
 /** Ops page: one order in full. The print link and verification code only appear once Ops has picked it up. */
 function getOpsOrder_(query) {
   var sheet = getSheet();
-  var row = resolveTrackerId(sheet, String(query || ''));
-  if (row === -1) throw new Error('Order not found. Check the quotation number or phone number.');
+  var row = findRowByTrackerId(sheet, String(query || '').trim());
+  if (row === -1) {
+    // Quotation no. (whole or part), phone or customer name -- same search as the
+    // CRE and Accounts pages, including close spellings (Oct 2026).
+    var found = findOrders_(query);
+    if (found.order) row = findRowByTrackerId(sheet, found.order.trackerId);
+    else if (found.matches && found.matches.length) {
+      return { matches: found.matches.map(function (m) {
+        return { trackerId: m.trackerId, institution: m.institution, status: m.status, matchedOn: m.matchedOn };
+      }), fuzzy: !!found.fuzzy };
+    }
+    if (row === -1) throw new Error('No order found. Try the quotation number, phone number or part of the customer name.');
+  }
   var f = getRowFields(sheet, row, [
     'Tracker ID', 'Institution / Customer', 'Customer Phone Number', 'CRE Name', 'CRE Code', 'Status', 'Priority Level',
     'Customer Requested Delivery Date', 'Dispatch Type', 'State', 'District', 'Pincode', 'Verified Date',

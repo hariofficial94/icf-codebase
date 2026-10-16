@@ -26,6 +26,16 @@
     .stat-card.alert .stat-value { color: #B00020; }
     .stat-label { font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: 0.03em; margin-top: 4px; }
     .stat-sub { font-size: 11px; color: #666; margin-top: 4px; }
+    .match-list { display: none; margin-top: 12px; border: 1px solid #d5e3f1; border-radius: 6px; background: #f7fafd; }
+    .match-list.show { display: block; }
+    .match-head { font-size: 12.5px; color: #1F3864; font-weight: 600; padding: 10px 12px; border-bottom: 1px solid #d5e3f1; }
+    .match-row { padding: 9px 12px; border-bottom: 1px solid #e6eef6; cursor: pointer; }
+    .match-row:last-child { border-bottom: none; }
+    .match-row:hover { background: #eaf2fb; }
+    .match-row .m-top { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; }
+    .match-row .m-top b { color: #1F3864; }
+    .match-row .m-sub { font-size: 11.5px; color: #666; margin-top: 2px; }
+    .match-row .m-why { font-size: 10px; font-weight: 700; color: #2E74B5; background: #e3edf7; border-radius: 8px; padding: 1px 6px; margin-left: 6px; }
     /* Tiles layout (Oct 2026): the side panes live in tile pop-ups now; the order card takes the page. */
     .left-col, .side-col { display: none !important; }
     .page-flex { justify-content: center; }
@@ -168,11 +178,12 @@
       <h1>ICF Accounts</h1>
       <div class="subtitle">Use the tiles above for everything waiting on you, or look up any order here. Ops picks orders up and requests gate passes on their own Operations page; the CRE handles delivery updates.</div>
 
-      <label for="trackerId">Tracker ID (CRM Quotation No.) or Customer Phone Number</label>
-      <input type="text" id="trackerId" placeholder="e.g. ICESPL-123-26-27, last few digits, or the customer's phone number">
+      <label for="trackerId">Quotation No., Phone Number or Customer Name</label>
+      <input type="text" id="trackerId" placeholder="Quotation no., phone number or customer name">
       <button class="btn-lookup" id="lookupBtn">Look Up Order</button>
 
       <div class="error" id="lookupError"></div>
+      <div class="match-list" id="accMatchList"></div>
       <div class="details" id="details"></div>
       <div class="timeline-box" id="timelineBox">
         <div class="timeline-title">Order Timeline</div>
@@ -712,6 +723,28 @@
       openModal('payments', 'All Pending Payments (' + allPaymentItems.length + ')', buildPaymentItemsHtml(allPaymentItems), bindPaymentItemHandlers);
     });
 
+    // ---------- Search results (several matches, or a close spelling) ----------
+    function hideAccMatches() { var m = document.getElementById('accMatchList'); m.className = 'match-list'; m.innerHTML = ''; }
+    function showAccMatches(res, q) {
+      var m = document.getElementById('accMatchList');
+      if (!res.matches || !res.matches.length) {
+        lookupError.textContent = 'No order found for \u201c' + q + '\u201d. Try the quotation number, the phone number, or part of the customer name.';
+        lookupError.classList.add('show');
+        return;
+      }
+      m.innerHTML = '<div class="match-head">' + (res.fuzzy ? 'No exact match for \u201c' + escapeHtml(q) + '\u201d. Did you mean:' :
+          res.total + ' orders match \u201c' + escapeHtml(q) + '\u201d \u2013 choose one' + (res.total > res.matches.length ? ' (showing the ' + res.matches.length + ' most recent)' : '')) + '</div>' +
+        res.matches.map(function (o) {
+          return '<div class="match-row" data-id="' + escapeHtml(o.trackerId) + '"><div class="m-top"><span><b>' + escapeHtml(o.institution) + '</b>' +
+            '<span class="m-why">' + escapeHtml(o.matchedOn) + '</span></span><span>\u20b9' + Number(o.total).toLocaleString('en-IN') + '</span></div>' +
+            '<div class="m-sub">' + escapeHtml(o.trackerId) + (o.phone ? ' \u00b7 ' + escapeHtml(o.phone) : '') + ' \u00b7 ' + escapeHtml(o.status) + (o.cre ? ' \u00b7 ' + escapeHtml(o.cre) : '') + '</div></div>';
+        }).join('');
+      m.className = 'match-list show';
+      Array.prototype.forEach.call(m.querySelectorAll('.match-row'), function (el) {
+        el.addEventListener('click', function () { trackerIdInput.value = el.getAttribute('data-id'); lookupBtn.click(); });
+      });
+    }
+
     // ---------- Main lookup ----------
     lookupBtn.addEventListener('click', function () {
       lookupError.classList.remove('show');
@@ -720,16 +753,16 @@
 
       var trackerId = trackerIdInput.value.trim();
       if (!trackerId) {
-        lookupError.textContent = 'Enter a Tracker ID first.';
+        lookupError.textContent = 'Enter a quotation number, phone number or customer name.';
         lookupError.classList.add('show');
         return;
       }
 
       lookupBtn.disabled = true;
       lookupBtn.textContent = 'Looking up...';
+      hideAccMatches();
 
-      authRun()
-        .withSuccessHandler(function (order) {
+      var onOrder = function (order) {
           lookupBtn.disabled = false;
           lookupBtn.textContent = 'Look Up Order';
           currentOrder = order;
@@ -809,6 +842,15 @@
                 : 'No action available for status "' + order.status + '" on this page.';
             document.getElementById('stageClosed').classList.add('show');
           }
+      };
+      // Search by quotation no., phone or customer name (Oct 2026). One match opens
+      // straight away; several (or a close spelling) are listed to pick from.
+      authRun()
+        .withSuccessHandler(function (res) {
+          if (res && res.order) { onOrder(res.order); return; }
+          lookupBtn.disabled = false;
+          lookupBtn.textContent = 'Look Up Order';
+          showAccMatches(res || { matches: [], total: 0 }, trackerId);
         })
         .withFailureHandler(function (err) {
           lookupBtn.disabled = false;
@@ -816,7 +858,7 @@
           lookupError.textContent = 'Error: ' + err.message;
           lookupError.classList.add('show');
         })
-        .lookupOrder(trackerId);
+        .findOrders(trackerId);
     });
 
     // ---------- Verify stage ----------
