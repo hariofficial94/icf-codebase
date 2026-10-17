@@ -27,12 +27,16 @@
     .search input { flex: 1; min-width: 0; padding: 12px; font-size: 16px; border: 1px solid #ccc; border-radius: 6px; }
     .search button { padding: 0 16px; font-size: 15px; font-weight: 600; background: #1F3864; color: #fff; border: none; border-radius: 6px; cursor: pointer; }
 
-    .tabs { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; margin-bottom: 10px; -webkit-overflow-scrolling: touch; }
-    .tab { flex: 0 0 auto; padding: 9px 13px; font-size: 13px; font-weight: 700; border-radius: 18px; background: #fff; color: #555; border: 1px solid #d5dbe0; cursor: pointer; white-space: nowrap; }
-    .tab .n { display: inline-block; min-width: 20px; padding: 1px 6px; margin-left: 4px; border-radius: 10px; background: #eef1f4; color: #1F3864; text-align: center; }
-    .tab.active { background: #1F3864; color: #fff; border-color: #1F3864; }
-    .tab.active .n { background: rgba(255,255,255,0.22); color: #fff; }
-    .tab.alert .n { background: #B00020; color: #fff; }
+    /* Tiles (Oct 2026): tap one to show its orders below. Red = something needs Manoj now. */
+    .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin-bottom: 12px; }
+    .tile { background: #fff; border-radius: 10px; box-shadow: 0 1px 6px rgba(0,0,0,0.07); padding: 11px 12px; cursor: pointer; border: 2px solid transparent; user-select: none; }
+    .tile .v { font-size: 24px; font-weight: 800; color: #1F3864; line-height: 1.1; }
+    .tile .l { font-size: 12px; font-weight: 700; color: #666; margin-top: 3px; }
+    .tile.active { border-color: #1F3864; background: #f3f6fb; }
+    .tile.alert { box-shadow: 0 0 0 2px #B00020 inset, 0 1px 6px rgba(0,0,0,0.07); }
+    .tile.alert .v { color: #B00020; }
+    .tile.quiet .v { color: #8a94a3; }
+    @media (max-width: 420px) { .tiles { grid-template-columns: 1fr 1fr; } }
     .tab-note { font-size: 12.5px; color: #666; margin: 0 2px 10px; }
 
     .card { background: #fff; border-radius: 10px; box-shadow: 0 1px 6px rgba(0,0,0,0.07); padding: 14px; margin-bottom: 10px; border-left: 4px solid #2E74B5; }
@@ -114,7 +118,7 @@
       <button type="button" id="qBtn">Find</button>
     </div>
 
-    <div class="tabs" id="tabs"></div>
+    <div class="tiles" id="tabs"></div>
     <div class="tab-note" id="tabNote"></div>
     <div id="list"><div class="empty">Loading...</div></div>
   </div>
@@ -135,11 +139,13 @@
     var TAB = 'newOrders';
     var CURRENT = null;           // order open in the sheet
     var TABS = [
-      ['newOrders', 'New', 'Verified by Accounts and waiting for you. Pick it up here before you start – that records the time and unlocks the PO print.'],
-      ['inHand', 'With Ops', 'Picked up. Vehicle orders: request the gate pass when ready. Courier orders: record the posting with the receipt photo.'],
+      ['newOrders', 'New orders', 'Verified by Accounts and waiting for you. Pick it up here before you start – that records the time and prepares the PO.'],
+      ['inHand', 'In hand', 'Picked up. Vehicle orders: request the gate pass when ready. Courier orders: record the posting.'],
+      ['late', 'Late for delivery', 'Still with Ops and past the date the customer wanted. Move these first – or, if the customer is causing the delay, ask for standby.'],
       ['siteHold', 'Site not ready', 'Waiting for the customer’s site. Tap “Site is ready now” when they confirm.'],
-      ['gatePass', 'Gate pass asked', 'With Accounts for the e-way bill and gate pass. Nothing for you until it’s printed.'],
-      ['standby', 'Standby', 'Paused for a customer delay. They come back to “With Ops” by themselves on the resume date.']
+      ['gatePass', 'Gate pass with Accounts', 'With Accounts for the e-way bill and gate pass. Nothing for you until it’s printed.'],
+      ['dispatchedToday', 'Dispatched today', 'Gate passes issued and postings recorded today.'],
+      ['standby', 'On standby', 'Paused for a customer delay. They come back to “In hand” by themselves on the resume date.']
     ];
 
     function esc(t) { return String(t == null ? '' : t).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
@@ -175,13 +181,18 @@
       if (!Q) return;
       document.getElementById('notLive').classList.toggle('show', !Q.live);
       var s = Q.summary;
-      var alertFor = { newOrders: s.newOverdue > 0, inHand: s.inHandOverdue > 0 };
+      var alertFor = { newOrders: s.newOverdue > 0, inHand: s.inHandOverdue > 0, late: (Q.late || []).length > 0 };
+      var quiet = { siteHold: true, gatePass: true, dispatchedToday: true, standby: true };
       document.getElementById('tabs').innerHTML = TABS.map(function (t) {
-        return '<div class="tab' + (t[0] === TAB ? ' active' : '') + (alertFor[t[0]] ? ' alert' : '') + '" data-tab="' + t[0] + '">' +
-          esc(t[1]) + '<span class="n">' + (Q[t[0]] || []).length + '</span></div>';
+        var n = (Q[t[0]] || []).length;
+        return '<div class="tile' + (t[0] === TAB ? ' active' : '') + (alertFor[t[0]] ? ' alert' : '') + (quiet[t[0]] && !n ? ' quiet' : '') + '" data-tab="' + t[0] + '">' +
+          '<div class="v">' + n + '</div><div class="l">' + esc(t[1]) + '</div></div>';
       }).join('');
-      Array.prototype.forEach.call(document.querySelectorAll('.tab'), function (el) {
-        el.addEventListener('click', function () { TAB = el.getAttribute('data-tab'); renderQueue(); });
+      Array.prototype.forEach.call(document.querySelectorAll('.tile'), function (el) {
+        el.addEventListener('click', function () {
+          TAB = el.getAttribute('data-tab'); renderQueue();
+          var note = document.getElementById('tabNote'); if (note && note.scrollIntoView) note.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
       });
       var note = TABS.filter(function (t) { return t[0] === TAB; })[0][2];
       if (TAB === 'newOrders' && Q.ackHours) note += ' Target: within ' + Q.ackHours + ' h.';
@@ -194,7 +205,7 @@
       var items = Q[TAB] || [];
       var list = document.getElementById('list');
       if (!items.length) {
-        list.innerHTML = '<div class="empty">' + (TAB === 'newOrders' ? 'No new orders. All caught up.' : 'Nothing here.') + '</div>';
+        list.innerHTML = '<div class="empty">' + ({ newOrders: 'No new orders. All caught up.', late: 'Nothing late. Well done.', dispatchedToday: 'Nothing dispatched yet today.' }[TAB] || 'Nothing here.') + '</div>';
         return;
       }
       list.innerHTML = items.map(cardHtml).join('');
@@ -215,6 +226,8 @@
       else if (TAB === 'inHand') waitLine = (c.cutover ? 'With Ops at go-live' : 'Picked up ' + c.pickedUpAt + (c.pickedUpBy ? ' by ' + c.pickedUpBy : '')) +
         (c.dispatchType === 'Courier' && c.hoursWaiting !== null ? ' – ' + hoursText(c.hoursWaiting) + ' ago' + (c.overdue ? ', POST TODAY' : '') : '');
       else if (TAB === 'gatePass') waitLine = 'Requested ' + c.gatePassRequestedAt + (c.vehicleNo ? ' – vehicle ' + c.vehicleNo : '');
+      else if (TAB === 'late') waitLine = 'Now at: ' + ({ 'Sent to Ops': c.pickedUpAt || c.cutover ? 'in hand' : 'not picked up yet', 'On Hold - Site Not Ready': 'site not ready', 'Vehicle Confirmed': 'gate pass with Accounts' }[c.status] || c.status);
+      else if (TAB === 'dispatchedToday') waitLine = (c.dispatchType === 'Courier' ? 'Posted ' : 'Gate pass issued ') + c.dispatchedAt + (c.gatePassNo ? ' – ' + c.gatePassNo : (c.trackingNo ? ' – tracking ' + c.trackingNo : ''));
       return '<div class="card' + (c.priority === 'High' ? ' high' : '') + (c.overdue ? ' overdue' : '') + '" data-id="' + esc(c.trackerId) + '">' +
         '<div class="row1"><div><div class="inst">' + esc(c.institution) +
         (c.dispatchType === 'Courier' ? '<span class="tag">Courier</span>' : '') + (c.cutover ? '<span class="tag cut">Go-live</span>' : '') + '</div>' +
@@ -222,7 +235,7 @@
         '<span class="badge' + (c.priority === 'High' ? ' high' : '') + '">' + (c.priority === 'High' ? 'HIGH' : 'Normal') + '</span></div>' +
         '<div class="meta">' + [c.location, c.requestedDelivery ? 'Wanted by ' + c.requestedDelivery + (dueText(c.daysUntilDelivery) ? ' (' + dueText(c.daysUntilDelivery) + ')' : '') : '', c.creName ? 'CRE: ' + c.creName : '']
           .filter(Boolean).map(esc).join('<br>') + '</div>' +
-        (waitLine ? '<div class="wait">' + esc(waitLine) + '</div>' : '') +
+        (waitLine ? '<div class="wait"' + (TAB === 'late' || TAB === 'dispatchedToday' ? ' style="color:' + (TAB === 'late' ? '#B00020' : '#2c7a3f') + ';"' : '') + '>' + esc(waitLine) + '</div>' : '') +
         (TAB === 'newOrders' ? '<div class="acts"><button type="button" class="btn green ack">Acknowledge &amp; pick up</button></div>' : '') +
         '</div>';
     }

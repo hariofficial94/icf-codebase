@@ -214,9 +214,27 @@ function getOpsQueue_() {
   var goLive = opsGoLiveMs_();
   var ends = opsStandbyEnds_();
   var data = opsReadOrders_();
-  var out = { newOrders: [], inHand: [], siteHold: [], gatePass: [], standby: [] };
+  var out = { newOrders: [], inHand: [], late: [], siteHold: [], gatePass: [], dispatchedToday: [], standby: [] };
+  var today = todayYmd_();
+  var tz = Session.getScriptTimeZone();
   data.rows.forEach(function (o) {
     var status = String(o.get('Status') || '');
+    // Late for delivery (Oct 2026): still with Ops (not dispatched, not on standby) and past the wanted-by date.
+    if (status === 'Sent to Ops' || status === 'On Hold - Site Not Ready' || status === 'Vehicle Confirmed') {
+      var due = computeDaysUntilDate(o.get('Customer Requested Delivery Date'));
+      if (due !== null && due < 0) out.late.push(opsCard_(o, now, 0, 0));
+    }
+    // Dispatched today: gate pass issued or posting recorded today.
+    if (isDispatchedStatus_(status)) {
+      var dms = opsMs_(o.get('Dispatch Timestamp'));
+      if (dms && Utilities.formatDate(new Date(dms), tz, 'yyyy-MM-dd') === today) {
+        var dc = opsCard_(o, now, 0, 0);
+        dc.dispatchedAt = opsFmt_(dms);
+        dc.gatePassNo = String(o.get('Gate Pass No.') || '');
+        dc.trackingNo = String(o.get('Tracking / Consignment No.') || '');
+        out.dispatchedToday.push(dc);
+      }
+    }
     var id = String(o.get('Tracker ID'));
     var endMs = ends[id.toLowerCase()] || 0;
     var acked = opsIsAcked_(o.get('Received by Ops Timestamp'), o.get('Ops Cutover'));
@@ -240,6 +258,8 @@ function getOpsQueue_() {
     return (a.startMs || Infinity) - (b.startMs || Infinity);
   };
   ['newOrders', 'inHand', 'siteHold', 'gatePass', 'standby'].forEach(function (k) { out[k].sort(byUrgency); });
+  out.late.sort(function (a, b) { return (a.daysUntilDelivery || 0) - (b.daysUntilDelivery || 0); }); // most overdue first
+  out.dispatchedToday.sort(function (a, b) { return a.dispatchedAt < b.dispatchedAt ? 1 : -1; });
   out.summary = {
     newOrders: out.newOrders.length,
     newOverdue: out.newOrders.filter(function (c) { return c.overdue; }).length,
@@ -247,7 +267,9 @@ function getOpsQueue_() {
     inHandOverdue: out.inHand.filter(function (c) { return c.overdue; }).length,
     siteHold: out.siteHold.length,
     gatePass: out.gatePass.length,
-    standby: out.standby.length
+    standby: out.standby.length,
+    late: out.late.length,
+    dispatchedToday: out.dispatchedToday.length
   };
   out.ackHours = cfg.ackHours;
   out.postHours = cfg.postHours;
