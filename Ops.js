@@ -67,6 +67,9 @@ var OPS_BACKUP_PROP = 'ops_backup_url';
 var OPS_NEW_HEADERS = ['Ops Code', 'Picked Up By', 'Ops Cutover', 'Gate Pass Requested By', 'Postal Receipt URL',
   'Customer Email', 'Customer Updates Consent', 'Ops Alerts Sent', 'Customer Updates Sent'];
 var OPS_MAX_RECEIPT_BYTES = 8 * 1024 * 1024;
+// Receipt photo for courier postings: optional for now (Hari, Oct 2026). Set to
+// true to make it required again -- the Ops page follows this automatically.
+var OPS_RECEIPT_PHOTO_REQUIRED = false;
 
 // [label, default, explanation] -- shown on the Settings page under "Ops nudges".
 var OPS_SETTINGS_ROWS = [
@@ -308,6 +311,7 @@ function getOpsOrder_(query) {
     courierName: String(f['Courier / Transport Name'] || ''),
     trackingNo: String(f['Tracking / Consignment No.'] || ''),
     postalReceiptUrl: String(f['Postal Receipt URL'] || ''),
+    receiptPhotoRequired: OPS_RECEIPT_PHOTO_REQUIRED,
     deliveryStatus: String(f['Delivery Status'] || ''),
     products: getOrderLineItems_(id),
     standby: (typeof standbyInfoForOrder_ === 'function') ? standbyInfoForOrder_(id, status) : null,
@@ -510,9 +514,10 @@ function recordPosting_(form) {
     throw new Error('Enter who it was posted with, the tracking number and the date & time on the receipt.');
   }
   var receipt = form.receipt || {};
-  if (!receipt.data) throw new Error('Add a photo of the postal receipt.');
+  var hasPhoto = !!receipt.data;
+  if (!hasPhoto && OPS_RECEIPT_PHOTO_REQUIRED) throw new Error('Add a photo of the postal receipt.');
   var mime = String(receipt.mimeType || 'image/jpeg').toLowerCase();
-  if (!/^image\/(jpeg|png|webp|heic|heif)$/.test(mime) && mime !== 'application/pdf') {
+  if (hasPhoto && !/^image\/(jpeg|png|webp|heic|heif)$/.test(mime) && mime !== 'application/pdf') {
     throw new Error('The receipt must be a photo (JPG/PNG) or a PDF.');
   }
   var postedAt = new Date(form.postedAt);
@@ -542,13 +547,17 @@ function recordPosting_(form) {
     throw new Error('End-customer order with ₹' + formatAmount(balanceDue) + ' still outstanding – Accounts needs to record the balance first. Don’t post it yet.');
   }
 
-  var bytes = Utilities.base64Decode(String(receipt.data).replace(/^data:[^,]*,/, ''));
-  if (bytes.length > OPS_MAX_RECEIPT_BYTES) throw new Error('The photo is too large. Take it again at a lower resolution.');
-  var ext = mime === 'application/pdf' ? '.pdf' : (mime === 'image/png' ? '.png' : '.jpg');
-  var file = getOrCreateFolder(OPS_POSTAL_FOLDER_NAME)
-    .createFile(Utilities.newBlob(bytes, mime, 'Postal receipt - ' + sanitizeForFilename(trackerId) + ext));
-  // Same sharing as the PO and gate pass PDFs, so the CRE and Accounts can open it.
-  file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+  var receiptUrl = '';
+  if (hasPhoto) {
+    var bytes = Utilities.base64Decode(String(receipt.data).replace(/^data:[^,]*,/, ''));
+    if (bytes.length > OPS_MAX_RECEIPT_BYTES) throw new Error('The photo is too large. Take it again at a lower resolution.');
+    var ext = mime === 'application/pdf' ? '.pdf' : (mime === 'image/png' ? '.png' : '.jpg');
+    var file = getOrCreateFolder(OPS_POSTAL_FOLDER_NAME)
+      .createFile(Utilities.newBlob(bytes, mime, 'Postal receipt - ' + sanitizeForFilename(trackerId) + ext));
+    // Same sharing as the PO and gate pass PDFs, so the CRE and Accounts can open it.
+    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    receiptUrl = file.getUrl();
+  }
 
   var lock = LockService.getScriptLock();
   lock.waitLock(20000);
@@ -561,14 +570,14 @@ function recordPosting_(form) {
       'Status': STATUS_POSTED,
       'Delivery Status': 'In Transit',
       'Delivery Status Last Updated': new Date(),
-      'Postal Receipt URL': file.getUrl()
+      'Postal Receipt URL': receiptUrl
     });
     // Keep long tracking numbers as text (not 5.72E+11).
     sheet.getRange(row, getHeaderIndex('Tracking / Consignment No.')).setNumberFormat('@').setValue(trackingNo);
   } finally {
     lock.releaseLock();
   }
-  return { trackerId: trackerId, status: STATUS_POSTED, receiptUrl: file.getUrl(), courierName: courierName, trackingNo: trackingNo };
+  return { trackerId: trackerId, status: STATUS_POSTED, receiptUrl: receiptUrl, courierName: courierName, trackingNo: trackingNo };
 }
 
 // ================================================================
@@ -1048,7 +1057,7 @@ function opsActivityDetail_(fnName, a, result) {
   switch (fnName) {
     case 'acknowledgeOrder': return 'Picked up at ' + (result.pickedUpAt || '');
     case 'requestGatePass': return 'Vehicle ' + (result.vehicleNo || a.vehicleNo || '') + (result.siteReady ? '' : ' – site NOT ready, on hold');
-    case 'recordPosting': return (result.courierName || a.courierName || '') + ' ' + (result.trackingNo || a.trackingNo || '') + ' – receipt photo saved';
+    case 'recordPosting': return (result.courierName || a.courierName || '') + ' ' + (result.trackingNo || a.trackingNo || '') + (result.receiptUrl ? ' \u2013 receipt photo saved' : ' \u2013 no receipt photo');
     case 'setStandbyDirect': return (result.requestId || '') + ' – ' + (a.reason || '') + ', until ' + (result.resume || '') +
       (result.overLimits && result.overLimits.length ? ' (past limits: ' + result.overLimits.join('; ') + ')' : '');
     default: return '';

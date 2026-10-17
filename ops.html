@@ -374,9 +374,9 @@
         '<datalist id="courierList"><option value="India Post"><option value="DTDC"><option value="Professional Couriers"><option value="Blue Dart"><option value="Delhivery"></datalist>' +
         '<label for="pTracking">Tracking / consignment number</label><input type="text" id="pTracking" autocapitalize="characters">' +
         '<label for="pAt">Date &amp; time on the receipt</label><input type="datetime-local" id="pAt" value="' + nowLocal() + '" max="' + nowLocal() + '">' +
-        '<label for="pPhoto">Photo of the postal receipt</label><input type="file" id="pPhoto" accept="image/*,application/pdf" capture="environment">' +
+        '<label for="pPhoto">Photo of the postal receipt' + (o.receiptPhotoRequired ? '' : ' (optional)') + '</label><input type="file" id="pPhoto" accept="image/*,application/pdf" capture="environment">' +
         '<img class="photo-prev" id="pPrev" alt="Receipt preview">' +
-        '<div class="hint">The photo is required. The CRE uses it to answer the customer.</div>' +
+        '<div class="hint">' + (o.receiptPhotoRequired ? 'The photo is required. ' : 'Add it if you can. ') + 'The CRE uses it to answer the customer.</div>' +
         '<div style="display:flex;margin-top:14px;"><button type="button" class="btn" id="pBtn">Save posting</button></div><div class="err" id="pErr"></div></div>';
     }
 
@@ -470,13 +470,13 @@
         var tracking = document.getElementById('pTracking').value.trim();
         var at = document.getElementById('pAt').value;
         if (!courier || !tracking || !at) return showErr('pErr', 'Enter who it was posted with, the tracking number and the time on the receipt.');
-        if (!receipt) return showErr('pErr', 'Add the photo of the postal receipt.');
-        pBtn.disabled = true; pBtn.textContent = 'Uploading...';
+        if (!receipt && o.receiptPhotoRequired) return showErr('pErr', 'Add the photo of the postal receipt.');
+        pBtn.disabled = true; pBtn.textContent = receipt ? 'Uploading...' : 'Saving...';
         authRun()
           .withSuccessHandler(function () { toast('Posting saved. The CRE takes delivery follow-up from here.'); openOrder(o.trackerId); loadQueue(); })
           .withFailureHandler(function (e) { pBtn.disabled = false; pBtn.textContent = 'Save posting'; showErr('pErr', e.message); })
           .recordPosting({ trackerId: o.trackerId, courierName: courier, trackingNo: tracking, postedAt: at,
-                           receipt: { data: receipt.data, mimeType: receipt.mimeType, name: receipt.name } });
+                           receipt: receipt ? { data: receipt.data, mimeType: receipt.mimeType, name: receipt.name } : null });
       });
 
       // Standby
