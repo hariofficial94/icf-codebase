@@ -430,6 +430,53 @@ function preparePo_(form) {
 }
 
 // ================================================================
+// Ops -- "My requests": the standby requests this person sent to an admin
+// ================================================================
+/**
+ * Every standby request the signed-in Ops person raised that still matters:
+ * waiting (admin or director), active (on standby now), and decided in the
+ * last 7 days (approved-and-ended, declined, withdrawn) so a "no" is seen.
+ */
+function getMyOpsRequests_() {
+  var me = CURRENT_STAFF_;
+  if (typeof readStandby_ !== 'function') return { items: [], waiting: 0 };
+  var cutoff = Date.now() - 7 * 86400000;
+  var items = readStandby_().filter(function (r) {
+    if (r.requestedBy !== me.code) return false;
+    if (r.status === 'Pending' || r.status === 'Pending Director' || r.status === 'Active') return true;
+    var when = Math.max(r.decidedAtMs || 0, r.directorDecidedAtMs || 0, r.endedAtMs || 0);
+    return when > cutoff;
+  }).map(function (r) {
+    var it = sbItem_(r);
+    it.statusText = r.status === 'Pending' ? 'Waiting for an admin'
+      : r.status === 'Pending Director' ? 'Approved by admin \u2013 waiting for a director'
+      : r.status === 'Active' ? 'Approved \u2013 on standby until ' + it.resume
+      : r.status === 'Declined' ? 'Declined' + (r.directorDecision ? ' by a director' : (r.decidedBy ? ' by ' + r.decidedBy.replace(/ \(.*$/, '') : ''))
+      : r.status === 'Withdrawn' ? 'Withdrawn'
+      : r.status === 'Ended' ? 'Standby over \u2013 ' + (r.endedHow || 'ended')
+      : r.status;
+    it.canWithdraw = r.status === 'Pending' || r.status === 'Pending Director';
+    return it;
+  });
+  var rank = { Pending: 0, 'Pending Director': 1, Declined: 2, Active: 3, Withdrawn: 4, Ended: 5 };
+  items.sort(function (a, b) { return ((rank[a.status] || 9) - (rank[b.status] || 9)) || ((b.requestedAtMs || 0) - (a.requestedAtMs || 0)); });
+  return { items: items, waiting: items.filter(function (i) { return i.canWithdraw; }).length,
+           declinedRecent: items.filter(function (i) { return i.status === 'Declined'; }).length };
+}
+
+/** Ops: pull back one of their OWN waiting standby requests. form = { requestId, note } */
+function withdrawMyRequest_(form) {
+  form = form || {};
+  var me = CURRENT_STAFF_;
+  var id = String(form.requestId || '').trim();
+  if (id.indexOf('SB-') !== 0) throw new Error('Only standby requests can be withdrawn here.');
+  var r = sbFind_(readStandby_(), id);
+  if (!r) throw new Error('Request not found.');
+  if (r.requestedBy !== me.code && me.role !== 'Admin') throw new Error('You can only withdraw requests you raised.');
+  return withdrawRequest_(form);
+}
+
+// ================================================================
 // Accounts -- gate passes Ops has asked for (pop-up from the top tile)
 // ================================================================
 /** Every order at "Vehicle Confirmed", with what Accounts needs to issue the gate pass in one place. */
@@ -1069,6 +1116,8 @@ function opsApiMap_() {
     requestGatePass:  { fn: requestGatePass_,  roles: OPS, log: 'Requested gate pass' },
     recordPosting:    { fn: recordPosting_,    roles: OPS, log: 'Recorded postal dispatch' },
     preparePo:        { fn: preparePo_,        roles: OPS, log: 'Prepared PO' },
+    getMyOpsRequests: { fn: getMyOpsRequests_, roles: OPS },
+    withdrawMyRequest:{ fn: withdrawMyRequest_, roles: OPS, log: 'Withdrew request' },
     getGatePassQueue: { fn: getGatePassQueue_, roles: ['Accounts'] },
     setStandbyDirect: { fn: setStandbyDirect_, roles: ['Director'], log: 'Put order on standby directly' }
   };
@@ -1078,6 +1127,7 @@ function opsActivityDetail_(fnName, a, result) {
   a = a || {}; result = result || {};
   switch (fnName) {
     case 'acknowledgeOrder': return 'Picked up at ' + (result.pickedUpAt || '');
+    case 'withdrawMyRequest': return (result.requestId || a.requestId || '') + ' \u2013 ' + (result.label || '') + (a.note ? ' (' + a.note + ')' : '');
     case 'requestGatePass': return 'Vehicle ' + (result.vehicleNo || a.vehicleNo || '') + (result.siteReady ? '' : ' – site NOT ready, on hold');
     case 'recordPosting': return (result.courierName || a.courierName || '') + ' ' + (result.trackingNo || a.trackingNo || '') + (result.receiptUrl ? ' \u2013 receipt photo saved' : ' \u2013 no receipt photo');
     case 'setStandbyDirect': return (result.requestId || '') + ' – ' + (a.reason || '') + ', until ' + (result.resume || '') +

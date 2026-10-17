@@ -145,8 +145,10 @@
       ['siteHold', 'Site not ready', 'Waiting for the customer’s site. Tap “Site is ready now” when they confirm.'],
       ['gatePass', 'Gate pass with Accounts', 'With Accounts for the e-way bill and gate pass. Nothing for you until it’s printed.'],
       ['dispatchedToday', 'Dispatched today', 'Gate passes issued and postings recorded today.'],
-      ['standby', 'On standby', 'Paused for a customer delay. They come back to “In hand” by themselves on the resume date.']
+      ['standby', 'On standby', 'Paused for a customer delay. They come back to “In hand” by themselves on the resume date.'],
+      ['myRequests', 'My requests', 'Standby requests you sent to the admin: waiting, approved, and any declined in the last 7 days.']
     ];
+    var MYREQ = null; // { items, waiting, declinedRecent }
 
     function esc(t) { return String(t == null ? '' : t).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
     function toast(text, bad) {
@@ -170,6 +172,10 @@
     // ---------------- Queue ----------------
     function loadQueue() {
       authRun()
+        .withSuccessHandler(function (r) { MYREQ = r; if (Q) renderQueue(); })
+        .withFailureHandler(function () { MYREQ = null; })
+        .getMyOpsRequests();
+      authRun()
         .withSuccessHandler(function (q) { Q = q; renderQueue(); })
         .withFailureHandler(function (e) {
           document.getElementById('list').innerHTML = '<div class="empty">Could not load the queue: ' + esc(e.message) + '</div>';
@@ -181,10 +187,10 @@
       if (!Q) return;
       document.getElementById('notLive').classList.toggle('show', !Q.live);
       var s = Q.summary;
-      var alertFor = { newOrders: s.newOverdue > 0, inHand: s.inHandOverdue > 0, late: (Q.late || []).length > 0 };
-      var quiet = { siteHold: true, gatePass: true, dispatchedToday: true, standby: true };
+      var alertFor = { newOrders: s.newOverdue > 0, inHand: s.inHandOverdue > 0, late: (Q.late || []).length > 0, myRequests: !!(MYREQ && MYREQ.declinedRecent) };
+      var quiet = { siteHold: true, gatePass: true, dispatchedToday: true, standby: true, myRequests: true };
       document.getElementById('tabs').innerHTML = TABS.map(function (t) {
-        var n = (Q[t[0]] || []).length;
+        var n = t[0] === 'myRequests' ? (MYREQ ? MYREQ.items.length : 0) : (Q[t[0]] || []).length;
         return '<div class="tile' + (t[0] === TAB ? ' active' : '') + (alertFor[t[0]] ? ' alert' : '') + (quiet[t[0]] && !n ? ' quiet' : '') + '" data-tab="' + t[0] + '">' +
           '<div class="v">' + n + '</div><div class="l">' + esc(t[1]) + '</div></div>';
       }).join('');
@@ -202,6 +208,7 @@
         ? s.newOrders + ' new order' + (s.newOrders === 1 ? '' : 's') + ' waiting' + (s.newOverdue ? ' – ' + s.newOverdue + ' overdue' : '')
         : 'Nothing new waiting.';
 
+      if (TAB === 'myRequests') { renderMyRequests(); return; }
       var items = Q[TAB] || [];
       var list = document.getElementById('list');
       if (!items.length) {
@@ -217,6 +224,37 @@
         });
         var ack = el.querySelector('.ack');
         if (ack) ack.addEventListener('click', function (ev) { ev.stopPropagation(); acknowledge(id, ack); });
+      });
+    }
+
+    // "My requests": standby requests this person raised, with their decision.
+    function renderMyRequests() {
+      var list = document.getElementById('list');
+      var items = (MYREQ && MYREQ.items) || [];
+      if (!items.length) { list.innerHTML = '<div class="empty">No requests waiting or decided this week.</div>'; return; }
+      var colour = { Pending: '#9a5b00', 'Pending Director': '#9a5b00', Active: '#6b4c9a', Declined: '#B00020', Withdrawn: '#888', Ended: '#2c7a3f' };
+      list.innerHTML = items.map(function (r) {
+        return '<div class="card" data-id="' + esc(r.trackerId) + '" style="border-left-color:' + (colour[r.status] || '#2E74B5') + ';">' +
+          '<div class="row1"><div><div class="inst">' + esc(r.institution) + '</div><div class="id">' + esc(r.trackerId) + ' \u00b7 ' + esc(r.requestId) + '</div></div></div>' +
+          '<div class="meta">Standby \u2013 ' + esc(r.reason) + (r.note ? ': ' + esc(r.note) : '') + '<br>' + esc(r.from) + ' to ' + esc(r.resume) +
+            (r.days !== null ? ' (' + r.days + ' days)' : '') + '<br>Asked ' + esc(r.requestedAt) + '</div>' +
+          '<div class="wait" style="color:' + (colour[r.status] || '#1F3864') + ';">' + esc(r.statusText) + '</div>' +
+          (r.canWithdraw ? '<div class="acts"><button type="button" class="btn light wd" data-req="' + esc(r.requestId) + '">Withdraw request</button></div>' : '') +
+          '</div>';
+      }).join('');
+      Array.prototype.forEach.call(list.querySelectorAll('.card'), function (el) {
+        el.addEventListener('click', function (ev) { if (ev.target.classList.contains('wd')) return; openOrder(el.getAttribute('data-id')); });
+      });
+      Array.prototype.forEach.call(list.querySelectorAll('.wd'), function (b) {
+        b.addEventListener('click', function (ev) {
+          ev.stopPropagation();
+          if (!confirm('Withdraw this standby request? The order stays live.')) return;
+          b.disabled = true; b.textContent = 'Withdrawing...';
+          authRun()
+            .withSuccessHandler(function () { toast('Request withdrawn.'); loadQueue(); })
+            .withFailureHandler(function (e) { b.disabled = false; b.textContent = 'Withdraw request'; toast(e.message, true); })
+            .withdrawMyRequest({ requestId: b.getAttribute('data-req') });
+        });
       });
     }
 
