@@ -72,6 +72,7 @@ var OPS_MAX_RECEIPT_BYTES = 8 * 1024 * 1024;
 var OPS_RECEIPT_PHOTO_REQUIRED = false;
 
 // [label, default, explanation] -- shown on the Settings page under "Ops nudges".
+// Hours count working days only (Sundays and holidays skipped) -- see opsWorkingHours_.
 var OPS_SETTINGS_ROWS = [
   ['Ops: acknowledge new orders within (hours)', '24', 'After Accounts verifies an order, Ops gets a reminder if it isn’t picked up in the system within this many hours.'],
   ['Ops: escalate unacknowledged orders after (hours)', '48', 'Goes to the first approver (Approvers above), copied to Ops.'],
@@ -132,6 +133,24 @@ function opsFmtDate_(v) {
 }
 function opsStamp_() { return Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd-MMM HH:mm'); }
 
+/**
+ * Hours between two moments, counting only working days (Oct 2026, Hari):
+ * Sundays and the holidays in Settings don't count; on a working day all 24
+ * hours do. So an order verified at 5 PM Saturday is 24 h old at 5 PM Monday.
+ */
+function opsWorkingHours_(fromMs, toMs) {
+  if (!fromMs || toMs <= fromMs) return 0;
+  var cfg = getAlertSettings_();
+  var off = tzOffsetMs_(toMs), DAYMS = 86400000;
+  var s = fromMs + off, e = toMs + off; // local times, handled as if UTC
+  var total = 0;
+  for (var d = Math.floor(s / DAYMS) * DAYMS, guard = 0; d <= e && guard < 400; d += DAYMS, guard++) {
+    if (!isWorkingDay_(d, cfg)) continue;
+    total += Math.max(0, Math.min(e, d + DAYMS) - Math.max(s, d));
+  }
+  return total / 3600000;
+}
+
 /** True once Ops has the order: acknowledged in the system, or already with Ops at go-live. */
 function opsIsAcked_(ackVal, cutoverVal) {
   return !!opsMs_(ackVal) || String(cutoverVal || '').trim().toUpperCase() === 'Y';
@@ -183,7 +202,7 @@ function staffRecipient_(s) {
 /** One order as a queue card. startMs = when its current Ops clock started. */
 function opsCard_(o, nowMs, startMs, limitHours) {
   var priority = String(o.get('Priority Level') || 'Normal');
-  var hours = startMs ? Math.floor((nowMs - startMs) / 3600000) : null;
+  var hours = startMs ? Math.floor(opsWorkingHours_(startMs, nowMs)) : null;
   var reqDate = o.get('Customer Requested Delivery Date');
   return {
     trackerId: String(o.get('Tracker ID')),
@@ -879,14 +898,14 @@ function opsSweep_(nowMs, staffMap, alertCfg) {
       card._row = o.row; card._cell = cell;
       untouched.push(card);
       if (!opsHasToken_(cell, 'New')) fresh.push(card);
-      var h = (nowMs - startMs) / 3600000;
+      var h = opsWorkingHours_(startMs, nowMs);
       if (h >= cfg.ackEscalateHours && !opsHasToken_(cell, 'AckEscalated')) ackEsc.push(card);
       else if (h >= cfg.ackHours && !opsHasToken_(cell, 'AckReminder')) ackNudge.push(card);
     } else if (courier) {
       var ackMs = Math.max(opsMs_(o.get('Received by Ops Timestamp')) || goLive, endMs);
       var pc = opsCard_(o, nowMs, ackMs, cfg.postHours);
       pc._row = o.row; pc._cell = cell;
-      var ph = (nowMs - ackMs) / 3600000;
+      var ph = opsWorkingHours_(ackMs, nowMs);
       if (ph >= cfg.postEscalateHours && !opsHasToken_(cell, 'PostEscalated')) postEsc.push(pc);
       else if (ph >= cfg.postHours && !opsHasToken_(cell, 'PostReminder')) postNudge.push(pc);
     }
