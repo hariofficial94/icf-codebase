@@ -327,7 +327,7 @@
         ['Receipt', o.postalReceiptUrl ? '<a href="' + esc(o.postalReceiptUrl) + '" target="_blank">View photo</a>' : '', true]
       ]) + '</div>';
       h += '<div class="panel"><h2>Products</h2>' + ((o.products || []).length ? o.products.map(function (p) {
-        return '<div class="prod"><span>' + esc(p.product) + '</span><b>' + esc(p.quantity) + '</b></div>';
+        return '<div class="prod"><span>' + esc(p.product) + '</span><b>Qty: ' + esc(p.quantity) + '</b></div>';
       }).join('') : '<div class="hint" style="margin-top:0;">No products on record.</div>') + '</div>';
 
       document.getElementById('sheetBody').innerHTML = h;
