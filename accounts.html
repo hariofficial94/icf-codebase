@@ -114,6 +114,10 @@
     .payment-item .pi-error { color: #B00020; font-size: 11px; margin-top: 4px; display: none; }
     .payment-item .pi-error.show { display: block; }
     .pending-empty { font-size: 12px; color: #888; font-style: italic; }
+    .pi-flag { margin-top: 5px; font-size: 11.5px; font-weight: 700; padding: 5px 8px; border-radius: 4px; }
+    .pi-flag span { font-weight: 400; }
+    .pi-flag.paid { background: #fdecee; color: #B00020; }
+    .pi-flag.ready { background: #fff4e5; color: #9a5b00; }
 
     .show-more-btn { width: 100%; margin-top: 4px; padding: 7px; font-size: 11px; font-weight: 600; background: #eef1f4; color: #2E74B5; border: 1px dashed #b9c4cf; border-radius: 4px; cursor: pointer; display: none; }
     .show-more-btn:hover { background: #e4ebf2; }
@@ -626,6 +630,8 @@
           '<div class="pi-inst">' + it.institution + '</div>' +
           '<div class="pi-id">' + it.trackerId + '</div>' +
           '<div class="pi-balance">\u20b9' + it.balanceDue.toLocaleString('en-IN') + ' due</div>' +
+          (it.customerSaysPaid ? '<div class="pi-flag paid">Customer says paid \u2013 verify now<br><span>' + escapeHtml(it.customerSaysPaid) + '</span></div>'
+            : it.readyForDispatch ? '<div class="pi-flag ready">Goods ready \u2013 waiting only for this payment</div>' : '') +
           (dueLabel ? '<div class="pi-due' + (it.isUrgent ? ' urgent-text' : '') + '">' + dueLabel + '</div>' : '') +
           '<div class="pi-terms">' + it.paymentTermsType + '</div>' +
           (notVerified
@@ -795,6 +801,11 @@
             document.getElementById('holdBalanceMsg').innerHTML = escapeHtml(document.getElementById('holdBalanceMsg').textContent) +
               '<div><button type="button" class="record-pay-btn" data-id="' + escapeHtml(order.trackerId) + '">Record payment</button></div>';
             document.getElementById('stageHoldBalance').classList.add('show');
+          } else if (order.status === 'Ready - Payment Pending') {
+            closedMsg.textContent = 'Ready to dispatch \u2013 waiting only for the customer\u2019s payment (\u20b9' + Number(order.balanceDue).toLocaleString('en-IN') + ' due). ' +
+              (order.customerSaysPaid ? 'The CRE says it\u2019s paid: ' + order.customerSaysPaid + '. ' : 'The CRE is collecting it. ') +
+              'Record it under Pending Payments \u2013 the order goes back to Ops for the gate pass by itself.';
+            document.getElementById('stageClosed').classList.add('show');
           } else if (order.status === 'Sent to Ops') {
             // Ops login (Oct 2026): Ops picks the order up on the Operations page and asks for the gate pass there.
             closedMsg.textContent = (order.opsPickedUpAt || order.opsCutover

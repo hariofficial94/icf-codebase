@@ -185,6 +185,10 @@
       <div class="stat-value" id="statValueWeek">&ndash;</div>
       <div class="stat-label">Value This Week</div>
     </div>
+    <div class="stat-card clickable" id="statPayDispatchCard" data-set="paydispatch" data-title="Payment needed for dispatch">
+      <div class="stat-value" id="statPayDispatch">&ndash;</div>
+      <div class="stat-label">Payment Needed for Dispatch</div>
+    </div>
     <div class="stat-card clickable" id="statHighPriorityCard" data-set="high" data-title="High-priority pending">
       <div class="stat-value" id="statHighPriority">&ndash;</div>
       <div class="stat-label">High-Priority Pending</div>
@@ -281,6 +285,18 @@
 
           <div class="pct-preview" id="pctPreview"></div>
 
+          <div id="balAfterBox" style="display:none;">
+            <label class="consent-row" for="balAfter">
+              <input type="checkbox" id="balAfter">
+              <span>Balance to be paid after delivery <span style="font-weight:400;color:#888;">(needs admin approval)</span></span>
+            </label>
+            <div id="balAfterReasonBox" style="display:none;">
+              <label for="balAfterReason">Why? (the admin decides)</label>
+              <input type="text" id="balAfterReason" placeholder="e.g. Known to Sambhu, pays the balance on installation">
+            </div>
+            <div class="field-hint">Only tick this if it's agreed with the customer. If approved, the order won't stop at dispatch for the balance.</div>
+          </div>
+
           <div class="row2">
             <div>
               <label for="requestedDeliveryDate">Customer Requested Delivery Date</label>
@@ -341,6 +357,23 @@
           <div class="result" id="resultRequest"></div>
         </div>
 
+
+        <!-- Stage: Payment needed for dispatch (status = Ready - Payment Pending), Oct 2026 -->
+        <div class="stage" id="stagePayDispatch">
+          <h2>Payment needed for dispatch</h2>
+          <div class="hint" id="payDispatchInfo"></div>
+          <div id="payDispatchState"></div>
+          <div id="payDispatchForms">
+            <label for="paidUtr">Customer says they've paid? UTR / bank reference (if they gave one)</label>
+            <input type="text" id="paidUtr" placeholder="optional">
+            <input type="text" id="paidNote" placeholder="Note for Accounts (optional), e.g. paid by NEFT this morning" style="margin-top:6px;">
+            <button id="btnSaysPaid">Customer says paid – tell Accounts</button>
+            <div class="field-hint" style="margin-top:14px;"><b>Arrangement to pay later?</b> Ask the admin to let it go without full payment.</div>
+            <input type="text" id="noPayReason" placeholder="Reason, e.g. Known to Sambhu, pays on installation">
+            <button id="btnNoPay" style="background:#fff;color:#1F3864;border:1px solid #1F3864;">Proceed without payment – ask admin</button>
+          </div>
+          <div class="error" id="errPayDispatch"></div>
+        </div>
 
         <!-- Stage: Delivery Status Update (dispatched -- Gate-Verified or Posted -- not yet closed) -->
         <div class="stage" id="stageDelivery">
@@ -459,6 +492,8 @@
           document.getElementById('statAwaitingDelivery').textContent = s.awaitingDeliveryUpdate;
           document.getElementById('statAwaitingDeliveryCard').classList.toggle('alert', s.awaitingDeliveryUpdate > 0);
           document.getElementById('statInTransit').textContent = s.inTransit;
+          document.getElementById('statPayDispatch').textContent = s.payForDispatch || 0;
+          document.getElementById('statPayDispatchCard').classList.toggle('alert', (s.payForDispatch || 0) > 0);
         })
         .withFailureHandler(function () {
           Array.prototype.forEach.call(document.querySelectorAll('#statStrip .stat-value'), function (el) { el.textContent = '?'; });
@@ -510,6 +545,19 @@
     }
     totalInput.addEventListener('input', updatePreview);
     advanceInput.addEventListener('input', updatePreview);
+
+    // "Balance to be paid after delivery" (Oct 2026): end customer, some advance, some balance.
+    function updateBalAfter() {
+      var total = parseFloat(totalInput.value), adv = parseFloat(advanceInput.value);
+      var show = document.getElementById('paymentTermsType').value === 'End Customer' && adv > 0 && total > adv;
+      document.getElementById('balAfterBox').style.display = show ? 'block' : 'none';
+      if (!show) document.getElementById('balAfter').checked = false;
+      document.getElementById('balAfterReasonBox').style.display = document.getElementById('balAfter').checked ? 'block' : 'none';
+    }
+    totalInput.addEventListener('input', updateBalAfter);
+    advanceInput.addEventListener('input', updateBalAfter);
+    document.getElementById('paymentTermsType').addEventListener('change', updateBalAfter);
+    document.getElementById('balAfter').addEventListener('change', updateBalAfter);
     priorityLevel.addEventListener('change', function () {
       priorityBadge.classList.toggle('show', priorityLevel.value === 'High');
     });
@@ -750,6 +798,8 @@
         paymentTermsType: document.getElementById('paymentTermsType').value,
         totalValue: totalInput.value,
         advanceReceived: advanceInput.value,
+        balanceAfterDelivery: document.getElementById('balAfter').checked,
+        balanceAfterReason: document.getElementById('balAfterReason').value.trim(),
         requestedDeliveryDate: document.getElementById('requestedDeliveryDate').value,
         priorityLevel: priorityLevel.value,
         pincode: pincodeInput.value.trim(),
@@ -762,8 +812,10 @@
         .withSuccessHandler(function (result) {
           document.getElementById('resultTrackerId').textContent = result.trackerId;
           document.getElementById('resultPct').textContent = 'Advance: ' + result.advancePct + '% of total order value' + (result.priority === 'High' ? '  \u2014  PRIORITY: HIGH' : '');
-          document.getElementById('resultDispatch').textContent = result.dispatchType === 'Courier'
-            ? 'Courier order – goes to Ops for posting after payment verification.' : '';
+          document.getElementById('resultDispatch').textContent = (result.dispatchType === 'Courier'
+            ? 'Courier order – goes to Ops for posting after payment verification. ' : '') +
+            (result.balanceAfter ? (result.balanceAfter.error ? 'Balance after delivery: could not ask the admin (' + result.balanceAfter.error + ').'
+              : 'Balance after delivery: sent to the admin for approval (' + result.balanceAfter.requestId + ').') : '');
           resultBox.classList.add('show');
           document.getElementById('poForm').reset();
           pctPreview.textContent = '';
@@ -771,6 +823,7 @@
           pincodeHint.textContent = 'Enter the 6-digit pincode and State/District below fill in automatically.';
           pincodeHint.style.color = '';
           resetProductLines();
+          updateBalAfter();
           submitBtn.disabled = false;
           submitBtn.textContent = 'Generate Internal PO';
           loadPendingPayments();
@@ -794,7 +847,7 @@
     var details = document.getElementById('details');
     var actionList = document.getElementById('actionList');
 
-    var STAGE_IDS = ['stageDelivery', 'stageClosed', 'stageLocked'];
+    var STAGE_IDS = ['stageDelivery', 'stageClosed', 'stageLocked', 'stagePayDispatch'];
     function isDispatched(status) { return status === 'Gate-Verified' || status === 'Posted'; }
     function hideAllStages() {
       STAGE_IDS.forEach(function (id) { document.getElementById(id).classList.remove('show'); });
@@ -931,7 +984,8 @@
           document.getElementById('btnDone').style.display = 'block';
 
           var access = order.access || { canAct: true };
-          var needsCreAction = isDispatched(order.status) && order.deliveryStatus !== 'Delivered' && order.deliveryStatus !== 'Returned';
+          var needsCreAction = (isDispatched(order.status) && order.deliveryStatus !== 'Delivered' && order.deliveryStatus !== 'Returned') ||
+            order.status === 'Ready - Payment Pending';
           if (access.canAct && access.note) {
             var noteEl = document.getElementById('accessNote');
             noteEl.textContent = access.note;
@@ -940,6 +994,8 @@
 
           if (needsCreAction && !access.canAct) {
             showLockedStage(order, access);
+          } else if (order.status === 'Ready - Payment Pending') {
+            showPayDispatchStage(order);
           } else if (order.status === 'Sent to Ops') {
             // Ops login (Oct 2026): Ops picks it up and records the dispatch on the Operations page.
             document.getElementById('closedMessage').textContent = (order.opsPickedUpAt || order.opsCutover
@@ -1089,6 +1145,50 @@
     });
 
 
+    // ---------- Payment needed for dispatch (Oct 2026) ----------
+    function showPayDispatchStage(order) {
+      var px = order.paymentExceptions && order.paymentExceptions.dispatch;
+      document.getElementById('payDispatchInfo').innerHTML = 'The goods are ready' + (order.payHoldSince ? ' (since ' + escHtml(order.payHoldSince) + ')' : '') +
+        ', but the customer still owes <b>\u20b9' + Number(order.balanceDue).toLocaleString('en-IN') + '</b>. It can\u2019t be dispatched until they pay \u2013 call them now.';
+      var state = '';
+      if (order.customerSaysPaid) state += '<div class="access-note show">You told Accounts: ' + escHtml(order.customerSaysPaid) + '. Accounts is verifying \u2013 the order goes back to Ops by itself once recorded.</div>';
+      if (px && px.status === 'Pending') state += '<div class="access-note show">Asked the admin to dispatch without full payment (' + escHtml(px.requestId) + ') \u2013 waiting for a decision.</div>';
+      if (px && px.status === 'Declined') state += '<div class="access-note show" style="background:#fdecee;color:#B00020;">The admin declined dispatching without full payment. The customer has to pay first.</div>';
+      document.getElementById('payDispatchState').innerHTML = state;
+      document.getElementById('btnNoPay').style.display = (px && px.status === 'Pending') ? 'none' : '';
+      document.getElementById('noPayReason').style.display = (px && px.status === 'Pending') ? 'none' : '';
+      ['paidUtr', 'paidNote', 'noPayReason'].forEach(function (id) { document.getElementById(id).value = ''; });
+      document.getElementById('errPayDispatch').classList.remove('show');
+      document.getElementById('stagePayDispatch').classList.add('show');
+    }
+    function payDispatchCall(btn, fn, args, okText) {
+      var err = document.getElementById('errPayDispatch');
+      err.classList.remove('show');
+      var label = btn.textContent;
+      btn.disabled = true; btn.textContent = 'Sending...';
+      var r = authRun()
+        .withSuccessHandler(function () {
+          btn.disabled = false; btn.textContent = label;
+          runLookup(lookupTrackerIdInput.value.trim());
+          loadCreSummary();
+          var box = document.getElementById('payDispatchState');
+          if (box) box.insertAdjacentHTML('afterbegin', '<div class="access-note show">' + escHtml(okText) + '</div>');
+        })
+        .withFailureHandler(function (e) { btn.disabled = false; btn.textContent = label; err.textContent = 'Error: ' + e.message; err.classList.add('show'); });
+      r[fn](args);
+    }
+    document.getElementById('btnSaysPaid').addEventListener('click', function () {
+      payDispatchCall(this, 'creCustomerSaysPaid', { trackerId: lookupTrackerIdInput.value.trim(),
+        utr: document.getElementById('paidUtr').value.trim(), note: document.getElementById('paidNote').value.trim() },
+        'Accounts has been told to verify the payment.');
+    });
+    document.getElementById('btnNoPay').addEventListener('click', function () {
+      var reason = document.getElementById('noPayReason').value.trim();
+      if (!reason) { var err = document.getElementById('errPayDispatch'); err.textContent = 'Write the reason for the admin.'; err.classList.add('show'); return; }
+      payDispatchCall(this, 'creProceedWithoutPayment', { trackerId: lookupTrackerIdInput.value.trim(), reason: reason },
+        'Sent to the admin. If approved, the order goes back to Ops for the gate pass.');
+    });
+
     // ---------- Needs Action panel (CRE) ----------
     var allActionItems = [];
 
@@ -1168,9 +1268,10 @@
       week: function (o) { return o.loggedThisWeek; },
       high: function (o) { return o.highPending; },
       awaiting: function (o) { return o.awaitingDelivery; },
-      transit: function (o) { return o.inTransit; }
+      transit: function (o) { return o.inTransit; },
+      paydispatch: function (o) { return o.payForDispatch; }
     };
-    var ORDER_STAGES = ['Logged', 'On Hold - Balance Due', 'Sent to Ops', 'On Hold - Site Not Ready', 'Vehicle Confirmed', 'Gate-Verified', 'Posted', 'Cancelled'];
+    var ORDER_STAGES = ['Logged', 'On Hold - Balance Due', 'Sent to Ops', 'On Hold - Site Not Ready', 'Ready - Payment Pending', 'Vehicle Confirmed', 'Gate-Verified', 'Posted', 'Cancelled'];
     document.getElementById('ordStage').innerHTML = '<option value="all">All</option>' +
       ORDER_STAGES.map(function (st) { return '<option value="' + st + '">' + st + '</option>'; }).join('');
 

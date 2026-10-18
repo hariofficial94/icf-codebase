@@ -47,7 +47,7 @@ var SB_HEADERS = ['Request ID', 'Requested At', 'Tracker ID', 'Institution', 'Re
   'Order Value', 'Status', 'Decided By', 'Decided At', 'Director Decision', 'Director Decided At',
   'Status Before Standby', 'Started At', 'Ended At', 'Ended How', 'Backdated Days', 'Alerts Sent', 'History'];
 var SB_REASONS = ['Site not ready', 'Customer payment pending', 'Delivery location changed', 'Customer asked to postpone', 'Other'];
-var SB_ELIGIBLE = ['Sent to Ops', 'On Hold - Site Not Ready', 'Vehicle Confirmed', 'On Hold - Balance Due'];
+var SB_ELIGIBLE = ['Sent to Ops', 'On Hold - Site Not Ready', 'Vehicle Confirmed', 'On Hold - Balance Due', 'Ready - Payment Pending'];
 // Hard ceilings -- the Settings page can set anything up to these, never past them.
 var SB_CEILINGS = { maxDays: 60, maxBackdateDays: 14, maxOrders: 20, maxValue: 5000000, minutes: 1440 };
 var SB_SETTINGS_ROWS = [
@@ -925,7 +925,7 @@ function saveSettings_(values) {
     [['Payment approval: remind after (office minutes)', 'Payment approval: escalate after (office minutes)'],
      ['CRE access request: remind after (office minutes)', 'CRE access request: escalate after (office minutes)'],
      [SB_SETTINGS_ROWS[4][0], SB_SETTINGS_ROWS[5][0]]].concat(typeof OPS_SETTINGS_ROWS !== 'undefined'
-      ? [[OPS_SETTINGS_ROWS[0][0], OPS_SETTINGS_ROWS[1][0]], [OPS_SETTINGS_ROWS[2][0], OPS_SETTINGS_ROWS[3][0]]] : []).forEach(function (p) {
+      ? [[OPS_SETTINGS_ROWS[0][0], OPS_SETTINGS_ROWS[1][0]], [OPS_SETTINGS_ROWS[2][0], OPS_SETTINGS_ROWS[3][0]], [OPS_SETTINGS_ROWS[6][0], OPS_SETTINGS_ROWS[7][0]]] : []).forEach(function (p) {
       if (Number(get(p[0])) >= Number(get(p[1]))) errors.push('"' + p[1] + '" must be longer than "' + p[0] + '".');
     });
   }

@@ -36,6 +36,10 @@
     .tile.alert { box-shadow: 0 0 0 2px #B00020 inset, 0 1px 6px rgba(0,0,0,0.07); }
     .tile.alert .v { color: #B00020; }
     .tile.quiet .v { color: #8a94a3; }
+    .tile.green { box-shadow: 0 0 0 2px #2c7a3f inset, 0 1px 6px rgba(0,0,0,0.07); background: #eef8f0; }
+    .tile.green .v { color: #2c7a3f; }
+    .tag.pay { background: #fff1dc; color: #9a5b00; }
+    .tag.ok { background: #e7f4ea; color: #2c7a3f; }
     @media (max-width: 420px) { .tiles { grid-template-columns: 1fr 1fr; } }
     .tab-note { font-size: 12.5px; color: #666; margin: 0 2px 10px; }
 
@@ -141,7 +145,9 @@
     var TABS = [
       ['newOrders', 'New orders', 'Verified by Accounts and waiting for you. Pick it up here before you start – that records the time and prepares the PO.'],
       ['inHand', 'In hand', 'Picked up. Vehicle orders: request the gate pass when ready. Courier orders: record the posting.'],
+      ['cleared', 'Cleared – request gate pass', 'The customer’s payment came in (or the admin allowed dispatch). Confirm the vehicle and request the gate pass.'],
       ['late', 'Late for delivery', 'Still with Ops and past the date the customer wanted. Move these first – or, if the customer is causing the delay, ask for standby.'],
+      ['readyPay', 'Ready – payment pending', 'Ready to go, waiting for the customer to pay. The CRE is collecting it; your clock is paused. It comes back to “Cleared” when it’s sorted.'],
       ['siteHold', 'Site not ready', 'Waiting for the customer’s site. Tap “Site is ready now” when they confirm.'],
       ['gatePass', 'Gate pass with Accounts', 'With Accounts for the e-way bill and gate pass. Nothing for you until it’s printed.'],
       ['dispatchedToday', 'Dispatched today', 'Gate passes issued and postings recorded today.'],
@@ -188,10 +194,11 @@
       document.getElementById('notLive').classList.toggle('show', !Q.live);
       var s = Q.summary;
       var alertFor = { newOrders: s.newOverdue > 0, inHand: s.inHandOverdue > 0, late: (Q.late || []).length > 0, myRequests: !!(MYREQ && MYREQ.declinedRecent) };
-      var quiet = { siteHold: true, gatePass: true, dispatchedToday: true, standby: true, myRequests: true };
+      var quiet = { siteHold: true, gatePass: true, dispatchedToday: true, standby: true, myRequests: true, readyPay: true, cleared: true };
+      var green = { cleared: (Q.cleared || []).length > 0 };
       document.getElementById('tabs').innerHTML = TABS.map(function (t) {
         var n = t[0] === 'myRequests' ? (MYREQ ? MYREQ.items.length : 0) : (Q[t[0]] || []).length;
-        return '<div class="tile' + (t[0] === TAB ? ' active' : '') + (alertFor[t[0]] ? ' alert' : '') + (quiet[t[0]] && !n ? ' quiet' : '') + '" data-tab="' + t[0] + '">' +
+        return '<div class="tile' + (t[0] === TAB ? ' active' : '') + (alertFor[t[0]] ? ' alert' : '') + (green[t[0]] ? ' green' : '') + (quiet[t[0]] && !n ? ' quiet' : '') + '" data-tab="' + t[0] + '">' +
           '<div class="v">' + n + '</div><div class="l">' + esc(t[1]) + '</div></div>';
       }).join('');
       Array.prototype.forEach.call(document.querySelectorAll('.tile'), function (el) {
@@ -263,17 +270,21 @@
       if (TAB === 'newOrders') waitLine = 'Waiting ' + hoursText(c.hoursWaiting) + (c.overdue ? ' – OVERDUE' : '');
       else if (TAB === 'inHand') waitLine = (c.cutover ? 'With Ops at go-live' : 'Picked up ' + c.pickedUpAt + (c.pickedUpBy ? ' by ' + c.pickedUpBy : '')) +
         (c.dispatchType === 'Courier' && c.hoursWaiting !== null ? ' – ' + hoursText(c.hoursWaiting) + ' ago' + (c.overdue ? ', POST TODAY' : '') : '');
-      else if (TAB === 'gatePass') waitLine = 'Requested ' + c.gatePassRequestedAt + (c.vehicleNo ? ' – vehicle ' + c.vehicleNo : '');
+      else if (TAB === 'gatePass') waitLine = c.paymentPending ? 'Blocked – payment pending (CRE to collect)' :
+        'Requested ' + c.gatePassRequestedAt + ' – waiting ' + hoursText(c.hoursWaiting) + (c.vehicleNo ? ' – vehicle ' + c.vehicleNo : '') + (c.overdue ? ' – OVERDUE with Accounts' : '');
+      else if (TAB === 'readyPay') waitLine = (c.customerSaysPaid ? 'CRE says paid – Accounts verifying' : 'Waiting for payment') + (c.hoursWaiting !== null ? ' – ' + hoursText(c.hoursWaiting) : '');
+      else if (TAB === 'cleared') waitLine = 'Cleared: ' + c.clearedNote;
       else if (TAB === 'late') waitLine = 'Now at: ' + ({ 'Sent to Ops': c.pickedUpAt || c.cutover ? 'in hand' : 'not picked up yet', 'On Hold - Site Not Ready': 'site not ready', 'Vehicle Confirmed': 'gate pass with Accounts' }[c.status] || c.status);
       else if (TAB === 'dispatchedToday') waitLine = (c.dispatchType === 'Courier' ? 'Posted ' : 'Gate pass issued ') + c.dispatchedAt + (c.gatePassNo ? ' – ' + c.gatePassNo : (c.trackingNo ? ' – tracking ' + c.trackingNo : ''));
       return '<div class="card' + (c.priority === 'High' ? ' high' : '') + (c.overdue ? ' overdue' : '') + '" data-id="' + esc(c.trackerId) + '">' +
         '<div class="row1"><div><div class="inst">' + esc(c.institution) +
-        (c.dispatchType === 'Courier' ? '<span class="tag">Courier</span>' : '') + (c.cutover ? '<span class="tag cut">Go-live</span>' : '') + '</div>' +
+        (c.dispatchType === 'Courier' ? '<span class="tag">Courier</span>' : '') + (c.cutover ? '<span class="tag cut">Go-live</span>' : '') +
+        (c.paymentPending && TAB !== 'gatePass' ? '<span class="tag pay">Payment pending</span>' : '') + '</div>' +
         '<div class="id">' + esc(c.trackerId) + '</div></div>' +
         '<span class="badge' + (c.priority === 'High' ? ' high' : '') + '">' + (c.priority === 'High' ? 'HIGH' : 'Normal') + '</span></div>' +
         '<div class="meta">' + [c.location, c.requestedDelivery ? 'Wanted by ' + c.requestedDelivery + (dueText(c.daysUntilDelivery) ? ' (' + dueText(c.daysUntilDelivery) + ')' : '') : '', c.creName ? 'CRE: ' + c.creName : '']
           .filter(Boolean).map(esc).join('<br>') + '</div>' +
-        (waitLine ? '<div class="wait"' + (TAB === 'late' || TAB === 'dispatchedToday' ? ' style="color:' + (TAB === 'late' ? '#B00020' : '#2c7a3f') + ';"' : '') + '>' + esc(waitLine) + '</div>' : '') +
+        (waitLine ? '<div class="wait"' + ({ late: 1, dispatchedToday: 1, cleared: 1 }[TAB] || (TAB === 'gatePass' && c.paymentPending) ? ' style="color:' + (TAB === 'late' || TAB === 'gatePass' ? '#B00020' : '#2c7a3f') + ';"' : '') + '>' + esc(waitLine) + '</div>' : '') +
         (TAB === 'newOrders' ? '<div class="acts"><button type="button" class="btn green ack">Acknowledge &amp; pick up</button></div>' : '') +
         '</div>';
     }
@@ -339,6 +350,11 @@
       document.getElementById('sheetTitle').textContent = o.institution + ' – ' + o.trackerId;
       var h = '';
       h += '<div class="status-line ' + statusClass(o) + '">' + esc(statusText(o)) + '</div>';
+      if (o.clearedNote && o.status === 'Sent to Ops') h += '<div class="status-line ok">Cleared: ' + esc(o.clearedNote) + '. Confirm the vehicle and request the gate pass.</div>';
+      if (o.paymentPending && o.status !== 'Ready - Payment Pending') {
+        h += '<div class="status-line warn">Payment pending from the customer \u2013 the gate pass would be blocked. On your site-readiness call, remind the customer to clear it with their CRE (' + esc(o.creName) + '). When the order is ready, tap \u201cReady \u2013 ask CRE to collect payment\u201d.</div>';
+      }
+      if (o.status === 'Ready - Payment Pending' && o.payHoldNote) h += '<div class="status-line warn">' + esc(o.payHoldNote) + (o.customerSaysPaid ? ' \u2013 the CRE says the customer has paid; Accounts is verifying.' : '') + '</div>';
       if (o.pendingRequest) {
         h += '<div class="status-line warn">Waiting for ' + esc(o.pendingRequest.waitingFor) + ' to decide: ' + esc(o.pendingRequest.label) +
           ' (asked by ' + esc(o.pendingRequest.requestedByName) + '). Gate pass and posting are locked until then.</div>';
@@ -349,7 +365,7 @@
         h += '<div class="panel"><h2>Pick it up</h2><div class="hint" style="margin-top:0;">Tap when you start on this order. The system records the time and prepares the PO with the payment verification and your pick-up printed on it.</div>' +
           '<div class="acts" style="display:flex;margin-top:12px;"><button type="button" class="btn green" id="ackBtn">Acknowledge &amp; pick up</button></div></div>';
       }
-      if (o.acked && (o.status === 'Sent to Ops' || o.status === 'On Hold - Site Not Ready' || o.status === 'Vehicle Confirmed')) {
+      if (o.acked && (o.status === 'Sent to Ops' || o.status === 'On Hold - Site Not Ready' || o.status === 'Vehicle Confirmed' || o.status === 'Ready - Payment Pending')) {
         h += '<div class="panel"><h2>Internal PO</h2>' +
           (o.wrapperPdfUrl
             ? '<a class="print" href="' + esc(o.wrapperPdfUrl) + '" target="_blank">Print PO (PDF)</a>' +
@@ -391,7 +407,8 @@
         case 'On Hold - Balance Due': return 'On hold: the customer still owes a balance. Accounts releases it to you once paid – don’t post it yet.';
         case 'Sent to Ops': return o.acked ? (o.dispatchType === 'Courier' ? 'With you – post it and record the receipt.' : 'With you – request the gate pass when it’s ready to go.') : 'New – waiting for you to pick it up.';
         case 'On Hold - Site Not Ready': return 'On hold: waiting for the customer’s site.';
-        case 'Vehicle Confirmed': return 'Gate pass requested' + (o.gatePassRequestedBy ? ' by ' + o.gatePassRequestedBy : '') + ' – with Accounts.';
+        case 'Vehicle Confirmed': return o.paymentPending ? 'Gate pass blocked – the customer still has to pay. The CRE is collecting it.' : 'Gate pass requested' + (o.gatePassRequestedBy ? ' by ' + o.gatePassRequestedBy : '') + ' – with Accounts.';
+        case 'Ready - Payment Pending': return 'Ready – waiting for the customer’s payment' + (o.payHoldSince ? ' since ' + o.payHoldSince : '') + '. The CRE is collecting it; your clock is paused.';
         case 'Gate-Verified': return 'Dispatched' + (o.dispatchedAt ? ' ' + o.dispatchedAt : '') + ' (gate pass ' + o.gatePassNo + ').';
         case 'Posted': return 'Posted' + (o.courierName ? ' via ' + o.courierName : '') + '. Delivery: ' + (o.deliveryStatus || 'In Transit') + '.';
         case 'On Standby': return 'On standby (customer delay)' + (o.standby && o.standby.open ? ' until ' + o.standby.open.resume + ' – ' + o.standby.open.reason : '') + '.';
@@ -402,17 +419,20 @@
     function statusClass(o) {
       if (o.status === 'Gate-Verified' || o.status === 'Posted') return 'ok';
       if (o.status === 'Logged' || o.status === 'On Hold - Balance Due' || o.status === 'Cancelled') return 'bad';
-      if (o.status === 'On Hold - Site Not Ready' || o.status === 'On Standby') return 'warn';
+      if (o.status === 'Vehicle Confirmed' && o.paymentPending) return 'bad';
+      if (o.status === 'On Hold - Site Not Ready' || o.status === 'On Standby' || o.status === 'Ready - Payment Pending') return 'warn';
       return '';
     }
 
     function gatePassForm(o) {
-      return '<div class="panel"><h2>Ready to go? Request the gate pass</h2>' +
+      var pay = !!o.paymentPending;
+      return '<div class="panel"><h2>' + (pay ? 'Ready to go? Tell the CRE to collect payment' : 'Ready to go? Request the gate pass') + '</h2>' +
         '<label for="gpVehicle">Vehicle number</label><input type="text" id="gpVehicle" autocapitalize="characters" placeholder="e.g. KL 13 AB 1234" value="' + esc(o.vehicleNo) + '">' +
         '<label>Customer confirmed the site is ready?</label>' +
         '<div class="yn"><label id="gpYesL"><input type="radio" name="gpSite" value="Y"> Yes</label><label id="gpNoL"><input type="radio" name="gpSite" value="N"> No – hold</label></div>' +
         '<div class="hint">“No” puts it on hold here; tap “Site is ready now” when they confirm. If the customer is delaying for days, use standby instead.</div>' +
-        '<div style="display:flex;margin-top:14px;"><button type="button" class="btn" id="gpBtn">Request gate pass</button></div><div class="err" id="gpErr"></div></div>';
+        (pay ? '<div class="hint">Payment is pending, so this goes to the CRE (not Accounts) and your clock stops until it’s paid or approved.</div>' : '') +
+        '<div style="display:flex;margin-top:14px;"><button type="button" class="btn" id="gpBtn">' + (pay ? 'Ready – ask CRE to collect payment' : 'Request gate pass') + '</button></div><div class="err" id="gpErr"></div></div>';
     }
 
     function nowLocal() {
@@ -477,14 +497,17 @@
         var site = (document.querySelector('input[name=gpSite]:checked') || {}).value || '';
         if (!v) return showErr('gpErr', 'Enter the vehicle number.');
         if (!site) return showErr('gpErr', 'Choose Yes or No for the site.');
+        var label = gpBtn.textContent;
         gpBtn.disabled = true; gpBtn.textContent = 'Sending...';
-        authRun()
+        var runner = authRun()
           .withSuccessHandler(function (r) {
-            toast(r.siteReady ? 'Gate pass requested – it’s with Accounts now.' : 'Saved. On hold until the site is ready.');
+            toast(o.paymentPending && site === 'Y' ? 'Sent to the CRE to collect payment – your clock is paused.'
+              : r.siteReady ? 'Gate pass requested – it’s with Accounts now.' : 'Saved. On hold until the site is ready.');
             openOrder(o.trackerId); loadQueue();
           })
-          .withFailureHandler(function (e) { gpBtn.disabled = false; gpBtn.textContent = 'Request gate pass'; showErr('gpErr', e.message); })
-          .requestGatePass({ trackerId: o.trackerId, vehicleNo: v, siteReadiness: site });
+          .withFailureHandler(function (e) { gpBtn.disabled = false; gpBtn.textContent = label; showErr('gpErr', e.message); });
+        if (o.paymentPending && site === 'Y') runner.markReadyForPayment({ trackerId: o.trackerId, vehicleNo: v });
+        else runner.requestGatePass({ trackerId: o.trackerId, vehicleNo: v, siteReadiness: site });
       });
 
       // Site ready
@@ -493,7 +516,7 @@
         hideErr('siteErr');
         srBtn.disabled = true; srBtn.textContent = 'Sending...';
         authRun()
-          .withSuccessHandler(function () { toast('Gate pass requested – it’s with Accounts now.'); openOrder(o.trackerId); loadQueue(); })
+          .withSuccessHandler(function (r) { toast(r && r.paymentPending ? 'Site ready – payment is pending, so it went to the CRE to collect. Your clock is paused.' : 'Gate pass requested – it’s with Accounts now.'); openOrder(o.trackerId); loadQueue(); })
           .withFailureHandler(function (e) { srBtn.disabled = false; srBtn.textContent = 'Site is ready now – request gate pass'; showErr('siteErr', e.message); })
           .confirmSiteReady(o.trackerId);
       });

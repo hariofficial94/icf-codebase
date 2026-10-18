@@ -272,13 +272,16 @@ var HEADERS = [
   'Last Payment Timestamp', 'Dispatch Type', 'CRE Code',
   // Ops login (Oct 2026) -- appended at the end so no existing column moves. See Ops.js.
   'Ops Code', 'Picked Up By', 'Ops Cutover', 'Gate Pass Requested By', 'Postal Receipt URL',
-  'Customer Email', 'Customer Updates Consent', 'Ops Alerts Sent', 'Customer Updates Sent'
+  'Customer Email', 'Customer Updates Consent', 'Ops Alerts Sent', 'Customer Updates Sent',
+  // Payment at dispatch (Oct 2026) -- see PAYMENT AT DISPATCH in Ops.js. Header cells are filled in automatically.
+  'Payment Hold From', 'Payment Hold Hours', 'Payment Hold Note', 'Cleared For Gate Pass', 'Customer Says Paid', 'Balance After Delivery'
 ];
 
 var DISPATCH_VEHICLE = 'Vehicle';
 var DISPATCH_COURIER = 'Courier';
 var STATUS_HOLD_BALANCE = 'On Hold - Balance Due'; // courier-only: End Customer, not fully paid at verification
 var STATUS_POSTED = 'Posted';                       // courier-only equivalent of Gate-Verified
+var STATUS_READY_PAY = 'Ready - Payment Pending';   // vehicle order ready, end customer still to pay (Oct 2026, Ops.js)
 
 /** True once an order has physically left ICF -- by vehicle (Gate-Verified)
  *  or by post/courier (Posted). Everything that used to ask
@@ -550,7 +553,26 @@ function getSheet() {
   // new AU "Dispatch Type") before anything reads it.
   var maxCols = sheet.getMaxColumns();
   if (maxCols < HEADERS.length) sheet.insertColumnsAfter(maxCols, HEADERS.length - maxCols);
+  ensureHeaderRow_(sheet);
   return sheet;
+}
+
+/**
+ * Writes any HEADERS name whose header cell is still BLANK (new columns added
+ * at the end in a later release). Never overwrites a cell that holds anything.
+ * Checked once every 6 hours per header count.
+ */
+function ensureHeaderRow_(sheet) {
+  var cache = CacheService.getScriptCache();
+  var key = 'hdr_ok_' + HEADERS.length;
+  if (cache.get(key)) return;
+  try {
+    var row = sheet.getRange(1, 1, 1, HEADERS.length).getValues()[0];
+    for (var i = 0; i < HEADERS.length; i++) {
+      if (String(row[i] || '').trim() === '') sheet.getRange(1, i + 1).setValue(HEADERS[i]).setFontWeight('bold');
+    }
+    cache.put(key, '1', 21600);
+  } catch (e) { Logger.log('ensureHeaderRow_ failed: ' + e); }
 }
 
 function getHeaderIndex(name) {
@@ -872,6 +894,14 @@ function submitOrder_(form) {
       formatAmount(Math.round((advance - total) * 100) / 100) + ' \u2013 they record it when verifying.');
   }
   var advancePct = total > 0 ? Math.round((advance / total) * 1000) / 10 : 0;
+  var balanceAfterReason = '';
+  if (form.balanceAfterDelivery) {
+    balanceAfterReason = String(form.balanceAfterReason || '').trim();
+    if (paymentTermsType !== 'End Customer') throw new Error('"Balance to be paid after delivery" is only for end customers \u2013 PO customers already pay on their own terms.');
+    if (advance <= 0) throw new Error('"Balance to be paid after delivery" needs an advance \u2013 Ops can\u2019t start without one.');
+    if (computeBalanceDue(total, advance) <= 0) throw new Error('This order is fully paid \u2013 untick "Balance to be paid after delivery".');
+    if (!balanceAfterReason) throw new Error('Say why the balance will be paid after delivery (the admin decides on this).');
+  }
   var dateLogged = new Date();
   var priority = form.priorityLevel === 'High' ? 'High' : 'Normal';
 
@@ -935,10 +965,21 @@ function submitOrder_(form) {
 
   writeLineItems(trackerId, lineItems);
 
+  // Balance to be paid after delivery (Oct 2026): ask the admin now, so a
+  // pre-agreed arrangement never stops the order at dispatch. The order is
+  // logged either way; a failure here only means the CRE asks again later.
+  var balanceAfter = null;
+  if (balanceAfterReason) {
+    setRowFields(sheet, newRow, { 'Balance After Delivery': balanceAfterReason });
+    try {
+      balanceAfter = raiseDispatchApproval_(sheet, newRow, CURRENT_STAFF_, balanceAfterReason, 'intake');
+    } catch (e) { balanceAfter = { error: e.message }; }
+  }
+
   // Ops login (Oct 2026): no PDF at intake any more -- nobody prints here. The
   // Wrapper PO is generated when Ops picks the order up, with the payment
   // verification and pick-up filled in by the system (opsBuildPo_, Ops.gs).
-  return { trackerId: trackerId, advancePct: advancePct, priority: priority, dispatchType: dispatchType };
+  return { trackerId: trackerId, advancePct: advancePct, priority: priority, dispatchType: dispatchType, balanceAfter: balanceAfter };
 }
 
 /** Writes the AJ (verification-to-pickup) and AK (total cycle) formulas into one row. */
@@ -1279,7 +1320,9 @@ function getCREActionItems_() {
 
     // Ops login (Oct 2026): Ops records the postal receipt themselves, so a
     // courier order at "Sent to Ops" no longer waits on the CRE.
-    if (isDispatchedStatus_(status)) {
+    if (status === STATUS_READY_PAY) {
+      actionLabel = 'Payment needed for dispatch';   // goods ready, customer must pay (Oct 2026)
+    } else if (isDispatchedStatus_(status)) {
       if (ds === 'Delivered' || ds === 'Returned') continue; // already closed out
       actionLabel = ds || 'Pending';
     } else {
@@ -1346,6 +1389,7 @@ function getPendingPayments_() {
   var deliveryStatusCol = getHeaderIndex('Delivery Status');
 
   var numRows = lastRow - 1;
+  var saysPaidVals = sheet.getRange(2, getHeaderIndex('Customer Says Paid'), numRows, 1).getValues();
   var idVals = sheet.getRange(2, idCol, numRows, 1).getValues();
   var instVals = sheet.getRange(2, instCol, numRows, 1).getValues();
   var totalVals = sheet.getRange(2, totalCol, numRows, 1).getValues();
@@ -1376,10 +1420,16 @@ function getPendingPayments_() {
       daysUntilDelivery: daysUntil,
       isUrgent: (daysUntil !== null && daysUntil <= 3),
       workflowStatus: statusVals[i][0] || '',
-      deliveryStatus: deliveryStatusVals[i][0] || ''
+      deliveryStatus: deliveryStatusVals[i][0] || '',
+      // Payment at dispatch (Oct 2026): goods ready, and the CRE may already have heard it's paid.
+      readyForDispatch: typeof STATUS_READY_PAY !== 'undefined' && statusVals[i][0] === STATUS_READY_PAY,
+      customerSaysPaid: String(saysPaidVals[i][0] || '')
     });
-    if (results.length >= 50) break;
+    if (results.length >= 200) break;
   }
+  // Paid-verify-now first, then goods waiting on money, then the rest (newest first, as before).
+  var rank = function (r) { return r.customerSaysPaid ? 0 : r.readyForDispatch ? 1 : 2; };
+  results.sort(function (a, b) { return rank(a) - rank(b); });
   return results;
 }
 
@@ -1434,7 +1484,7 @@ function getAccountsSummary_() {
       outstandingTotal += balance;
       pendingCount++;
       // Blocking: a courier order held for its balance, or a gate pass Ops asked for on an unpaid end-customer order.
-      if (status === STATUS_HOLD_BALANCE) urgentPayments++;
+      if (status === STATUS_HOLD_BALANCE || (typeof STATUS_READY_PAY !== 'undefined' && status === STATUS_READY_PAY)) urgentPayments++;
       else if (status === 'Vehicle Confirmed' && (termsVals[i][0] || 'End Customer') === 'End Customer' &&
                !isPaymentExceptionApproved_(String(idVals[i][0]), PX_DISPATCH)) urgentPayments++;
     }
@@ -1494,7 +1544,7 @@ function getCreSummary_() {
   var sheet = getSheet();
   var lastRow = sheet.getLastRow();
   if (lastRow < 2) {
-    return { highPriorityPending: 0, awaitingDeliveryUpdate: 0, inTransit: 0, loggedToday: 0, loggedThisWeek: 0, valueThisWeek: 0, totalLogged: 0 };
+    return { highPriorityPending: 0, awaitingDeliveryUpdate: 0, inTransit: 0, loggedToday: 0, loggedThisWeek: 0, valueThisWeek: 0, totalLogged: 0, payForDispatch: 0 };
   }
 
   var numRows = lastRow - 1;
@@ -1518,7 +1568,7 @@ function getCreSummary_() {
   weekAgo.setDate(weekAgo.getDate() - 6);
   weekAgo.setHours(0, 0, 0, 0);
 
-  var highPriorityPending = 0, awaitingDeliveryUpdate = 0, inTransit = 0, loggedToday = 0, loggedThisWeek = 0, valueThisWeek = 0, totalLogged = 0;
+  var highPriorityPending = 0, awaitingDeliveryUpdate = 0, inTransit = 0, loggedToday = 0, loggedThisWeek = 0, valueThisWeek = 0, totalLogged = 0, payForDispatch = 0;
   var idColS = getHeaderIndex('Tracker ID');
   var idValsS = sheet.getRange(2, idColS, numRows, 1).getValues();
   for (var i = 0; i < numRows; i++) {
@@ -1532,6 +1582,7 @@ function getCreSummary_() {
     if (priorityVals[i][0] === 'High' && !closed) highPriorityPending++;
     if (isDispatchedStatus_(status) && ds !== 'Delivered' && ds !== 'Returned') awaitingDeliveryUpdate++;
     if (ds === 'In Transit') inTransit++;
+    if (typeof STATUS_READY_PAY !== 'undefined' && status === STATUS_READY_PAY) payForDispatch++;
 
     var logged = dateVals[i][0];
     if (logged instanceof Date) {
@@ -1550,7 +1601,8 @@ function getCreSummary_() {
     loggedToday: loggedToday,
     loggedThisWeek: loggedThisWeek,
     valueThisWeek: valueThisWeek,
-    totalLogged: totalLogged
+    totalLogged: totalLogged,
+    payForDispatch: payForDispatch
   };
 }
 
@@ -1635,7 +1687,12 @@ function recordBalancePayment_(form) {
     }
   }
 
-  return { trackerId: trackerId, newAdvancePct: advancePct, balanceDue: newBalance, fullyPaid: newBalance <= 0, releasedToOps: releasedToOps };
+  // Payment at dispatch (Oct 2026): goods ready and waiting for this money -> back to Ops.
+  var clearedForDispatch = false;
+  if (typeof opsReleaseIfCleared_ === 'function') {
+    try { clearedForDispatch = opsReleaseIfCleared_(sheet, row, 'Payment received'); } catch (e) { Logger.log('release after payment failed: ' + e); }
+  }
+  return { trackerId: trackerId, newAdvancePct: advancePct, balanceDue: newBalance, fullyPaid: newBalance <= 0, releasedToOps: releasedToOps || clearedForDispatch, clearedForDispatch: clearedForDispatch };
 }
 
 // ================================================================
@@ -1654,7 +1711,8 @@ function lookupOrder_(trackerId) {
     'State', 'District', 'Pincode', 'Wrapper PO PDF URL', 'Gate Pass PDF URL', 'Dispatch Type',
     'Courier / Transport Name', 'Tracking / Consignment No.', 'CRE Code',
     'Verified Date', 'Received by Ops Timestamp', 'Picked Up By', 'Ops Cutover', 'Gate Pass Requested By',
-    'Vehicle Confirmed Timestamp', 'Postal Receipt URL', 'Customer Email', 'Customer Updates Consent'
+    'Vehicle Confirmed Timestamp', 'Postal Receipt URL', 'Customer Email', 'Customer Updates Consent',
+    'Payment Hold From', 'Payment Hold Note', 'Cleared For Gate Pass', 'Customer Says Paid', 'Balance After Delivery'
   ]);
   var ownerCode = resolveOwnerCode_(raw['CRE Code'], raw['CRE Name']);
   var ownerStaff = getStaffMap_(false)[ownerCode];
@@ -1699,6 +1757,12 @@ function lookupOrder_(trackerId) {
     postalReceiptUrl: String(raw['Postal Receipt URL'] || ''),
     customerEmail: String(raw['Customer Email'] || ''),
     customerConsent: String(raw['Customer Updates Consent'] || '') === 'Y',
+    // Payment at dispatch (Oct 2026).
+    payHoldSince: toTimelineDisplay(raw['Payment Hold From']),
+    payHoldNote: String(raw['Payment Hold Note'] || ''),
+    clearedNote: String(raw['Cleared For Gate Pass'] || ''),
+    customerSaysPaid: String(raw['Customer Says Paid'] || ''),
+    balanceAfterDelivery: String(raw['Balance After Delivery'] || ''),
     ownerCode: ownerCode,
     ownerName: ownerStaff ? ownerStaff.name : String(raw['CRE Name'] || ''),
     access: describeAccess_(ownerCode, raw['Tracker ID'] || trackerId),
@@ -1875,7 +1939,8 @@ function submitVerification_(form) {
   // recorded (recordBalancePayment_ releases it automatically).
   // An approved "no advance" exception on a courier order is also approval to
   // send it: for a packet, verification and dispatch are the same moment.
-  var holdForBalance = dispatchType === DISPATCH_COURIER && terms === 'End Customer' && balanceDue > 0 && !verifyException;
+  var holdForBalance = dispatchType === DISPATCH_COURIER && terms === 'End Customer' && balanceDue > 0 && !verifyException &&
+    !isPaymentExceptionApproved_(trackerId, PX_DISPATCH); // balance-after-delivery approved at intake (Oct 2026)
 
   var fields = {
     'Payment Verification Status': 'Verified',
@@ -1968,6 +2033,13 @@ function confirmSiteReady_(trackerId) {
   // now, so that's the moment stamped as "requested".
   if (getRowFields(sheet, row, ['Status'])['Status'] !== 'On Hold - Site Not Ready') {
     throw new Error('This order isn\u2019t on hold for site readiness.');
+  }
+  // Payment at dispatch (Oct 2026): ready, but the customer still has to pay ->
+  // to the CRE, not to Accounts (who couldn't issue the gate pass anyway).
+  if (typeof opsOrderPaymentBlocked_ === 'function' && opsOrderPaymentBlocked_(sheet, row)) {
+    setRowFields(sheet, row, { 'Site Readiness Confirmed': 'Y' });
+    opsStartPayHold_(sheet, row, CURRENT_STAFF_);
+    return { trackerId: id, paymentPending: true };
   }
   setRowFields(sheet, row, {
     'Site Readiness Confirmed': 'Y',
@@ -2104,6 +2176,7 @@ function generateGatePassPdf(trackerId, gatePassNo, institution, ewayBillNo, veh
   ]);
 
   appendSectionTable(body, '4. Sign-off', [
+    ['Driver name & phone (fill by hand)', ''],
     ['Loaded & Released by (Operations) \u2013 Sign & Time', ''],
     ['Gate Verification \u2013 Quantity Matches (Y/N)', ''],
     ['Verified by (Gatekeeper) \u2013 Sign & Time Out', '']
@@ -2279,7 +2352,7 @@ function getDashboardData_() {
     cycle: col('Total Cycle Time (Hrs)'), terms: col('Payment Terms Type'),
     amend: col('Amendment Flag'), state: col('State'), district: col('District'),
     pincode: col('Pincode'), fullPaid: col('Balance Fully Paid Timestamp'),
-    dispatchType: col('Dispatch Type')
+    dispatchType: col('Dispatch Type'), payHoldH: col('Payment Hold Hours'), payHoldFrom: col('Payment Hold From')
   };
 
   var out = [];
@@ -2317,7 +2390,10 @@ function getDashboardData_() {
       amended: !!r[C.amend],
       state: (r[C.state] || '').toString().trim(),
       district: (r[C.district] || '').toString().trim(),
-      pincode: (r[C.pincode] || '').toString().trim()
+      pincode: (r[C.pincode] || '').toString().trim(),
+      // Payment at dispatch (Oct 2026): hours the goods sat ready waiting for the customer's money
+      // (finished holds + the one still running). Excluded from Ops' pickup-to-gate figure.
+      payHoldHrs: (Number(r[C.payHoldH]) || 0) + ((r[C.payHoldFrom] instanceof Date) ? Math.max(0, (Date.now() - r[C.payHoldFrom].getTime()) / 3600000) : 0)
     });
     if (out.length >= 2000) break;
   }
@@ -3578,7 +3654,7 @@ function requestPaymentException_(form) {
   var link = url ? url + '?page=admin&req=' + encodeURIComponent(requestId) : '';
   var emailed = emailAdmins_(
     'Payment approval: ' + PX_LABELS[type] + ' \u2013 ' + trackerId,
-    '<p><b>' + esc(me.name) + '</b> (Accounts) is asking to <b>' + esc(PX_LABELS[type].toLowerCase()) + '</b>' + (type === PX_CORRECTION || type === PX_EXCESS ? '' : ' for an end-customer order') + '.</p>' +
+    '<p><b>' + esc(me.name) + '</b> (' + esc(me.role || 'Accounts') + ') is asking to <b>' + esc(PX_LABELS[type].toLowerCase()) + '</b>' + (type === PX_CORRECTION || type === PX_EXCESS ? '' : ' for an end-customer order') + '.</p>' +
     '<p>Order: <b>' + esc(trackerId) + '</b> \u2013 ' + esc(d['Institution / Customer']) + '<br>' + esc(amountNote) + '<br>Reason: ' + esc(reason) + '</p>' +
     (link ? '<p><a href="' + link + '" style="background:#1F3864;color:#fff;padding:10px 16px;border-radius:4px;text-decoration:none;font-weight:600;">Review request</a></p>' +
             '<p style="color:#666;font-size:12px;">You\u2019ll sign in with your staff code and PIN to approve or decline.</p>' : '') +
@@ -3635,9 +3711,16 @@ function decidePaymentException_(form) {
         setRowFields(sheet, row, { 'Status': 'Sent to Ops', 'Sent to Ops Timestamp': new Date() });
         releasedToOps = true;
       }
+      // Ready and waiting for payment (Oct 2026): approved -> back to Ops for the gate pass.
+      if (row !== -1 && typeof opsReleaseIfCleared_ === 'function' &&
+          opsReleaseIfCleared_(sheet, row, 'Dispatch approved without full payment by ' + me.name)) releasedToOps = true;
     }
   } finally {
     lock.releaseLock();
+  }
+  // Declined dispatch-with-balance (Oct 2026): Ops and the CRE are told when the goods are waiting.
+  if (!form.approve && r.type === PX_DISPATCH && typeof opsNotifyDispatchDeclined_ === 'function') {
+    try { opsNotifyDispatchDeclined_(r, me); } catch (e) { Logger.log('decline notice failed: ' + e); }
   }
   var requester = getStaffMap_(false)[r.requestedBy];
   if (requester && /@/.test(requester.email)) {
@@ -3647,7 +3730,7 @@ function decidePaymentException_(form) {
           ? me.name + ' approved the payment for ' + r.trackerId + '. Recorded: \u20b9' + formatAmount(excessResult.share) + ' to the order, \u20b9' +
             formatAmount(excessResult.excess) + ' to Excess Payments.' +
             (excessResult.verificationCode ? ' The order is verified \u2013 Verification Code ' + excessResult.verificationCode + ' (write it on the physical PO).' : '')
-          : form.approve ? me.name + ' approved "' + PX_LABELS[r.type] + '" for ' + r.trackerId + '. Look the order up on the Accounts page to continue.'
+          : form.approve ? me.name + ' approved "' + PX_LABELS[r.type] + '" for ' + r.trackerId + '. Look the order up to continue.'
           : me.name + ' declined "' + PX_LABELS[r.type] + '" for ' + r.trackerId + '.' + (r.type === PX_EXCESS ? ' Nothing was recorded \u2013 check the amount and enter it again.' : ''));
     } catch (e) { Logger.log('requester notify failed: ' + e); }
   }
@@ -4300,7 +4383,8 @@ function getMyOrders_() {
       loggedThisWeek: !!logged && logged >= weekAgo,
       highPending: String(pri[i][0]) === 'High' && !closed,
       awaitingDelivery: isDispatchedStatus_(status) && dstat !== 'Delivered' && dstat !== 'Returned',
-      inTransit: dstat === 'In Transit'
+      inTransit: dstat === 'In Transit',
+      payForDispatch: typeof STATUS_READY_PAY !== 'undefined' && status === STATUS_READY_PAY
     });
   }
   out.sort(function (a, b) { return b.dateLoggedMs - a.dateLoggedMs; });

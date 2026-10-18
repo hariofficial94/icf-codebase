@@ -322,7 +322,7 @@
     // "On Hold - Balance Due" and "Posted" belong to courier orders (packets
     // sent by post -- no vehicle or gate pass). "Posted" is the courier
     // equivalent of Gate-Verified: both mean the order has left ICF.
-    var FUNNEL_STATUSES = ['Logged', 'On Hold - Balance Due', 'Sent to Ops', 'On Hold - Site Not Ready', 'Vehicle Confirmed', 'Gate-Verified', 'Posted'];
+    var FUNNEL_STATUSES = ['Logged', 'On Hold - Balance Due', 'Sent to Ops', 'On Hold - Site Not Ready', 'Ready - Payment Pending', 'Vehicle Confirmed', 'Gate-Verified', 'Posted'];
     function isDispatched(o) { return o.status === 'Gate-Verified' || o.status === 'Posted'; }
     var DELIVERY_STATUSES = ['Pending', 'In Transit', 'Delivered', 'Returned'];
 
@@ -437,7 +437,7 @@
 
       document.getElementById('funnelBox').innerHTML = FUNNEL_STATUSES.map(function (s) {
         var pct = Math.round((counts[s] / max) * 100);
-        var cls = (s === 'On Hold - Site Not Ready' || s === 'On Hold - Balance Due') ? 'amber' : ((s === 'Gate-Verified' || s === 'Posted') ? 'navy' : '');
+        var cls = (s === 'On Hold - Site Not Ready' || s === 'On Hold - Balance Due' || s === 'Ready - Payment Pending') ? 'amber' : ((s === 'Gate-Verified' || s === 'Posted') ? 'navy' : '');
         return '<div class="bar-row"><div class="bar-row-label"><span class="name">' + s + '</span><span class="count">' + counts[s] + '</span></div>' +
           '<div class="bar-track"><div class="bar-fill ' + cls + '" style="width:' + pct + '%;"></div></div></div>';
       }).join('');
@@ -527,7 +527,7 @@
     }
 
     // Orders that can be put on standby (not yet dispatched) -- same list as SB_ELIGIBLE in Standby.gs.
-    var STANDBY_ELIGIBLE = ['Sent to Ops', 'On Hold - Site Not Ready', 'Vehicle Confirmed', 'On Hold - Balance Due'];
+    var STANDBY_ELIGIBLE = ['Sent to Ops', 'On Hold - Site Not Ready', 'Vehicle Confirmed', 'On Hold - Balance Due', 'Ready - Payment Pending'];
     // After a standby is set from a list: reload the data and redraw the open list.
     window.ICF_AFTER_STANDBY = function (r) {
       // Mark the row in the open list straight away; refresh the numbers behind it.
@@ -864,7 +864,8 @@
       'Avg. advance at intake': 'Total advance received across this period\u2019s orders, as a percentage of their combined order value \u2013 shows how much typically comes in upfront.',
       'Avg. total cycle time': 'Average hours from payment verification to delivery, for this period\u2019s orders that have actually reached Delivered. Orders still in progress aren\u2019t counted.',
       'Avg. verification-to-pickup': 'Average hours from payment verification to the point ops personnel physically picked up the order, for orders where both timestamps are on file.',
-      'Avg. pickup to gate verification': 'Average hours from when ops personnel physically picked up the order to when the Gate Pass was issued (vehicle checked out through the gate), for orders where both timestamps are on file.',
+      'Avg. pickup to gate verification': 'Average hours from when ops personnel physically picked up the order to when the Gate Pass was issued (vehicle checked out through the gate), for orders where both timestamps are on file. Time spent on standby, or ready and waiting for the customer\u2019s payment, is left out.',
+      'Avg. waiting for payment at dispatch': 'For orders whose goods were ready but the end customer still had to pay: average hours from Ops marking them ready to the payment being recorded or dispatch being approved. This is customer time, kept out of the Ops figure above.',
       'On-time delivery rate': 'Share of this period\u2019s delivered orders that reached the customer by their Requested Delivery Date. Orders not yet delivered aren\u2019t counted.'
     };
     var infoOverlay = document.getElementById('infoOverlay');
@@ -901,8 +902,11 @@
       // Dispatch Timestamp minus Received by Ops Timestamp, computed here
       // since both are already on the order object.
       var pickupToGateVals = periodOrders.map(function (o) {
-        return (o.recvOpsDate && o.dispatchDate) ? (o.dispatchDate - o.recvOpsDate) / 3600000 : null;
+        // Time the goods sat ready waiting for the customer's money is the customer's, not Ops' (Oct 2026).
+        return (o.recvOpsDate && o.dispatchDate) ? Math.max(0, (o.dispatchDate - o.recvOpsDate) / 3600000 - (o.payHoldHrs || 0)) : null;
       }).filter(isUsableNumber);
+      var payWaitVals = periodOrders.filter(function (o) { return o.payHoldHrs > 0; }).map(function (o) { return o.payHoldHrs; });
+      var avgPayWait = payWaitVals.length ? Math.round(payWaitVals.reduce(function (a, b) { return a + b; }, 0) / payWaitVals.length) : null;
       var avgPickupToGate = pickupToGateVals.length ? Math.round(pickupToGateVals.reduce(function (a, b) { return a + b; }, 0) / pickupToGateVals.length) : null;
 
       var delivered = periodOrders.filter(function (o) { return o.deliveredDate; });
@@ -916,6 +920,7 @@
         { label: 'Avg. total cycle time', value: avgCycle !== null ? avgCycle + ' hrs' : '\u2013' },
         { label: 'Avg. verification-to-pickup', value: avgVtoP !== null ? avgVtoP + ' hrs' : '\u2013' },
         { label: 'Avg. pickup to gate verification', value: avgPickupToGate !== null ? avgPickupToGate + ' hrs' : '\u2013' },
+        { label: 'Avg. waiting for payment at dispatch', value: avgPayWait !== null ? avgPayWait + ' hrs (' + payWaitVals.length + ' order' + (payWaitVals.length === 1 ? '' : 's') + ')' : '\u2013' },
         { label: 'On-time delivery rate', value: onTimePct !== null ? onTimePct + '%' : '\u2013', cls: (onTimePct !== null && onTimePct < 80) ? 'warn' : '' }
       ];
       document.getElementById('perfKpiGrid').innerHTML = cards.map(function (c) {

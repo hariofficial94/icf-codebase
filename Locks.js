@@ -28,6 +28,11 @@ function pendingRequestFor_(trackerId) {
   if (!t) return null;
   var hits = [];
   readPaymentExceptions_().forEach(function (r) {
+    // A waiting "dispatch with balance due" request (Oct 2026) no longer locks the order: it is only
+    // about the final gate pass (submitDispatch_ checks its approval itself), and it can now be raised
+    // by the CRE at intake or when the goods are ready -- locking would stop verification, payments
+    // and Ops' work for days.
+    if (r.type === PX_DISPATCH) return;
     if (r.status === 'Pending' && r.trackerId.toLowerCase() === t && r.requestId !== LOCK_SKIP_REQUEST_ID_) {
       hits.push({ kind: 'payment', requestId: r.requestId, label: PX_LABELS[r.type] || r.type, requestedBy: r.requestedBy,
                   requestedByName: r.requestedByName, requestedAtMs: r.requestedAtMs, waitingFor: 'an admin' });

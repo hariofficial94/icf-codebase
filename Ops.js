@@ -77,7 +77,12 @@ var OPS_SETTINGS_ROWS = [
   ['Ops: acknowledge new orders within (hours)', '24', 'After Accounts verifies an order, Ops gets a reminder if it isn’t picked up in the system within this many hours.'],
   ['Ops: escalate unacknowledged orders after (hours)', '48', 'Goes to the first approver (Approvers above), copied to Ops.'],
   ['Ops: record courier posting within (hours)', '24', 'After Ops picks up a courier order, a reminder if the postal receipt isn’t recorded within this many hours.'],
-  ['Ops: escalate unrecorded courier posting after (hours)', '48', 'Goes to the first approver, copied to Ops.']
+  ['Ops: escalate unrecorded courier posting after (hours)', '48', 'Goes to the first approver, copied to Ops.'],
+  // Payment at dispatch + gate passes (Oct 2026)
+  ['Accounts: remind to issue a requested gate pass after (office hours)', '4', 'Ops asked for a gate pass and it isn\u2019t issued yet. Not sent when the customer still has to pay.'],
+  ['Accounts: escalate an unissued gate pass after (working days)', '1', 'Goes to the first approver, copied to Accounts.'],
+  ['CRE: remind to collect payment for dispatch after (working days)', '1', 'The goods are ready and the customer still has to pay \u2013 reminder to the CRE.'],
+  ['CRE: escalate uncollected payment for dispatch after (working days)', '3', 'Goes to the first approver, copied to the CRE.']
 ];
 // Kept in the Settings tab only (not on the Settings page) until Sambhu decides the escalation matrix.
 var CUSTOMER_SETTINGS_ROWS = [
@@ -108,8 +113,10 @@ function getOpsSettings_() {
   var text = function (row) { return String(map[row[0].toLowerCase()] || '').trim(); };
   var s = {
     ackHours: hours(0), ackEscalateHours: hours(1), postHours: hours(2), postEscalateHours: hours(3),
+    acctRemindHours: hours(4), acctEscDays: hours(5), creRemindDays: hours(6), creEscDays: hours(7),
     esc2: text(CUSTOMER_SETTINGS_ROWS[0]), esc3: text(CUSTOMER_SETTINGS_ROWS[1])
   };
+  if (s.creEscDays <= s.creRemindDays) s.creEscDays = s.creRemindDays + 2;
   if (s.ackEscalateHours <= s.ackHours) s.ackEscalateHours = s.ackHours * 2;
   if (s.postEscalateHours <= s.postHours) s.postEscalateHours = s.postHours * 2;
   cache.put('ops_settings', JSON.stringify(s), 300);
@@ -222,7 +229,12 @@ function opsCard_(o, nowMs, startMs, limitHours) {
     daysUntilDelivery: computeDaysUntilDate(reqDate),
     hoursWaiting: hours,
     overdue: hours !== null && limitHours ? hours >= limitHours : false,
-    startMs: startMs || 0
+    startMs: startMs || 0,
+    // Payment at dispatch (Oct 2026) -- no amounts on Ops screens, only whether it's pending.
+    clearedNote: String(o.get('Cleared For Gate Pass') || ''),
+    payHoldNote: String(o.get('Payment Hold Note') || ''),
+    customerSaysPaid: !!String(o.get('Customer Says Paid') || '').trim(),
+    paymentPending: false
   };
 }
 
@@ -233,7 +245,12 @@ function getOpsQueue_() {
   var goLive = opsGoLiveMs_();
   var ends = opsStandbyEnds_();
   var data = opsReadOrders_();
-  var out = { newOrders: [], inHand: [], late: [], siteHold: [], gatePass: [], dispatchedToday: [], standby: [] };
+  var out = { newOrders: [], inHand: [], cleared: [], late: [], readyPay: [], siteHold: [], gatePass: [], dispatchedToday: [], standby: [] };
+  var approvedSet = opsApprovedDispatchSet_();
+  var blockedOf = function (o) {
+    return normalizeDispatchType_(o.get('Dispatch Type')) !== DISPATCH_COURIER &&
+      opsBlockedFromValues_(o.get('Tracker ID'), o.get('Payment Terms Type'), o.get('Total Order Value'), o.get('Advance Received'), approvedSet);
+  };
   var today = todayYmd_();
   var tz = Session.getScriptTimeZone();
   data.rows.forEach(function (o) {
@@ -259,14 +276,24 @@ function getOpsQueue_() {
     var acked = opsIsAcked_(o.get('Received by Ops Timestamp'), o.get('Ops Cutover'));
     var courier = normalizeDispatchType_(o.get('Dispatch Type')) === DISPATCH_COURIER;
     if (status === 'Sent to Ops' && !acked) {
-      out.newOrders.push(opsCard_(o, now, Math.max(opsMs_(o.get('Sent to Ops Timestamp')), endMs), cfg.ackHours));
+      var nc = opsCard_(o, now, Math.max(opsMs_(o.get('Sent to Ops Timestamp')), endMs), cfg.ackHours);
+      nc.paymentPending = blockedOf(o);
+      out.newOrders.push(nc);
     } else if (status === 'Sent to Ops') {
       var ackMs = opsMs_(o.get('Received by Ops Timestamp')) || goLive;
-      out.inHand.push(opsCard_(o, now, Math.max(ackMs, endMs), courier ? cfg.postHours : 0));
+      var hc = opsCard_(o, now, Math.max(ackMs, endMs), courier ? cfg.postHours : 0);
+      hc.paymentPending = blockedOf(o);
+      (hc.clearedNote ? out.cleared : out.inHand).push(hc);
+    } else if (status === STATUS_READY_PAY) {
+      out.readyPay.push(opsCard_(o, now, opsMs_(o.get('Payment Hold From')), 0));
     } else if (status === 'On Hold - Site Not Ready') {
-      out.siteHold.push(opsCard_(o, now, 0, 0));
+      var sc = opsCard_(o, now, 0, 0);
+      sc.paymentPending = blockedOf(o);
+      out.siteHold.push(sc);
     } else if (status === 'Vehicle Confirmed') {
-      out.gatePass.push(opsCard_(o, now, opsMs_(o.get('Vehicle Confirmed Timestamp')), 0));
+      var gc = opsCard_(o, now, opsMs_(o.get('Vehicle Confirmed Timestamp')), cfg.acctEscDays * 24);
+      gc.paymentPending = blockedOf(o);
+      out.gatePass.push(gc);
     } else if (typeof STATUS_STANDBY !== 'undefined' && status === STATUS_STANDBY) {
       out.standby.push(opsCard_(o, now, 0, 0));
     }
@@ -276,7 +303,7 @@ function getOpsQueue_() {
     if (a.priority !== b.priority) return a.priority === 'High' ? -1 : 1;
     return (a.startMs || Infinity) - (b.startMs || Infinity);
   };
-  ['newOrders', 'inHand', 'siteHold', 'gatePass', 'standby'].forEach(function (k) { out[k].sort(byUrgency); });
+  ['newOrders', 'inHand', 'cleared', 'readyPay', 'siteHold', 'gatePass', 'standby'].forEach(function (k) { out[k].sort(byUrgency); });
   out.late.sort(function (a, b) { return (a.daysUntilDelivery || 0) - (b.daysUntilDelivery || 0); }); // most overdue first
   out.dispatchedToday.sort(function (a, b) { return a.dispatchedAt < b.dispatchedAt ? 1 : -1; });
   out.summary = {
@@ -288,7 +315,9 @@ function getOpsQueue_() {
     gatePass: out.gatePass.length,
     standby: out.standby.length,
     late: out.late.length,
-    dispatchedToday: out.dispatchedToday.length
+    dispatchedToday: out.dispatchedToday.length,
+    cleared: out.cleared.length,
+    readyPay: out.readyPay.length
   };
   out.ackHours = cfg.ackHours;
   out.postHours = cfg.postHours;
@@ -318,7 +347,8 @@ function getOpsOrder_(query) {
     'Sent to Ops Timestamp', 'Received by Ops Timestamp', 'Picked Up By', 'Ops Cutover', 'Verification Code',
     'Wrapper PO PDF URL', 'Vehicle No.', 'Site Readiness Confirmed', 'Gate Pass Requested By', 'Vehicle Confirmed Timestamp',
     'Gate Pass No.', 'Dispatch Timestamp', 'Courier / Transport Name', 'Tracking / Consignment No.',
-    'Postal Receipt URL', 'Delivery Status'
+    'Postal Receipt URL', 'Delivery Status', 'Payment Terms Type', 'Total Order Value', 'Advance Received',
+    'Payment Hold From', 'Payment Hold Note', 'Cleared For Gate Pass', 'Customer Says Paid'
   ]);
   var id = String(f['Tracker ID']);
   var acked = opsIsAcked_(f['Received by Ops Timestamp'], f['Ops Cutover']);
@@ -353,6 +383,13 @@ function getOpsOrder_(query) {
     trackingNo: String(f['Tracking / Consignment No.'] || ''),
     postalReceiptUrl: String(f['Postal Receipt URL'] || ''),
     receiptPhotoRequired: OPS_RECEIPT_PHOTO_REQUIRED,
+    // Payment at dispatch (Oct 2026): a flag only -- Ops never sees amounts.
+    paymentPending: normalizeDispatchType_(f['Dispatch Type']) !== DISPATCH_COURIER && !isDispatchedStatus_(status) && status !== 'Cancelled' &&
+      opsBlockedFromValues_(id, f['Payment Terms Type'], f['Total Order Value'], f['Advance Received'], null),
+    payHoldSince: opsFmt_(f['Payment Hold From']),
+    payHoldNote: String(f['Payment Hold Note'] || ''),
+    clearedNote: String(f['Cleared For Gate Pass'] || ''),
+    customerSaysPaid: !!String(f['Customer Says Paid'] || '').trim(),
     deliveryStatus: String(f['Delivery Status'] || ''),
     products: getOrderLineItems_(id),
     standby: (typeof standbyInfoForOrder_ === 'function') ? standbyInfoForOrder_(id, status) : null,
@@ -575,12 +612,17 @@ function requestGatePass_(form) {
       throw new Error('Acknowledge (pick up) the order first.');
     }
     if (typeof assertNoPendingRequest_ === 'function') assertNoPendingRequest_(sheet, row);
+    // Payment at dispatch (Oct 2026): Accounts couldn't issue it anyway -- send it to the CRE instead.
+    if (site === 'Y' && opsOrderPaymentBlocked_(sheet, row)) {
+      throw new Error('Payment is still pending from this customer, so the gate pass would be blocked. Use \u201cReady \u2013 ask CRE to collect payment\u201d instead.');
+    }
     setRowFields(sheet, row, {
       'Vehicle No.': vehicleNo,
       'Site Readiness Confirmed': site,
       'Vehicle Confirmed Timestamp': new Date(),
       'Gate Pass Requested By': me.name,
-      'Status': site === 'Y' ? 'Vehicle Confirmed' : 'On Hold - Site Not Ready'
+      'Status': site === 'Y' ? 'Vehicle Confirmed' : 'On Hold - Site Not Ready',
+      'Cleared For Gate Pass': ''
     });
   } finally {
     lock.releaseLock();
@@ -966,6 +1008,9 @@ function opsSweep_(nowMs, staffMap, alertCfg) {
     mark(postEsc, 'PostEscalated');
   }
 
+  // ---- Payment at dispatch + gate passes waiting with Accounts (Oct 2026) ----
+  try { sent += opsPaymentSweep_(nowMs, staffMap, alertCfg, data, cfg, escalateTo); } catch (e) { Logger.log('payment sweep failed: ' + e); }
+
   // ---- Customer updates (queued for WhatsApp in stage 2) ----
   data.rows.forEach(function (o) {
     var consent = String(o.get('Customer Updates Consent') || '').trim().toUpperCase();
@@ -1136,6 +1181,9 @@ function opsApiMap_() {
     recordPosting:    { fn: recordPosting_,    roles: OPS, log: 'Recorded postal dispatch' },
     preparePo:        { fn: preparePo_,        roles: OPS, log: 'Prepared PO' },
     getMyOpsRequests: { fn: getMyOpsRequests_, roles: OPS },
+    markReadyForPayment: { fn: markReadyForPayment_, roles: OPS, log: 'Ready \u2013 asked CRE to collect payment' },
+    creCustomerSaysPaid: { fn: creCustomerSaysPaid_, roles: ['CRE'], log: 'Customer says paid' },
+    creProceedWithoutPayment: { fn: creProceedWithoutPayment_, roles: ['CRE'], log: 'Asked admin: dispatch without full payment' },
     withdrawMyRequest:{ fn: withdrawMyRequest_, roles: OPS, log: 'Withdrew request' },
     getGatePassQueue: { fn: getGatePassQueue_, roles: ['Accounts'] },
     setStandbyDirect: { fn: setStandbyDirect_, roles: ['Director'], log: 'Put order on standby directly' }
@@ -1146,6 +1194,9 @@ function opsActivityDetail_(fnName, a, result) {
   a = a || {}; result = result || {};
   switch (fnName) {
     case 'acknowledgeOrder': return 'Picked up at ' + (result.pickedUpAt || '');
+    case 'markReadyForPayment': return 'Vehicle ' + (a.vehicleNo || '') + ' \u2013 waiting for payment';
+    case 'creCustomerSaysPaid': return (a.utr ? 'UTR ' + a.utr : 'No UTR yet') + (a.note ? ' \u2013 ' + a.note : '');
+    case 'creProceedWithoutPayment': return (result.requestId || '') + ' \u2013 ' + (a.reason || '');
     case 'withdrawMyRequest': return (result.requestId || a.requestId || '') + ' \u2013 ' + (result.label || '') + (a.note ? ' (' + a.note + ')' : '');
     case 'requestGatePass': return 'Vehicle ' + (result.vehicleNo || a.vehicleNo || '') + (result.siteReady ? '' : ' – site NOT ready, on hold');
     case 'recordPosting': return (result.courierName || a.courierName || '') + ' ' + (result.trackingNo || a.trackingNo || '') + (result.receiptUrl ? ' \u2013 receipt photo saved' : ' \u2013 no receipt photo');
@@ -1153,4 +1204,322 @@ function opsActivityDetail_(fnName, a, result) {
       (result.overLimits && result.overLimits.length ? ' (past limits: ' + result.overLimits.join('; ') + ')' : '');
     default: return '';
   }
+}
+
+// ================================================================
+// PAYMENT AT DISPATCH (Oct 2026)
+// ================================================================
+/**
+ * An end-customer vehicle order whose goods are ready while the customer
+ * still owes a balance (and no admin has approved dispatching with it):
+ *   1. Ops sees "Payment pending" (never the amount) and, once the order is
+ *      ready, taps "Ready - ask CRE to collect payment" (vehicle + site Y).
+ *      Status -> "Ready - Payment Pending"; Ops' clock pauses (Payment Hold From).
+ *   2. The CRE gets the order on a red "Payment needed for dispatch" tile:
+ *      "Customer says paid" (UTR optional) -> Accounts sees "Paid - verify now";
+ *      or "Proceed without payment" + reason -> straight to the admins.
+ *   3. Payment recorded (balance cleared) or dispatch approved -> back to Ops
+ *      ("Cleared - request gate pass", shown green) with the reason; Ops
+ *      confirms the vehicle and requests the gate pass as usual.
+ *   Declined -> Ops and the CRE are told; it stays waiting for payment.
+ * Nudges (opsPaymentSweep_): CRE reminder / escalation in working days;
+ * Accounts reminder / escalation for gate passes that are requested and NOT
+ * blocked by payment. "Balance to be paid after delivery" at intake raises
+ * the same admin request on day one (raiseDispatchApproval_).
+ * Hours spent waiting for payment are added up in "Payment Hold Hours" and
+ * kept out of Ops' pickup-to-gate figure on the dashboard.
+ */
+function opsApprovedDispatchSet_() {
+  var set = {};
+  readPaymentExceptions_().forEach(function (r) {
+    if (r.type === PX_DISPATCH && r.status === 'Approved') set[String(r.trackerId).toLowerCase()] = true;
+  });
+  return set;
+}
+
+/** True when the gate pass would be refused for money: end customer, balance due, no approved dispatch exception. */
+function opsBlockedFromValues_(id, terms, total, advance, approvedSet) {
+  if (String(terms || 'End Customer') !== 'End Customer') return false;
+  if (computeBalanceDue(total, advance) <= 0) return false;
+  var key = String(id || '').toLowerCase();
+  return !(approvedSet ? approvedSet[key] : isPaymentExceptionApproved_(String(id), PX_DISPATCH));
+}
+
+function opsOrderPaymentBlocked_(sheet, row) {
+  var f = getRowFields(sheet, row, ['Tracker ID', 'Payment Terms Type', 'Total Order Value', 'Advance Received', 'Dispatch Type']);
+  if (normalizeDispatchType_(f['Dispatch Type']) === DISPATCH_COURIER) return false; // courier orders are held at verification instead
+  return opsBlockedFromValues_(f['Tracker ID'], f['Payment Terms Type'], f['Total Order Value'], f['Advance Received'], null);
+}
+
+function opsOwnerOf_(sheet, row, staffMap) {
+  staffMap = staffMap || getStaffMap_(false);
+  var f = getRowFields(sheet, row, ['CRE Code', 'CRE Name']);
+  var s = staffMap[resolveOwnerCode_(f['CRE Code'], f['CRE Name'], staffMap)];
+  return s && s.active ? s : null;
+}
+
+function opsStaffOfRole_(staffMap, role) {
+  return Object.keys(staffMap).map(function (k) { return staffMap[k]; }).filter(function (s) { return s.active && s.role === role; });
+}
+
+/** Ready, waiting for the customer's money: stop Ops' clock and tell the CRE. */
+function opsStartPayHold_(sheet, row, me) {
+  var f = getRowFields(sheet, row, ['Tracker ID', 'Institution / Customer']);
+  var who = me && me.name ? me.name : 'Ops';
+  setRowFields(sheet, row, {
+    'Status': STATUS_READY_PAY,
+    'Payment Hold From': new Date(),
+    'Payment Hold Note': 'Ready – waiting for the customer’s payment (marked by ' + who + ' ' + opsStamp_() + ')',
+    'Cleared For Gate Pass': '',
+    'Customer Says Paid': ''
+  });
+  try {
+    var staffMap = getStaffMap_(false);
+    var owner = opsOwnerOf_(sheet, row, staffMap);
+    var url = appUrl_();
+    var text = 'Goods ready for ' + f['Tracker ID'] + ' (' + f['Institution / Customer'] + '), but the customer still has to pay before dispatch. ' +
+      'Please collect the payment and tell Accounts – or, if there is an arrangement, ask the admin to dispatch without full payment.';
+    notify_('PAYMENT_NEEDED_FOR_DISPATCH', String(f['Tracker ID']), owner ? [staffRecipient_(owner)] : [], {
+      subject: 'Payment needed for dispatch: ' + f['Tracker ID'], text: text, email: true,
+      link: url, linkLabel: 'Open the CRE page', html: '<p>' + opsEsc_(text) + '</p>'
+    });
+  } catch (e) { Logger.log('pay hold notice failed: ' + e); }
+}
+
+/**
+ * The money question is settled (paid, or dispatch approved): back to Ops,
+ * shown as "Cleared - request gate pass". Returns true if it moved the order.
+ */
+function opsReleaseIfCleared_(sheet, row, reason) {
+  var f = getRowFields(sheet, row, ['Tracker ID', 'Institution / Customer', 'Status', 'Payment Terms Type', 'Total Order Value',
+    'Advance Received', 'Payment Hold From', 'Payment Hold Hours']);
+  if (f['Status'] !== STATUS_READY_PAY) return false;
+  var id = String(f['Tracker ID']);
+  if (opsBlockedFromValues_(id, f['Payment Terms Type'], f['Total Order Value'], f['Advance Received'], null)) return false;
+  var paid = computeBalanceDue(f['Total Order Value'], f['Advance Received']) <= 0;
+  if (paid) reason = 'Payment received';
+  else if (!reason) {
+    var ap = latestPaymentException_(id, PX_DISPATCH);
+    reason = 'Dispatch approved without full payment' + (ap && ap.decidedBy ? ' by ' + String(ap.decidedBy).replace(/ \(.*$/, '') : '');
+  }
+  var fromMs = opsMs_(f['Payment Hold From']);
+  var held = fromMs ? Math.max(0, (Date.now() - fromMs) / 3600000) : 0;
+  setRowFields(sheet, row, {
+    'Status': 'Sent to Ops',
+    'Payment Hold From': '',
+    'Payment Hold Hours': Math.round(((Number(f['Payment Hold Hours']) || 0) + held) * 100) / 100,
+    'Payment Hold Note': '',
+    'Cleared For Gate Pass': reason + ' – ' + opsStamp_(),
+    'Customer Says Paid': ''
+  });
+  // Fully paid while a "dispatch with balance" request was still waiting: nothing left to decide.
+  if (paid) {
+    readPaymentExceptions_().forEach(function (r) {
+      if (r.type === PX_DISPATCH && r.status === 'Pending' && String(r.trackerId).toLowerCase() === id.toLowerCase()) {
+        getOrCreatePaymentExceptionsSheet_().getRange(r.row, 9, 1, 3).setValues([['Withdrawn', 'System – paid in full', new Date()]]);
+      }
+    });
+  }
+  try {
+    var staffMap = getStaffMap_(false);
+    var people = opsPeople_(staffMap).map(staffRecipient_);
+    var owner = opsOwnerOf_(sheet, row, staffMap);
+    if (owner) people.push(staffRecipient_(owner));
+    var url = appUrl_();
+    var text = id + ' (' + f['Institution / Customer'] + ') is cleared for dispatch: ' + reason + '. Ops: confirm the vehicle and request the gate pass.';
+    notify_('CLEARED_FOR_GATE_PASS', id, people, { subject: 'Cleared for dispatch: ' + id, text: text, email: true,
+      link: url ? url + '?page=ops' : '', linkLabel: 'Open the Operations page', html: '<p>' + opsEsc_(text) + '</p>' });
+  } catch (e) { Logger.log('release notice failed: ' + e); }
+  return true;
+}
+
+/** Admin declined "dispatch with balance": tell the CRE (and Ops, when the goods are waiting). */
+function opsNotifyDispatchDeclined_(r, me) {
+  var sheet = getSheet();
+  var row = findRowByTrackerId(sheet, r.trackerId);
+  if (row === -1) return;
+  var f = getRowFields(sheet, row, ['Tracker ID', 'Institution / Customer', 'Status']);
+  var staffMap = getStaffMap_(false);
+  var people = [];
+  var owner = opsOwnerOf_(sheet, row, staffMap);
+  if (owner) people.push(staffRecipient_(owner));
+  var ready = f['Status'] === STATUS_READY_PAY;
+  if (ready) {
+    opsPeople_(staffMap).forEach(function (s) { people.push(staffRecipient_(s)); });
+    setRowFields(sheet, row, { 'Payment Hold Note': 'Admin ' + me.name + ' declined dispatch without full payment – waiting for the customer’s payment (' + opsStamp_() + ')' });
+  }
+  var text = me.name + ' declined dispatching ' + f['Tracker ID'] + ' (' + f['Institution / Customer'] + ') without full payment. ' +
+    (ready ? 'The goods stay ready; it can’t go until the customer pays.' : 'The balance must be paid before dispatch.');
+  notify_('DISPATCH_WITHOUT_PAYMENT_DECLINED', String(f['Tracker ID']), people, { subject: 'Declined: dispatch without full payment – ' + f['Tracker ID'], text: text, email: true });
+}
+
+/**
+ * A CRE's "dispatch with balance due" request to the admins (at intake, or
+ * when the goods are ready). Same Payment Exceptions row and admin flow as
+ * Accounts' request; source = 'intake' | 'dispatch'.
+ */
+function raiseDispatchApproval_(sheet, row, me, reason, source) {
+  var d = getRowFields(sheet, row, ['Tracker ID', 'Institution / Customer', 'Status', 'Payment Terms Type', 'Total Order Value', 'Advance Received']);
+  var trackerId = String(d['Tracker ID']);
+  if ((d['Payment Terms Type'] || 'End Customer') !== 'End Customer') throw new Error('PO customers don’t need this – their own PO terms already allow it.');
+  var total = Number(d['Total Order Value']) || 0, advance = Number(d['Advance Received']) || 0;
+  var balance = computeBalanceDue(total, advance);
+  if (balance <= 0) throw new Error('This order is fully paid – nothing to approve.');
+  if (isDispatchedStatus_(d['Status'])) throw new Error('This order has already been dispatched.');
+  var existing = latestPaymentException_(trackerId, PX_DISPATCH);
+  if (existing && existing.status === 'Pending') throw new Error('A request is already waiting for an admin (' + existing.requestId + ').');
+  if (existing && existing.status === 'Approved') throw new Error('Already approved by ' + existing.decidedBy + '.');
+  var amountNote = 'Order ₹' + formatAmount(total) + ', paid ₹' + formatAmount(advance) + ', balance ₹' + formatAmount(balance);
+  var fullReason = (source === 'intake' ? 'Balance to be paid after delivery (CRE, at intake): ' : 'Goods ready – CRE asks to dispatch without full payment: ') + reason;
+  var lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  var requestId;
+  try {
+    requestId = 'PE-' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyMMdd') + '-' + Utilities.getUuid().split('-')[0].slice(0, 4).toUpperCase();
+    appendRowText_(getOrCreatePaymentExceptionsSheet_(), [requestId, new Date(), trackerId, PX_DISPATCH, me.code, me.name, fullReason, amountNote, 'Pending', '', '', '',
+      '', '', ''], [PX_HEADERS.indexOf('Bank Reference / UTR') + 1]);
+  } finally {
+    lock.releaseLock();
+  }
+  var url = appUrl_();
+  var link = url ? url + '?page=admin&req=' + encodeURIComponent(requestId) : '';
+  emailAdmins_('Payment approval: dispatch with balance due – ' + trackerId,
+    '<p><b>' + opsEsc_(me.name) + '</b> (CRE) is asking to <b>dispatch with the balance still due</b> for an end-customer order' +
+    (source === 'intake' ? ', agreed with the customer when the order was logged' : ' – the goods are ready') + '.</p>' +
+    '<p>Order: <b>' + opsEsc_(trackerId) + '</b> – ' + opsEsc_(d['Institution / Customer']) + '<br>' + opsEsc_(amountNote) + '<br>Reason: ' + opsEsc_(reason) + '</p>' +
+    (link ? '<p><a href="' + link + '" style="background:#1F3864;color:#fff;padding:10px 16px;border-radius:4px;text-decoration:none;font-weight:600;">Review request</a></p>' : '') +
+    '<p style="color:#666;font-size:12px;">Request ' + opsEsc_(requestId) + '</p>');
+  return { requestId: requestId, trackerId: trackerId };
+}
+
+// ---------------- Ops: ready, waiting for payment ----------------
+/** form = { trackerId, vehicleNo } -- the goods are ready and the site is confirmed. */
+function markReadyForPayment_(form) {
+  opsAssertLive_();
+  form = form || {};
+  var me = CURRENT_STAFF_;
+  var vehicleNo = String(form.vehicleNo || '').trim().toUpperCase();
+  if (!vehicleNo) throw new Error('Enter the vehicle number – this only applies once the order is ready to go.');
+  var sheet = getSheet();
+  var row = resolveTrackerId(sheet, String(form.trackerId || ''));
+  if (row === -1) throw new Error('Order not found.');
+  var lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  var f;
+  try {
+    f = getRowFields(sheet, row, ['Tracker ID', 'Status', 'Dispatch Type', 'Received by Ops Timestamp', 'Ops Cutover']);
+    if (normalizeDispatchType_(f['Dispatch Type']) === DISPATCH_COURIER) throw new Error('Courier orders are held by Accounts until paid – nothing to do here.');
+    assertNotOnStandby_(f['Status']);
+    if (f['Status'] !== 'Sent to Ops') throw new Error('This order is at "' + f['Status'] + '".');
+    if (!opsIsAcked_(f['Received by Ops Timestamp'], f['Ops Cutover'])) throw new Error('Acknowledge (pick up) the order first.');
+    if (typeof assertNoPendingRequest_ === 'function') assertNoPendingRequest_(sheet, row);
+    if (!opsOrderPaymentBlocked_(sheet, row)) throw new Error('Payment is clear now – request the gate pass instead.');
+    setRowFields(sheet, row, { 'Vehicle No.': vehicleNo, 'Site Readiness Confirmed': 'Y', 'Gate Pass Requested By': '' });
+    opsStartPayHold_(sheet, row, me);
+  } finally {
+    lock.releaseLock();
+  }
+  return { trackerId: String(f['Tracker ID']) };
+}
+
+// ---------------- CRE: collect the payment ----------------
+function creReadyPayRow_(form) {
+  var sheet = getSheet();
+  var row = resolveTrackerId(sheet, String((form && form.trackerId) || ''));
+  if (row === -1) throw new Error('Order not found.');
+  requireCanAct_(sheet, row);
+  var st = getRowFields(sheet, row, ['Status'])['Status'];
+  if (st !== STATUS_READY_PAY) throw new Error('This order isn’t waiting for payment at dispatch (stage: "' + st + '").');
+  return { sheet: sheet, row: row };
+}
+
+/** form = { trackerId, utr, note } -- tells Accounts to verify now. */
+function creCustomerSaysPaid_(form) {
+  form = form || {};
+  var me = CURRENT_STAFF_;
+  var x = creReadyPayRow_(form);
+  var utr = String(form.utr || '').trim(), note = String(form.note || '').trim();
+  var text = opsStamp_() + ' – ' + me.name + (utr ? ' – UTR ' + utr : ' – no UTR yet') + (note ? ' – ' + note : '');
+  setRowFields(x.sheet, x.row, { 'Customer Says Paid': text });
+  var f = getRowFields(x.sheet, x.row, ['Tracker ID', 'Institution / Customer']);
+  try {
+    var staffMap = getStaffMap_(false);
+    var url = appUrl_();
+    var msg = me.name + ' says the customer has paid for ' + f['Tracker ID'] + ' (' + f['Institution / Customer'] + ')' + (utr ? ', UTR ' + utr : '') +
+      '. The goods are ready – please verify and record the payment; the order goes back to Ops by itself.';
+    notify_('CUSTOMER_SAYS_PAID', String(f['Tracker ID']), opsStaffOfRole_(staffMap, 'Accounts').map(staffRecipient_), {
+      subject: 'Customer says paid – verify now: ' + f['Tracker ID'], text: msg, email: true,
+      link: url ? url + '?page=accounts' : '', linkLabel: 'Open the Accounts page', html: '<p>' + opsEsc_(msg) + '</p>' });
+  } catch (e) { Logger.log('says-paid notice failed: ' + e); }
+  return { trackerId: String(f['Tracker ID']) };
+}
+
+/** form = { trackerId, reason } -- straight to the admins as "dispatch with balance due". */
+function creProceedWithoutPayment_(form) {
+  form = form || {};
+  var me = CURRENT_STAFF_;
+  var reason = String(form.reason || '').trim();
+  if (!reason) throw new Error('Say why this can go before the customer pays (the admin decides on it).');
+  var x = creReadyPayRow_(form);
+  var out = raiseDispatchApproval_(x.sheet, x.row, me, reason, 'dispatch');
+  setRowFields(x.sheet, x.row, { 'Payment Hold Note': 'Asked the admin to dispatch without full payment (' + me.name + ', ' + opsStamp_() + ')' });
+  return out;
+}
+
+// ---------------- Sweep (every 10 min, office hours) ----------------
+function opsPaymentSweep_(nowMs, staffMap, alertCfg, data, cfg, escalateTo) {
+  var sheet = data.sheet;
+  var approved = opsApprovedDispatchSet_();
+  var alertsCol = getHeaderIndex('Ops Alerts Sent');
+  var url = appUrl_();
+  var accounts = opsStaffOfRole_(staffMap, 'Accounts').map(staffRecipient_);
+  var accEmails = accounts.map(function (p) { return p.email; }).filter(Boolean);
+  var dayMins = Math.max(60, alertCfg.closeMin - alertCfg.openMin);
+  var sent = 0;
+  data.rows.forEach(function (o) {
+    var status = String(o.get('Status') || '');
+    var id = String(o.get('Tracker ID'));
+    var cell = String(o.get('Ops Alerts Sent') || '');
+    var blocked = opsBlockedFromValues_(id, o.get('Payment Terms Type'), o.get('Total Order Value'), o.get('Advance Received'), approved);
+    if (status === STATUS_READY_PAY) {
+      if (!blocked) { // paid or approved through some other path -- back to Ops
+        try { opsReleaseIfCleared_(sheet, o.row, ''); } catch (e) { Logger.log('sweep release failed: ' + e); }
+        return;
+      }
+      var fromMs = opsMs_(o.get('Payment Hold From'));
+      if (!fromMs) return;
+      var wh = opsWorkingHours_(fromMs, nowMs);
+      var owner = staffMap[resolveOwnerCode_(o.get('CRE Code'), o.get('CRE Name'), staffMap)];
+      var ownerR = owner && owner.active ? [staffRecipient_(owner)] : [];
+      var line = id + ' (' + String(o.get('Institution / Customer') || '') + ') has been ready for ' + Math.floor(wh / 24) + ' working day(s), waiting for the customer’s payment.';
+      if (wh >= cfg.creEscDays * 24 && !opsHasToken_(cell, 'PayEscalated-' + fromMs)) {
+        sent += notify_('PAYMENT_FOR_DISPATCH_ESCALATION', id, escalateTo, { subject: 'OVERDUE: payment needed for dispatch – ' + id,
+          text: line + ' CRE: ' + (owner ? owner.name : String(o.get('CRE Name') || '')) + '.', email: true,
+          cc: ownerR.map(function (p) { return p.email; }).filter(Boolean) });
+        cell = opsAddToken_(sheet, o.row, alertsCol, cell, 'PayEscalated-' + fromMs);
+      } else if (wh >= cfg.creRemindDays * 24 && !opsHasToken_(cell, 'PayReminder-' + fromMs)) {
+        sent += notify_('PAYMENT_FOR_DISPATCH_REMINDER', id, ownerR, { subject: 'Reminder: payment needed for dispatch – ' + id,
+          text: line + ' Please collect it, or ask the admin to dispatch without full payment.', email: true, link: url, linkLabel: 'Open the CRE page' });
+        cell = opsAddToken_(sheet, o.row, alertsCol, cell, 'PayReminder-' + fromMs);
+      }
+    } else if (status === 'Vehicle Confirmed' && !blocked) {
+      var vcMs = opsMs_(o.get('Vehicle Confirmed Timestamp'));
+      if (!vcMs) return;
+      var mins = officeMinutesBetween_(vcMs, nowMs, alertCfg);
+      var gl = id + ' (' + String(o.get('Institution / Customer') || '') + ') – gate pass requested by ' + (String(o.get('Gate Pass Requested By') || '') || 'Ops') +
+        ' at ' + opsFmt_(vcMs) + ', vehicle ' + String(o.get('Vehicle No.') || '') + '.';
+      if (mins >= cfg.acctEscDays * dayMins && !opsHasToken_(cell, 'GPEscalated-' + vcMs)) {
+        sent += notify_('GATE_PASS_ESCALATION', id, escalateTo, { subject: 'OVERDUE: gate pass not issued – ' + id,
+          text: gl + ' Not issued after ' + cfg.acctEscDays + ' working day(s).', email: true, cc: accEmails,
+          link: url ? url + '?page=accounts' : '', linkLabel: 'Open the Accounts page' });
+        cell = opsAddToken_(sheet, o.row, alertsCol, cell, 'GPEscalated-' + vcMs);
+      } else if (mins >= cfg.acctRemindHours * 60 && !opsHasToken_(cell, 'GPReminder-' + vcMs)) {
+        sent += notify_('GATE_PASS_REMINDER', id, accounts, { subject: 'Reminder: gate pass waiting – ' + id,
+          text: gl + ' Please issue it (Gate Passes Requested tile).', email: true,
+          link: url ? url + '?page=accounts' : '', linkLabel: 'Open the Accounts page' });
+        cell = opsAddToken_(sheet, o.row, alertsCol, cell, 'GPReminder-' + vcMs);
+      }
+    }
+  });
+  return sent;
 }
