@@ -67,7 +67,8 @@
           '</div><div class="req-when">' + esc(r.requestedAt) + '</div></div>' +
           '<div class="req-reason"><b>' + esc(r.reason) + '</b>' + (r.note ? ' \u2013 ' + esc(r.note) : '') + '</div>' +
           (r.directorReasons && r.directorReasons.length ? '<div class="sb-dir">If you approve, it also goes to a director: ' + esc(r.directorReasons.join('; ')) + '. A shorter resume date may bring it within your limit.</div>' : '') +
-          '<div class="sb-inline"><div><label>Resume date</label><input type="date" class="sb-resume" value="' + esc(r.requestedResumeYmd) + '" min="' + esc(d.tomorrow) + '" max="' + esc(r.requestedResumeYmd) + '"></div>' +
+          (r.requestedResumeYmd <= d.today ? '<div class="sb-dir">The resume date has already come. Approving records ' + esc(r.from) + ' to ' + esc(r.requestedResume) + ' as standby (not counted against Ops); the order isn\u2019t paused.</div>' : '') +
+          '<div class="sb-inline"><div><label>Resume date</label><input type="date" class="sb-resume" value="' + esc(r.requestedResumeYmd) + '" min="' + esc(r.requestedResumeYmd <= d.today ? sbNextDay(r.fromYmd) : d.tomorrow) + '" max="' + esc(r.requestedResumeYmd) + '"></div>' +
           '<div style="flex:1 1 200px;"><label>Note (optional)</label><input type="text" class="sb-note" style="width:100%;" placeholder="e.g. Confirmed with the customer"></div></div>' +
           '<div class="actions"><button type="button" class="approve">Approve</button><button type="button" class="decline">Decline</button></div>' +
           '<div class="msg"></div></div>';
@@ -123,6 +124,7 @@
       .withSuccessHandler(function (res) {
         m.textContent = res.declined ? 'Declined. Accounts has been told.'
           : res.sentToDirector ? 'Approved \u2013 sent to the directors (' + res.reasons.join('; ') + '). The order stays live until they decide.'
+          : res.recordedPast ? 'Approved \u2013 recorded as standby ' + res.from + ' to ' + res.resume + '. The order stays live.'
           : 'Approved \u2013 on standby until ' + res.resume + '.';
         m.className = 'msg show ok';
         setTimeout(load, 1200);
@@ -130,11 +132,17 @@
       })
       .withFailureHandler(function (e) {
         Array.prototype.forEach.call(btns, function (b) { b.disabled = false; });
-        m.textContent = 'Error: ' + e.message; m.className = 'msg show err';
+        m.textContent = 'Error: ' + String(e && e.message || e).replace(/^(Error:\s*)+/, ''); m.className = 'msg show err';
       })
       .decideStandby({ requestId: el.getAttribute('data-id'), approve: approve, resumeDate: approve ? el.querySelector('.sb-resume').value : '', note: el.querySelector('.sb-note').value.trim() });
   }
 
+  /** yyyy-MM-dd of the day after ymd (UTC arithmetic, so no timezone drift). */
+  function sbNextDay(ymd) {
+    var p = String(ymd || '').split('-');
+    if (p.length !== 3) return '';
+    return new Date(Date.UTC(+p[0], +p[1] - 1, +p[2] + 1)).toISOString().slice(0, 10);
+  }
   function load() {
     authRun()
       .withSuccessHandler(render)

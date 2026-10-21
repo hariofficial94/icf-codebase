@@ -234,7 +234,8 @@
           '<div class="m">' + esc(r.reason) + (r.note ? ' \u2013 ' + esc(r.note) : '') + '</div>' +
           '<div class="m">' + esc(r.from) + ' to ' + esc(r.resume) + ' \u00b7 asked by ' + esc(r.requestedByName) + ', reported by ' + esc(r.reportedBy) + ' \u00b7 approved by ' + esc(r.decidedBy) + '</div>' +
           '<div class="why">' + esc((r.history.split(' \u2013 sent to the directors: ')[1] || 'Past a limit').split(' | ')[0]) + '</div>' +
-          '<div class="acts"><div><label>Resume date</label><input type="date" class="rd" value="' + esc(r.resumeYmd) + '" min="' + esc(d.tomorrow) + '" max="' + esc(r.resumeYmd) + '"></div>' +
+          (r.resumeYmd <= d.today ? '<div class="m" style="color:#7a4b00;">The resume date has already come. Approving records ' + esc(r.from) + ' to ' + esc(r.resume) + ' as standby (not counted against Ops); the order isn\u2019t paused.</div>' : '') +
+          '<div class="acts"><div><label>Resume date</label><input type="date" class="rd" value="' + esc(r.resumeYmd) + '" min="' + esc(r.resumeYmd <= d.today ? sbNextDay(r.fromYmd) : d.tomorrow) + '" max="' + esc(r.resumeYmd) + '"></div>' +
           '<button type="button" class="yes">Approve</button><button type="button" class="no">Decline</button></div><div class="res"></div></div>';
       }).join('') : '<div class="dir-empty">Nothing waiting. Currently ' + d.usage.count + ' of ' + d.usage.maxOrders + ' orders and ' + fmtINR(d.usage.value) + ' of ' + fmtINR(d.usage.maxValue) + ' on standby.</div>') +
       '<div class="dir-sub">Payment approvals</div>' +
@@ -251,6 +252,12 @@
       el.querySelector('.no').addEventListener('click', function () { decide(el, false); });
     });
   }
+  /** yyyy-MM-dd of the day after ymd (UTC arithmetic, so no timezone drift). */
+  function sbNextDay(ymd) {
+    var p = String(ymd || '').split('-');
+    if (p.length !== 3) return '';
+    return new Date(Date.UTC(+p[0], +p[1] - 1, +p[2] + 1)).toISOString().slice(0, 10);
+  }
   function decide(el, approve) {
     var btns = el.querySelectorAll('button'), res = el.querySelector('.res');
     Array.prototype.forEach.call(btns, function (b) { b.disabled = true; });
@@ -260,12 +267,12 @@
     var runner = authRun()
       .withSuccessHandler(function (r) {
         res.style.color = '#2c5a1e';
-        res.textContent = !approve ? 'Declined.' : isSb ? 'Approved \u2013 on standby until ' + r.resume + '.' : 'Approved.' + (r.releasedToOps ? ' Released to Ops.' : '');
+        res.textContent = !approve ? 'Declined.' : isSb ? (r.recordedPast ? 'Approved \u2013 recorded as standby ' + r.from + ' to ' + r.resume + '. The order stays live.' : 'Approved \u2013 on standby until ' + r.resume + '.') : 'Approved.' + (r.releasedToOps ? ' Released to Ops.' : '');
         setTimeout(function () { loadDirector(); if (typeof window.ICF_RELOAD === 'function') window.ICF_RELOAD(); }, 1200);
       })
       .withFailureHandler(function (e) {
         Array.prototype.forEach.call(btns, function (b) { b.disabled = false; });
-        res.style.color = '#B00020'; res.textContent = 'Error: ' + e.message;
+        res.style.color = '#B00020'; res.textContent = 'Error: ' + String(e && e.message || e).replace(/^(Error:\s*)+/, '');
       });
     if (isSb) runner.decideStandbyDirector(form); else runner.decidePaymentAsDirector(form);
   }

@@ -217,8 +217,11 @@ function sbEarliestStartMs_(f, list) {
 /**
  * Date rules shared by request and approval. refYmd is the day the request
  * was raised -- backdating is measured from then, not from the approval day.
+ * allowPast: an approval that comes after the resume date has already arrived
+ * (the request sat unanswered). Then the resume date only has to be after the
+ * start, and the approval records the standby as already over (sbApplyApproval_).
  */
-function sbCheckDates_(fromYmd, resumeYmd, earliestMs, refYmd) {
+function sbCheckDates_(fromYmd, resumeYmd, earliestMs, refYmd, allowPast) {
   var today = todayYmd_();
   if (!sbIsYmd_(fromYmd)) throw new Error('Choose the date the customer delay started.');
   if (!sbIsYmd_(resumeYmd)) throw new Error('Choose the date the customer expects to be ready (the resume date).');
@@ -227,7 +230,11 @@ function sbCheckDates_(fromYmd, resumeYmd, earliestMs, refYmd) {
   if (earliestYmd && fromYmd < earliestYmd) {
     throw new Error('The standby can\u2019t start before ' + fmtYmd_(earliestYmd) + ' \u2013 the order was still being worked on until then.');
   }
-  if (resumeYmd <= today) throw new Error('The resume date must be after today.');
+  if (allowPast) {
+    if (resumeYmd <= fromYmd) throw new Error('The resume date must be after the standby start (' + fmtYmd_(fromYmd) + ').');
+  } else if (resumeYmd <= today) {
+    throw new Error('The resume date must be after today.');
+  }
   var days = sbDaysBetween_(fromYmd, resumeYmd);
   var back = Math.max(0, sbDaysBetween_(fromYmd, refYmd));
   if (days > SB_CEILINGS.maxDays) throw new Error('A standby can\u2019t be longer than ' + SB_CEILINGS.maxDays + ' days. Ask for a shorter period and request again if needed.');
@@ -236,10 +243,11 @@ function sbCheckDates_(fromYmd, resumeYmd, earliestMs, refYmd) {
 }
 
 /** Why this standby would need a director (empty list = an admin can approve it). */
-function sbDirectorReasons_(days, back, orderValue, trackerId, list, s) {
+function sbDirectorReasons_(days, back, orderValue, trackerId, list, s, alreadyOver) {
   var reasons = [];
   if (days > s.maxDays) reasons.push(days + ' days on standby (limit ' + s.maxDays + ')');
   if (back > s.maxBackdateDays) reasons.push('started ' + back + ' day' + (back === 1 ? '' : 's') + ' back (limit ' + s.maxBackdateDays + ')');
+  if (alreadyOver) return reasons; // it never sits on the standby list, so the count/value limits don't apply
   var t = String(trackerId).toLowerCase();
   var others = sbActive_(list).filter(function (x) { return x.trackerId.toLowerCase() !== t; });
   var value = others.reduce(function (sum, x) { return sum + x.orderValue; }, 0);
@@ -276,6 +284,29 @@ function sbActivate_(r, sheet, row, f, resumeYmd, list, histText) {
     'Approved Resume Date': sbYmdToDate_(resumeYmd), 'History': sbHistory_(r, histText)
   });
 }
+
+/**
+ * Approval that came on or after the resume date (the request waited too long
+ * for an admin/director). The customer delay is already over, so the order is
+ * NOT paused: the standby is written straight in as Ended, covering start ->
+ * the resume date at office opening. Net TAT and the Ops clocks then exclude
+ * that period exactly as if it had been approved on time.
+ */
+function sbRecordPast_(r, f, resumeYmd, list, histText) {
+  var startMs = Math.min(Math.max(sbYmdToDate_(r.fromYmd).getTime(), sbEarliestStartMs_(f, list)), Date.now());
+  var openMin = 0;
+  try { openMin = getAlertSettings_().openMin || 0; } catch (e) {}
+  var endMs = Math.max(startMs, Math.min(sbYmdToDate_(resumeYmd).getTime() + openMin * 60000, Date.now()));
+  sbWrite_(r.row, {
+    'Status': 'Ended', 'Status Before Standby': f['Status'], 'Started At': new Date(startMs),
+    'Approved Resume Date': sbYmdToDate_(resumeYmd), 'Ended At': new Date(endMs),
+    'Ended How': 'Approved after its resume date – recorded, order stayed live',
+    'History': sbHistory_(r, histText + ' – resume date had already passed, recorded as a past standby; order stayed live')
+  });
+}
+
+/** True when an approval for this resume date comes too late to pause the order. */
+function sbIsPast_(resumeYmd) { return resumeYmd <= todayYmd_(); }
 
 /**
  * Ends a standby and puts the order back where it was. A courier order that
@@ -543,7 +574,7 @@ function getStandbyAdmin_() {
     var refYmd = r.requestedAtMs ? sbYmd_(new Date(r.requestedAtMs)) : todayYmd_();
     var days = sbDaysBetween_(r.fromYmd, r.requestedResumeYmd);
     var back = Math.max(0, sbDaysBetween_(r.fromYmd, refYmd));
-    it.directorReasons = sbDirectorReasons_(days, back, r.orderValue, r.trackerId, list, s);
+    it.directorReasons = sbDirectorReasons_(days, back, r.orderValue, r.trackerId, list, s, sbIsPast_(r.requestedResumeYmd));
     return it;
   });
   var withDirector = list.filter(function (r) { return r.status === 'Pending Director'; }).map(sbItem_);
@@ -575,17 +606,22 @@ function decideStandby_(form) {
       var row = findRowByTrackerId(sheet, r.trackerId);
       if (row === -1) throw new Error('Order not found in the tracker.');
       var f = sbOrderFields_(sheet, row);
-      if (SB_ELIGIBLE.indexOf(f['Status']) === -1) throw new Error('The order is now at "' + f['Status'] + '", so it can\u2019t go on standby. Decline this request.');
       resume = sbPickResume_(form.resumeDate, r.requestedResumeYmd);
+      var past = sbIsPast_(resume);
+      // A past standby leaves the order where it is, so its current stage doesn't matter.
+      if (!past && SB_ELIGIBLE.indexOf(f['Status']) === -1) throw new Error('The order is now at "' + f['Status'] + '", so it can\u2019t go on standby. Decline this request.');
       var refYmd = r.requestedAtMs ? sbYmd_(new Date(r.requestedAtMs)) : todayYmd_();
-      var chk = sbCheckDates_(r.fromYmd, resume, sbEarliestStartMs_(f, list), refYmd);
-      reasons = sbDirectorReasons_(chk.days, chk.backdatedDays, r.orderValue, r.trackerId, list, getStandbySettings_());
+      var chk = sbCheckDates_(r.fromYmd, resume, sbEarliestStartMs_(f, list), refYmd, past);
+      reasons = sbDirectorReasons_(chk.days, chk.backdatedDays, r.orderValue, r.trackerId, list, getStandbySettings_(), past);
       var shortened = resume !== r.requestedResumeYmd ? ', resume brought forward to ' + fmtYmd_(resume) : '';
       sbWrite_(r.row, { 'Approved Resume Date': sbYmdToDate_(resume), 'Decided By': sbWho_(me), 'Decided At': new Date(), 'Backdated Days': chk.backdatedDays });
       if (reasons.length) {
         sbWrite_(r.row, { 'Status': 'Pending Director',
           'History': sbHistory_(r, 'Approved by ' + me.name + shortened + (note ? ' (' + note + ')' : '') + ' \u2013 sent to the directors: ' + reasons.join('; ')) });
         out = { requestId: r.requestId, trackerId: r.trackerId, sentToDirector: true, reasons: reasons };
+      } else if (past) {
+        sbRecordPast_(r, f, resume, list, 'Approved by ' + me.name + shortened + (note ? ' (' + note + ')' : ''));
+        out = { requestId: r.requestId, trackerId: r.trackerId, recordedPast: true, from: fmtYmd_(r.fromYmd), resume: fmtYmd_(resume) };
       } else {
         sbActivate_(r, sheet, row, f, resume, list, 'Approved by ' + me.name + shortened + (note ? ' (' + note + ')' : '') + ' \u2013 on standby');
         out = { requestId: r.requestId, trackerId: r.trackerId, activated: true, resume: fmtYmd_(resume) };
@@ -674,14 +710,21 @@ function decideStandbyDirector_(form) {
       var row = findRowByTrackerId(sheet, r.trackerId);
       if (row === -1) throw new Error('Order not found in the tracker.');
       var f = sbOrderFields_(sheet, row);
-      if (SB_ELIGIBLE.indexOf(f['Status']) === -1) throw new Error('The order is now at "' + f['Status'] + '", so it can\u2019t go on standby. Decline this request.');
       resume = sbPickResume_(form.resumeDate, r.approvedResumeYmd || r.requestedResumeYmd);
+      var past = sbIsPast_(resume);
+      if (!past && SB_ELIGIBLE.indexOf(f['Status']) === -1) throw new Error('The order is now at "' + f['Status'] + '", so it can\u2019t go on standby. Decline this request.');
       var refYmd = r.requestedAtMs ? sbYmd_(new Date(r.requestedAtMs)) : todayYmd_();
-      sbCheckDates_(r.fromYmd, resume, sbEarliestStartMs_(f, list), refYmd); // hard limits still apply
+      sbCheckDates_(r.fromYmd, resume, sbEarliestStartMs_(f, list), refYmd, past); // hard limits still apply
       sbWrite_(r.row, { 'Director Decision': 'Approved by ' + sbWho_(me), 'Director Decided At': new Date() });
-      sbActivate_(r, sheet, row, f, resume, list, 'Approved by director ' + me.name +
-        (resume !== (r.approvedResumeYmd || r.requestedResumeYmd) ? ', resume brought forward to ' + fmtYmd_(resume) : '') + (note ? ' (' + note + ')' : '') + ' \u2013 on standby');
-      out = { requestId: r.requestId, trackerId: r.trackerId, activated: true, resume: fmtYmd_(resume) };
+      var hist = 'Approved by director ' + me.name +
+        (resume !== (r.approvedResumeYmd || r.requestedResumeYmd) ? ', resume brought forward to ' + fmtYmd_(resume) : '') + (note ? ' (' + note + ')' : '');
+      if (past) {
+        sbRecordPast_(r, f, resume, list, hist);
+        out = { requestId: r.requestId, trackerId: r.trackerId, recordedPast: true, from: fmtYmd_(r.fromYmd), resume: fmtYmd_(resume) };
+      } else {
+        sbActivate_(r, sheet, row, f, resume, list, hist + ' \u2013 on standby');
+        out = { requestId: r.requestId, trackerId: r.trackerId, activated: true, resume: fmtYmd_(resume) };
+      }
     }
   } finally {
     lock.releaseLock();
@@ -709,6 +752,7 @@ function sbNotifyDecision_(r, out, me, resume, reasons) {
     if (requester && /@/.test(requester.email)) {
       var line = out.declined ? 'was declined by ' + me.name + '. The order stays live.'
         : out.sentToDirector ? 'was approved by ' + me.name + ' and now needs a director (' + reasons.join('; ') + '). The order stays live until then.'
+        : out.recordedPast ? 'was approved by ' + me.name + ' after its resume date had passed, so it is recorded as a standby from ' + out.from + ' to ' + out.resume + ' (that time is not counted against Ops). The order was not paused and stays live.'
         : 'was approved by ' + me.name + '. The order is on standby until ' + fmtYmd_(resume) + ' \u2013 please let ' + r.reportedBy + ' know.';
       sbMail_([requester.email], [], 'Standby ' + (out.declined ? 'declined' : out.sentToDirector ? 'with the directors' : 'approved') + ': ' + r.trackerId,
         '<p>The standby request for <b>' + sbEsc_(r.trackerId) + '</b> (' + sbEsc_(r.institution) + ') ' + sbEsc_(line) + '</p>', '', '');
