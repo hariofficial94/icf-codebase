@@ -15,9 +15,14 @@
  *   Wrapper PO and gate pass, and their links are kept in the tracker
  *   ("CRM PO URL", "Customer PO URL").
  *
- *   Accounts can't verify an order until the required files are on it, and
- *   ticks that they've checked them (address, products, amounts) when
- *   verifying. Orders logged before this release need the CRE to upload them
+ *   Accounts can't verify an order until the required files are on it.
+ *   PRINTING THE CRM PO IS A REQUIRED STEP (Hari, 23 Oct 2026): Accounts
+ *   taps "Print CRM PO" on the verify screen (recorded in "CRM PO Printed":
+ *   who and when), checks the printout and ticks to confirm. The printout
+ *   stays with Accounts; when Ops prints the Internal PO they collect the
+ *   CRM PO from Accounts and attach it, and the two travel together through
+ *   the factory until dispatch. Replacing the CRM PO clears the print record,
+ *   so the new one has to be printed again. Orders logged before this release need the CRE to upload them
  *   from "Look Up an Enquiry" first.
  *
  *   View / Print: CRE, Accounts and Ops (Ops once they've picked the order
@@ -61,6 +66,7 @@ function docsInfo_(raw) {
   return {
     crmUrl: crmUrl,
     customerUrl: customerUrl,
+    crmPrinted: String(raw['CRM PO Printed'] || ''),
     customerRequired: terms === 'PO Customer',
     missing: missing,
     // Replacing what Accounts checked is the CRE's only until verification.
@@ -71,13 +77,14 @@ function docsInfo_(raw) {
 
 /** Blocks verification until the required files are attached and Accounts has ticked that they checked them. */
 function docsAssertReadyForVerify_(sheet, row, checked) {
-  var f = getRowFields(sheet, row, ['Status', 'Payment Terms Type', 'CRM PO URL', 'Customer PO URL']);
+  var f = getRowFields(sheet, row, ['Status', 'Payment Terms Type', 'CRM PO URL', 'Customer PO URL', 'CRM PO Printed']);
   var info = docsInfo_(f);
   if (info.missing.length) {
     throw new Error('The ' + info.missing.join(' and the ') + ' ' + (info.missing.length > 1 ? 'are' : 'is') +
       ' not uploaded yet. Ask the CRE to upload ' + (info.missing.length > 1 ? 'them' : 'it') + ' (Look Up an Enquiry on the CRE page), then verify.');
   }
-  if (!checked) throw new Error('Open the CRM PO and check the address, products and amounts, then tick the box to confirm.');
+  if (!info.crmPrinted) throw new Error('Print the CRM PO first (the "Print CRM PO" button) \u2013 Ops collects the printout from you to attach to the Internal PO.');
+  if (!checked) throw new Error('Check the printed CRM PO \u2013 address, products and amounts \u2013 then tick the box to confirm.');
 }
 
 /** Reads { data (base64), mimeType, name } from the page and checks it. Returns { bytes, mime, ext }. */
@@ -173,6 +180,7 @@ function uploadOrderDocument_(form) {
       throw new Error('This order changed while the file was uploading. Look it up again.');
     }
     var w = {}; w[k.col] = url;
+    if (form.kind === 'crm') w['CRM PO Printed'] = ''; // a new CRM PO has to be printed again
     setRowFields(sheet, row, w);
   } finally {
     lock.releaseLock();
@@ -187,18 +195,37 @@ function uploadOrderDocument_(form) {
   return { trackerId: trackerId, kind: form.kind, label: k.label, url: url, replaced: !!existing };
 }
 
+/** Accounts: record that the CRM PO was printed (the page opens it for printing). form = { trackerId }. */
+function markCrmPoPrinted_(form) {
+  var me = CURRENT_STAFF_;
+  var sheet = getSheet();
+  var row = resolveTrackerId(sheet, String((form && form.trackerId) || ''));
+  if (row === -1) throw new Error('Order not found.');
+  var f = getRowFields(sheet, row, ['Tracker ID', 'Status', 'CRM PO URL', 'CRM PO Printed']);
+  if (!f['CRM PO URL']) throw new Error('There is no CRM PO on this order yet \u2013 the CRE has to upload it.');
+  if (f['Status'] === 'Cancelled') throw new Error('This order is cancelled.');
+  var stamp = me.name + ', ' + opsFmt_(new Date());
+  // Reprints keep the first record and add the latest, so the trail shows both.
+  var prev = String(f['CRM PO Printed'] || '');
+  var val = prev ? prev.split(' | ')[0] + ' | reprinted ' + stamp : stamp;
+  setRowFields(sheet, row, { 'CRM PO Printed': val });
+  return { trackerId: String(f['Tracker ID']), printed: val, reprint: !!prev };
+}
+
 // ================================================================
 // Wiring used by Code.js
 // ================================================================
 function docsApiMap_() {
   return {
     stageOrderDocument:  { fn: stageOrderDocument_,  roles: ['CRE'] },
-    uploadOrderDocument: { fn: uploadOrderDocument_, roles: ['CRE'], log: 'Uploaded PO document' }
+    uploadOrderDocument: { fn: uploadOrderDocument_, roles: ['CRE'], log: 'Uploaded PO document' },
+    markCrmPoPrinted:    { fn: markCrmPoPrinted_,    roles: ['Accounts'], log: 'Printed CRM PO' }
   };
 }
 
 function docsActivityDetail_(fnName, a, result) {
   result = result || {};
   if (fnName === 'uploadOrderDocument') return (result.label || '') + (result.replaced ? ' replaced' : ' added');
+  if (fnName === 'markCrmPoPrinted') return result.reprint ? 'Reprint' : 'First print';
   return '';
 }

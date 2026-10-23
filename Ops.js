@@ -348,7 +348,7 @@ function getOpsOrder_(query) {
     'Wrapper PO PDF URL', 'Vehicle No.', 'Site Readiness Confirmed', 'Gate Pass Requested By', 'Vehicle Confirmed Timestamp',
     'Gate Pass No.', 'Dispatch Timestamp', 'Courier / Transport Name', 'Tracking / Consignment No.',
     'Postal Receipt URL', 'Delivery Status', 'Payment Terms Type', 'Total Order Value', 'Advance Received',
-    'Payment Hold From', 'Payment Hold Note', 'Cleared For Gate Pass', 'Customer Says Paid', 'CRM PO URL', 'Customer PO URL'
+    'Payment Hold From', 'Payment Hold Note', 'Cleared For Gate Pass', 'Customer Says Paid', 'CRM PO URL', 'Customer PO URL', 'CRM PO Printed'
   ]);
   var id = String(f['Tracker ID']);
   var acked = opsIsAcked_(f['Received by Ops Timestamp'], f['Ops Cutover']);
@@ -392,7 +392,8 @@ function getOpsOrder_(query) {
     customerSaysPaid: !!String(f['Customer Says Paid'] || '').trim(),
     deliveryStatus: String(f['Delivery Status'] || ''),
     // CRM PO / customer PO (Oct 2026): to print, once Ops has the order.
-    docs: acked ? { crmUrl: String(f['CRM PO URL'] || ''), customerUrl: String(f['Customer PO URL'] || '') } : null,
+    docs: acked ? { crmUrl: String(f['CRM PO URL'] || ''), customerUrl: String(f['Customer PO URL'] || ''),
+      crmPrintedBy: String(f['CRM PO Printed'] || '').split(' | ')[0].split(',')[0] } : null,
     products: getOrderLineItems_(id),
     standby: (typeof standbyInfoForOrder_ === 'function') ? standbyInfoForOrder_(id, status) : null,
     pendingRequest: (typeof pendingRequestFor_ === 'function') ? pendingRequestFor_(id) : null

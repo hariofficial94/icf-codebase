@@ -5,8 +5,8 @@ What changes for each person:
 | Who | Before | After |
 |---|---|---|
 | CRE | Logged the order | Also attaches the **CRM PO** (always) and the **customer's PO** (required for PO Customer orders), as a PDF or photo, on the intake form. Can upload a missing one later, or replace one before Accounts verifies, from Look Up an Enquiry. Delivery follow-up opens only once the vehicle has left the gate. |
-| Accounts | Verified from the CRE's figures | Opens the CRM PO from the verify screen, checks the address, products and amounts, ticks the box, then verifies. Can't verify while a required PO is missing. Open / Print on any order afterwards. |
-| Ops (Manoj) | – | Open / Print buttons for both POs on the order, once picked up. |
+| Accounts | Verified from the CRE's figures | On the verify screen: **Step 1 – Print CRM PO** (required; the system records who printed it and when), **Step 2 – check the printout** (address, products, amounts) and tick, then verify. Can't verify while a required PO is missing or before printing. Keeps the printout for Ops. |
+| Ops (Manoj) | – | After printing the Internal PO, **collects the printed CRM PO from Accounts and attaches it**. The Ops page reminds him, naming who printed it. They travel together through the factory until dispatch. Open / Print buttons for both POs if a copy is needed. |
 | Sanju (gate) | Checked the paper gate pass | Signs in at `…/exec?page=gate` on his phone. Checks the paper gate pass against the card and taps **Vehicle left**. The system records that moment as the dispatch time and sets the order to **In Transit**. A wrong tap can be undone within 30 minutes. |
 
 ## On go-live day
@@ -16,13 +16,13 @@ What changes for each person:
    - PO uploads start working straight away. Orders already logged but not yet verified need the CRE to upload the CRM PO from Look Up before Accounts can verify them. Tell the CREs this.
    - Gate passes keep working the old way until step 3.
 3. In the spreadsheet: **ICF Admin → Gate login + PO uploads: set up and go live**. It:
-   - writes 5 new tracker headers after "Balance After Delivery" (it stops and changes nothing if those cells hold anything else)
+   - writes 6 new tracker headers after "Balance After Delivery" (it stops and changes nothing if those cells hold anything else)
    - adds "Gate" to the Role dropdown and a row **GATE001 Sanju**
    - creates the Drive folder **ICF Order POs**
    - switches the gate login on. From then on, issuing a gate pass no longer stamps the dispatch time. The gate does. Gate passes issued before this are left as they are.
 4. **Staff tab**: type Sanju's PIN in column E of the GATE001 row.
 5. Bookmark `…/exec?page=gate` on Sanju's phone and sign him in once.
-6. **Dummy run**: CRE logs a test order with a PO photo → Accounts opens it, ticks, verifies → … → Accounts issues the gate pass → it appears on Sanju's list → he taps Vehicle left → the CRE sees In Transit. Cancel the test order before the gate pass, or use a real one.
+6. **Dummy run**: CRE logs a test order with a PO photo → Accounts prints it, ticks, verifies → Ops picks it up and collects the printout → … → Accounts issues the gate pass → it appears on Sanju's list → he taps Vehicle left → the CRE sees In Transit. Cancel the test order before the gate pass, or use a real one.
 
 ## If something goes wrong
 

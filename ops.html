@@ -373,6 +373,8 @@
               '<div style="text-align:center;margin-top:8px;"><button type="button" class="btn-ghost" id="poBtn">Make a fresh copy</button></div>'
             : '<div style="display:flex;"><button type="button" class="btn" id="poBtn">Prepare PO</button></div>') +
           (o.verificationCode ? '<div class="code-box">Verification code (printed on the PO)<div class="code">' + esc(o.verificationCode) + '</div></div>' : '') +
+          (o.docs && o.docs.crmUrl ? '<div class="status-line warn" style="margin-top:10px;">Collect the printed CRM PO from Accounts' + (o.docs.crmPrintedBy ? ' (' + esc(o.docs.crmPrintedBy) + ')' : '') +
+            ' and attach it to this Internal PO. They travel together until dispatch.</div>' : '') +
           '<div class="err" id="poErr"></div></div>';
       }
       // CRM PO / customer PO (Oct 2026): print them if needed, once the order is picked up.

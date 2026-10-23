@@ -32,7 +32,7 @@
  */
 var GATE_GO_LIVE_PROP = 'gate_go_live_ms';
 var GATE_UNDO_MINUTES = 30;
-var GATE_NEW_HEADERS = ['Gate Pass Issued Timestamp', 'Gate Out Timestamp', 'Gate Out By', 'CRM PO URL', 'Customer PO URL'];
+var GATE_NEW_HEADERS = ['Gate Pass Issued Timestamp', 'Gate Out Timestamp', 'Gate Out By', 'CRM PO URL', 'Customer PO URL', 'CRM PO Printed'];
 // In-app nudge (Oct 2026, Hari): a vehicle normally leaves within ~3 hours of its
 // gate pass. Past this many OFFICE hours it shows red on the gate page and as a
 // red "not out at the gate" badge in the Admin's bar (Ananthu) on every page.
@@ -230,7 +230,7 @@ function undoGateOut_(form) {
 // ================================================================
 /**
  * Safe to run more than once.
- *   1. Writes the 5 new tracker headers (stops if those cells hold anything else).
+ *   1. Writes the 6 new tracker headers (stops if those cells hold anything else).
  *   2. Adds "Gate" to the Role dropdown and a row GATE001 Sanju.
  *   3. Creates the "ICF Order POs" folder for the uploads.
  *   4. Switches the gate login on. From now, issuing a gate pass no longer

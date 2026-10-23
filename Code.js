@@ -276,7 +276,8 @@ var HEADERS = [
   // Payment at dispatch (Oct 2026) -- see PAYMENT AT DISPATCH in Ops.js. Header cells are filled in automatically.
   'Payment Hold From', 'Payment Hold Hours', 'Payment Hold Note', 'Cleared For Gate Pass', 'Customer Says Paid', 'Balance After Delivery',
   // Gate login + PO documents (Oct 2026) -- see Gate.js and Documents.js. Header cells are filled in automatically.
-  'Gate Pass Issued Timestamp', 'Gate Out Timestamp', 'Gate Out By', 'CRM PO URL', 'Customer PO URL'
+  'Gate Pass Issued Timestamp', 'Gate Out Timestamp', 'Gate Out By', 'CRM PO URL', 'Customer PO URL',
+  'CRM PO Printed'
 ];
 
 var DISPATCH_VEHICLE = 'Vehicle';
@@ -1742,7 +1743,7 @@ function lookupOrder_(trackerId) {
     'Verified Date', 'Received by Ops Timestamp', 'Picked Up By', 'Ops Cutover', 'Gate Pass Requested By',
     'Vehicle Confirmed Timestamp', 'Postal Receipt URL', 'Customer Email', 'Customer Updates Consent',
     'Payment Hold From', 'Payment Hold Note', 'Cleared For Gate Pass', 'Customer Says Paid', 'Balance After Delivery',
-    'Gate Pass Issued Timestamp', 'Gate Out Timestamp', 'Gate Out By', 'CRM PO URL', 'Customer PO URL', 'Date Logged'
+    'Gate Pass Issued Timestamp', 'Gate Out Timestamp', 'Gate Out By', 'CRM PO URL', 'Customer PO URL', 'CRM PO Printed', 'Date Logged'
   ]);
   var ownerCode = resolveOwnerCode_(raw['CRE Code'], raw['CRE Name']);
   var ownerStaff = getStaffMap_(false)[ownerCode];

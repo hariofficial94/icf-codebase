@@ -896,13 +896,40 @@
     });
 
     function setupVerifyStage(order) {
-      // CRM PO / customer PO (Oct 2026): open the CRM PO and tick before verifying.
+      // CRM PO / customer PO (Oct 2026): PRINT the CRM PO (required, recorded), check it, tick, then verify.
+      // The printout stays with Accounts -- Ops collects it to attach to the Internal PO.
       var vd = document.getElementById('verifyDocs');
       var docs = order.docs;
-      vd.innerHTML = !docs ? '' : ICF_DOCS.panel(docs, { title: 'Check before verifying', hint: 'Open / Print opens the file in Drive. Check the delivery address, the products and the amount per product against what the CRE logged.' }) +
-        (docs.missing && docs.missing.length
-          ? '<div class="warn-box" style="margin-top:8px;">The ' + escapeHtml(docs.missing.join(' and the ')) + ' ' + (docs.missing.length > 1 ? 'are' : 'is') + ' not uploaded. Ask the CRE (' + escapeHtml(order.ownerName || order.creName || '') + ') to upload ' + (docs.missing.length > 1 ? 'them' : 'it') + ' from Look Up an Enquiry – you can verify once ' + (docs.missing.length > 1 ? 'they’re' : 'it’s') + ' there.</div>'
-          : '<label class="docs-check" style="display:flex;gap:8px;align-items:flex-start;font-weight:600;margin-top:10px;"><input type="checkbox" id="docsChecked" style="width:auto;margin-top:2px;"> <span>I’ve opened the CRM PO and checked the delivery address, products and amounts.</span></label>');
+      if (!docs) { vd.innerHTML = ''; }
+      else if (docs.missing && docs.missing.length) {
+        vd.innerHTML = ICF_DOCS.panel(docs, { title: 'Check before verifying' }) +
+          '<div class="warn-box" style="margin-top:8px;">The ' + escapeHtml(docs.missing.join(' and the ')) + ' ' + (docs.missing.length > 1 ? 'are' : 'is') + ' not uploaded. Ask the CRE (' + escapeHtml(order.ownerName || order.creName || '') + ') to upload ' + (docs.missing.length > 1 ? 'them' : 'it') + ' from Look Up an Enquiry \u2013 you can verify once ' + (docs.missing.length > 1 ? 'they\u2019re' : 'it\u2019s') + ' there.</div>';
+      } else {
+        vd.innerHTML = ICF_DOCS.panel(docs, { title: 'Purchase orders', hint: 'Open / Print opens the file in Drive \u2013 print with its printer icon (or Ctrl+P).' }) +
+          '<div class="print-step" style="margin-top:10px;padding:12px;border:2px solid #1F3864;border-radius:6px;background:#fff;">' +
+            '<div style="font-size:13px;font-weight:700;color:#1F3864;">Step 1 \u2013 Print the CRM PO <span style="color:#B00020;">(required)</span></div>' +
+            '<div class="hint" style="margin-top:4px;">Keep the printout. Ops collects it from you and attaches it to the Internal PO.</div>' +
+            '<a id="printCrmBtn" class="pdf-link" href="' + escapeHtml(docs.crmUrl) + '" target="_blank" rel="noopener" style="margin-top:8px;">' + (docs.crmPrinted ? 'Print again' : 'Print CRM PO') + '</a>' +
+            '<div id="printCrmState" style="font-size:12px;margin-top:6px;color:' + (docs.crmPrinted ? '#2c5a1e' : '#9a5b00') + ';font-weight:600;">' +
+              (docs.crmPrinted ? 'Printed: ' + escapeHtml(docs.crmPrinted) : 'Not printed yet.') + '</div>' +
+            '<div style="font-size:13px;font-weight:700;color:#1F3864;margin-top:12px;">Step 2 \u2013 Check the printout</div>' +
+            '<label class="docs-check" style="display:flex;gap:8px;align-items:flex-start;font-weight:600;margin-top:6px;"><input type="checkbox" id="docsChecked" style="width:auto;margin-top:2px;"' + (docs.crmPrinted ? '' : ' disabled') + '> <span>I\u2019ve checked the printed CRM PO: delivery address, products and amounts.</span></label>' +
+          '</div>';
+        document.getElementById('printCrmBtn').addEventListener('click', function () {
+          // The link opens the PO in Drive for printing; this records the print.
+          var st = document.getElementById('printCrmState');
+          st.style.color = '#595959'; st.textContent = 'Recording the print...';
+          authRun()
+            .withSuccessHandler(function (r) {
+              docs.crmPrinted = r.printed;
+              st.style.color = '#2c5a1e'; st.textContent = 'Printed: ' + r.printed + '. Print it from the tab that opened.';
+              document.getElementById('docsChecked').disabled = false;
+              document.getElementById('printCrmBtn').textContent = 'Print again';
+            })
+            .withFailureHandler(function (e) { st.style.color = '#B00020'; st.textContent = ICF_DOCS.errText(e); })
+            .markCrmPoPrinted({ trackerId: order.trackerId });
+        });
+      }
       var logged = Number(order.advanceAmount) || 0;
       var isPO = order.paymentTermsType === 'PO Customer';
       var corrected = order.paymentExceptions && order.paymentExceptions.correction && order.paymentExceptions.correction.status === 'Approved';
@@ -1056,8 +1083,13 @@
         err.classList.add('show');
         return;
       }
+      if (currentOrder && currentOrder.docs && !currentOrder.docs.crmPrinted) {
+        err.textContent = 'Print the CRM PO first (Step 1) \u2013 Ops collects the printout from you.';
+        err.classList.add('show');
+        return;
+      }
       if (dc && !dc.checked) {
-        err.textContent = 'Open the CRM PO, check it, and tick the box first.';
+        err.textContent = 'Check the printed CRM PO and tick the box (Step 2) first.';
         err.classList.add('show');
         return;
       }
