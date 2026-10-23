@@ -136,6 +136,7 @@
 <body>
   <script>window.ICF_PAGE = 'accounts';</script>
   <?!= include('auth'); ?>
+  <?!= include('docs_panel'); ?>
   <!-- Tiles (Oct 2026): every Accounts to-do lives behind one of these. Tap a tile
        to open its list in a pop-up (tiles_accounts.html; gate passes: gatepass_accounts.html). -->
   <div class="stat-strip" id="statStrip">
@@ -198,6 +199,7 @@
       <div class="stage" id="stageVerify">
         <h2>Confirm Payment Verification</h2>
         <div class="signed-as">Verified by: <b id="accountsNameDisplay">&ndash;</b> <span style="color:#888;">(from your sign-in)</span></div>
+        <div id="verifyDocs"></div>
         <label for="amountReceived">Amount received (as per bank statement)</label>
         <input type="number" id="amountReceived" min="0" step="0.01" placeholder="Enter the amount, or 0 if nothing has come in">
         <div class="hint" id="amountHint"></div>
@@ -255,7 +257,7 @@
         <input type="text" id="courierName">
         <label for="trackingNo">Tracking / Consignment No. (if known now)</label>
         <input type="text" id="trackingNo">
-        <div class="hint">Delivery Status will be set to "Pending" automatically.</div>
+        <div class="hint">Delivery Status starts as "Pending" and turns "In Transit" when the gate marks the vehicle out – that moment is recorded as the dispatch time.</div>
         <button class="stage-btn" id="btnDispatch">Generate Gate Pass</button>
         <div class="error" id="errDispatch"></div>
         <div class="result" id="resultDispatch"></div>
@@ -410,7 +412,9 @@
       }
       if (t.handoverToOpsDate) rows.push(['Sent to Ops (verified)', t.handoverToOpsDate]);
       if (t.pickupByOpsDate) rows.push(['Picked up by Ops', t.pickupByOpsDate]);
-      if (t.dispatchDate) rows.push([t.dispatchType === 'Courier' ? 'Date Posted' : 'Date of Dispatch', t.dispatchDate]);
+      if (t.gatePassIssuedDate && t.dispatchType !== 'Courier') rows.push(['Gate Pass Issued', t.gatePassIssuedDate]);
+      if (t.dispatchDate) rows.push([t.dispatchType === 'Courier' ? 'Date Posted' : (t.gateOutBy ? 'Left the Gate (dispatch)' : 'Date of Dispatch'), t.dispatchDate + (t.gateOutBy ? ' \u2013 ' + t.gateOutBy.replace(/\s*\([^)]*\)\s*$/, '') : '')]);
+      else if (t.gatePassIssuedDate && t.dispatchType !== 'Courier' && t.workflowStatus === 'Gate-Verified') rows.push(['Left the Gate', 'Not yet \u2013 waiting at the gate']);
       if (t.ewayBillNo) rows.push(['E-way Bill No.', t.ewayBillNo]);
       if (t.transportMode) rows.push(['Mode of Dispatch', t.transportMode + (t.courierName ? ' \u2013 ' + t.courierName : '')]);
       if (t.dispatchType === 'Courier' && t.trackingNo) rows.push(['Tracking No.', t.trackingNo]);
@@ -784,7 +788,8 @@
             '<div><b>Payment Terms:</b> ' + order.paymentTermsType + '</div>' +
             '<div><b>Balance Due:</b> \u20b9' + Number(order.balanceDue).toLocaleString('en-IN') + '</div>' +
             '<div id="detailsProducts"><b>Products:</b> loading...</div>' +
-            (order.gatePassPdfUrl ? '<div><a class="pdf-link" href="' + order.gatePassPdfUrl + '" target="_blank">Reprint Gate Pass (PDF)</a></div>' : '');
+            (order.gatePassPdfUrl ? '<div><a class="pdf-link" href="' + order.gatePassPdfUrl + '" target="_blank">Reprint Gate Pass (PDF)</a></div>' : '') +
+            (order.docs && order.status !== 'Logged' ? ICF_DOCS.panel(order.docs, {}) : '');
           details.classList.add('show');
           loadTimeline(order.trackerId);
           loadOrderProducts(order.trackerId, order.status === 'Vehicle Confirmed');
@@ -849,7 +854,9 @@
           } else {
             document.getElementById('closedMessage').textContent =
               order.status === 'Gate-Verified'
-                ? 'Dispatched \u2013 Delivery Status is "' + (order.deliveryStatus || 'Pending') + '". The CRE now owns delivery status updates from here.'
+                ? (order.waitingAtGate
+                  ? 'Gate pass issued' + (order.gatePassIssuedAt ? ' ' + order.gatePassIssuedAt : '') + ' \u2013 waiting for the gate to mark the vehicle out. It turns "In Transit" then, and the CRE takes delivery follow-up.'
+                  : 'Dispatched' + (order.gateOutAt ? ' \u2013 left the gate ' + order.gateOutAt : '') + '. Delivery Status is "' + (order.deliveryStatus || 'Pending') + '". The CRE now owns delivery status updates from here.')
                 : 'No action available for status "' + order.status + '" on this page.';
             document.getElementById('stageClosed').classList.add('show');
           }
@@ -889,6 +896,13 @@
     });
 
     function setupVerifyStage(order) {
+      // CRM PO / customer PO (Oct 2026): open the CRM PO and tick before verifying.
+      var vd = document.getElementById('verifyDocs');
+      var docs = order.docs;
+      vd.innerHTML = !docs ? '' : ICF_DOCS.panel(docs, { title: 'Check before verifying', hint: 'Open / Print opens the file in Drive. Check the delivery address, the products and the amount per product against what the CRE logged.' }) +
+        (docs.missing && docs.missing.length
+          ? '<div class="warn-box" style="margin-top:8px;">The ' + escapeHtml(docs.missing.join(' and the ')) + ' ' + (docs.missing.length > 1 ? 'are' : 'is') + ' not uploaded. Ask the CRE (' + escapeHtml(order.ownerName || order.creName || '') + ') to upload ' + (docs.missing.length > 1 ? 'them' : 'it') + ' from Look Up an Enquiry – you can verify once ' + (docs.missing.length > 1 ? 'they’re' : 'it’s') + ' there.</div>'
+          : '<label class="docs-check" style="display:flex;gap:8px;align-items:flex-start;font-weight:600;margin-top:10px;"><input type="checkbox" id="docsChecked" style="width:auto;margin-top:2px;"> <span>I’ve opened the CRM PO and checked the delivery address, products and amounts.</span></label>');
       var logged = Number(order.advanceAmount) || 0;
       var isPO = order.paymentTermsType === 'PO Customer';
       var corrected = order.paymentExceptions && order.paymentExceptions.correction && order.paymentExceptions.correction.status === 'Approved';
@@ -1036,6 +1050,17 @@
         err.classList.add('show');
         return;
       }
+      var dc = document.getElementById('docsChecked');
+      if (currentOrder && currentOrder.docs && currentOrder.docs.missing && currentOrder.docs.missing.length) {
+        err.textContent = 'The ' + currentOrder.docs.missing.join(' and the ') + ' must be uploaded by the CRE first.';
+        err.classList.add('show');
+        return;
+      }
+      if (dc && !dc.checked) {
+        err.textContent = 'Open the CRM PO, check it, and tick the box first.';
+        err.classList.add('show');
+        return;
+      }
       var utrNeeded = Number(amountRaw) > 0;
       if (utrNeeded && !bankReference) {
         err.textContent = 'Enter the Bank Reference / UTR No.';
@@ -1067,7 +1092,7 @@
           btn.disabled = false; btn.textContent = 'Confirm Verification';
           err.textContent = 'Error: ' + e.message; err.classList.add('show');
         })
-        .submitVerification({ trackerId: trackerIdInput.value.trim(), bankReference: bankReference, amountReceived: amountRaw });
+        .submitVerification({ trackerId: trackerIdInput.value.trim(), bankReference: bankReference, amountReceived: amountRaw, docsChecked: !!(dc && dc.checked) });
     });
 
 

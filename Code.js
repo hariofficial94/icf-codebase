@@ -274,7 +274,9 @@ var HEADERS = [
   'Ops Code', 'Picked Up By', 'Ops Cutover', 'Gate Pass Requested By', 'Postal Receipt URL',
   'Customer Email', 'Customer Updates Consent', 'Ops Alerts Sent', 'Customer Updates Sent',
   // Payment at dispatch (Oct 2026) -- see PAYMENT AT DISPATCH in Ops.js. Header cells are filled in automatically.
-  'Payment Hold From', 'Payment Hold Hours', 'Payment Hold Note', 'Cleared For Gate Pass', 'Customer Says Paid', 'Balance After Delivery'
+  'Payment Hold From', 'Payment Hold Hours', 'Payment Hold Note', 'Cleared For Gate Pass', 'Customer Says Paid', 'Balance After Delivery',
+  // Gate login + PO documents (Oct 2026) -- see Gate.js and Documents.js. Header cells are filled in automatically.
+  'Gate Pass Issued Timestamp', 'Gate Out Timestamp', 'Gate Out By', 'CRM PO URL', 'Customer PO URL'
 ];
 
 var DISPATCH_VEHICLE = 'Vehicle';
@@ -509,7 +511,8 @@ function doGet(e) {
     delivery: 'accounts',
     dashboard: 'dashboard',
     admin: 'admin',
-    settings: 'settings'
+    settings: 'settings',
+    gate: 'gate'         // Gate login (Oct 2026) -- Sanju marks vehicles out
   };
   var file = fileMap[page] || 'index';
   var titleMap = {
@@ -520,7 +523,8 @@ function doGet(e) {
     delivery: 'ICF Accounts',
     dashboard: 'ICF Dashboard',
     admin: 'ICF Admin',
-    settings: 'ICF Settings'
+    settings: 'ICF Settings',
+    gate: 'ICF Gate'
   };
   // Evaluated as a template (not a plain file) so each page can pull in the
   // shared sign-in screen with <?!= include('auth'); ?> -- one copy of the
@@ -870,6 +874,15 @@ function submitOrder_(form) {
   var paymentTermsType = form.paymentTermsType === 'PO Customer' ? 'PO Customer' : 'End Customer';
   var dispatchType = determineDispatchType_(lineItems);
 
+  // CRM PO / customer PO (Oct 2026, Documents.gs): uploaded by the page just
+  // before this call; checked here before anything is written.
+  if (typeof docsStagedFile_ === 'function') {
+    if (!form.crmPoFileId) throw new Error('Attach the CRM PO (PDF or photo) – Accounts checks the address, products and amounts on it before verifying.');
+    docsStagedFile_(form.crmPoFileId, 'crm', CURRENT_STAFF_);
+    if (paymentTermsType === 'PO Customer' && !form.customerPoFileId) throw new Error('Attach the customer’s PO – it’s required for a PO Customer order.');
+    if (form.customerPoFileId) docsStagedFile_(form.customerPoFileId, 'customer', CURRENT_STAFF_);
+  }
+
   var sheet = getSheet();
 
   // Two CREs can now submit at the same moment. Without a lock, both could
@@ -965,6 +978,18 @@ function submitOrder_(form) {
 
   writeLineItems(trackerId, lineItems);
 
+  // Attach the uploaded POs (checked above). A failure here leaves the order
+  // logged; the CRE re-uploads from Look Up and Accounts can't verify till then.
+  var docsWarning = '';
+  if (typeof docsAttach_ === 'function') {
+    try {
+      docsAttach_(sheet, newRow, trackerId, 'crm', form.crmPoFileId, CURRENT_STAFF_);
+      if (form.customerPoFileId) docsAttach_(sheet, newRow, trackerId, 'customer', form.customerPoFileId, CURRENT_STAFF_);
+    } catch (e) {
+      docsWarning = 'The order is logged, but a PO file could not be attached (' + e.message + '). Upload it from Look Up an Enquiry – Accounts can’t verify until it’s there.';
+    }
+  }
+
   // Balance to be paid after delivery (Oct 2026): ask the admin now, so a
   // pre-agreed arrangement never stops the order at dispatch. The order is
   // logged either way; a failure here only means the CRE asks again later.
@@ -979,7 +1004,7 @@ function submitOrder_(form) {
   // Ops login (Oct 2026): no PDF at intake any more -- nobody prints here. The
   // Wrapper PO is generated when Ops picks the order up, with the payment
   // verification and pick-up filled in by the system (opsBuildPo_, Ops.gs).
-  return { trackerId: trackerId, advancePct: advancePct, priority: priority, dispatchType: dispatchType, balanceAfter: balanceAfter };
+  return { trackerId: trackerId, advancePct: advancePct, priority: priority, dispatchType: dispatchType, balanceAfter: balanceAfter, docsWarning: docsWarning };
 }
 
 /** Writes the AJ (verification-to-pickup) and AK (total cycle) formulas into one row. */
@@ -1306,6 +1331,9 @@ function getCREActionItems_() {
   var deliveryStatusVals = sheet.getRange(2, deliveryStatusCol, numRows, 1).getValues();
   var deliveryDateVals = sheet.getRange(2, deliveryDateCol, numRows, 1).getValues();
   var dispatchVals = sheet.getRange(2, dispatchCol, numRows, 1).getValues();
+  // Gate login (Oct 2026): a vehicle still waiting at the gate isn't the CRE's yet.
+  var issuedVals = sheet.getRange(2, getHeaderIndex('Gate Pass Issued Timestamp'), numRows, 1).getValues();
+  var gateOutVals = sheet.getRange(2, getHeaderIndex('Gate Out Timestamp'), numRows, 1).getValues();
   var owners = readOrderOwners_(sheet, numRows);
   var scope = creScope_();
 
@@ -1324,6 +1352,7 @@ function getCREActionItems_() {
       actionLabel = 'Payment needed for dispatch';   // goods ready, customer must pay (Oct 2026)
     } else if (isDispatchedStatus_(status)) {
       if (ds === 'Delivered' || ds === 'Returned') continue; // already closed out
+      if (typeof gateWaitingFromValues_ === 'function' && gateWaitingFromValues_(status, dispatchVals[i][0], issuedVals[i][0], gateOutVals[i][0])) continue;
       actionLabel = ds || 'Pending';
     } else {
       continue;
@@ -1712,7 +1741,8 @@ function lookupOrder_(trackerId) {
     'Courier / Transport Name', 'Tracking / Consignment No.', 'CRE Code',
     'Verified Date', 'Received by Ops Timestamp', 'Picked Up By', 'Ops Cutover', 'Gate Pass Requested By',
     'Vehicle Confirmed Timestamp', 'Postal Receipt URL', 'Customer Email', 'Customer Updates Consent',
-    'Payment Hold From', 'Payment Hold Note', 'Cleared For Gate Pass', 'Customer Says Paid', 'Balance After Delivery'
+    'Payment Hold From', 'Payment Hold Note', 'Cleared For Gate Pass', 'Customer Says Paid', 'Balance After Delivery',
+    'Gate Pass Issued Timestamp', 'Gate Out Timestamp', 'Gate Out By', 'CRM PO URL', 'Customer PO URL', 'Date Logged'
   ]);
   var ownerCode = resolveOwnerCode_(raw['CRE Code'], raw['CRE Name']);
   var ownerStaff = getStaffMap_(false)[ownerCode];
@@ -1763,6 +1793,13 @@ function lookupOrder_(trackerId) {
     clearedNote: String(raw['Cleared For Gate Pass'] || ''),
     customerSaysPaid: String(raw['Customer Says Paid'] || ''),
     balanceAfterDelivery: String(raw['Balance After Delivery'] || ''),
+    // Gate login (Oct 2026).
+    gatePassIssuedAt: toTimelineDisplay(raw['Gate Pass Issued Timestamp']),
+    gateOutAt: toTimelineDisplay(raw['Gate Out Timestamp']),
+    gateOutBy: String(raw['Gate Out By'] || ''),
+    waitingAtGate: (typeof gateWaitingFromValues_ === 'function') ? gateWaitingFromValues_(raw['Status'], raw['Dispatch Type'], raw['Gate Pass Issued Timestamp'], raw['Gate Out Timestamp']) : false,
+    // CRM PO / customer PO (Oct 2026).
+    docs: (typeof docsInfo_ === 'function') ? docsInfo_(raw) : null,
     ownerCode: ownerCode,
     ownerName: ownerStaff ? ownerStaff.name : String(raw['CRE Name'] || ''),
     access: describeAccess_(ownerCode, raw['Tracker ID'] || trackerId),
@@ -1819,7 +1856,7 @@ function getOrderTimeline_(trackerId) {
     'E-way Bill No.', 'Transport Mode', 'Courier / Transport Name',
     'Total Order Value', 'Advance Received', 'Delivered Timestamp',
     'Delivery Status', 'Status', 'Payment Terms Type', 'Dispatch Type', 'Tracking / Consignment No.',
-    'Verified By', 'Verification Code'
+    'Verified By', 'Verification Code', 'Gate Pass Issued Timestamp', 'Gate Out By'
   ]);
 
   var total = Number(raw['Total Order Value']) || 0;
@@ -1841,6 +1878,8 @@ function getOrderTimeline_(trackerId) {
     handoverToOpsDate: toTimelineDisplay(raw['Sent to Ops Timestamp']),
     pickupByOpsDate: toTimelineDisplay(raw['Received by Ops Timestamp']),
     dispatchDate: toTimelineDisplay(raw['Dispatch Timestamp']),
+    gatePassIssuedDate: toTimelineDisplay(raw['Gate Pass Issued Timestamp']),
+    gateOutBy: String(raw['Gate Out By'] || ''),
     ewayBillNo: raw['E-way Bill No.'] || '',
     transportMode: raw['Transport Mode'] || '',
     courierName: raw['Courier / Transport Name'] || '',
@@ -1883,6 +1922,10 @@ function submitVerification_(form) {
   if (current['Status'] !== 'Logged') {
     throw new Error('This order is already at status "' + current['Status'] + '" \u2013 it may already be verified.');
   }
+  // CRM PO / customer PO (Oct 2026): Accounts verifies against the CRM PO. An
+  // approved excess payment completing verification was checked when raised (Excess.gs).
+  var completingExcess = typeof VERIFY_AS_NAME_ !== 'undefined' && VERIFY_AS_NAME_;
+  if (!completingExcess && typeof docsAssertReadyForVerify_ === 'function') docsAssertReadyForVerify_(sheet, row, !!form.docsChecked);
 
   // AMOUNT RECEIVED (as per the bank) -- Accounts confirms what actually
   // arrived, which may differ from what the CRE logged:
@@ -2102,17 +2145,22 @@ function submitDispatch_(form) {
   var now = new Date();
   var gatePassNo = 'GP-' + sanitizeForFilename(trackerId) + '-' + Utilities.formatDate(now, Session.getScriptTimeZone(), 'HHmmss');
 
-  setRowFields(sheet, row, {
+  // Gate login (Oct 2026): once it's live, the dispatch time is the moment
+  // the gate marks the vehicle out (markGateOut_, Gate.gs), not this click --
+  // a gate pass can sit for hours before the vehicle actually leaves.
+  var gateFields = {
     'E-way Bill No.': form.ewayBillNo,
     'Gate Pass No.': gatePassNo,
     'Transport Mode': form.transportMode || '',
     'Courier / Transport Name': form.courierName || '',
     'Tracking / Consignment No.': form.trackingNo || '',
-    'Dispatch Timestamp': now,
+    'Gate Pass Issued Timestamp': now,
     'Status': 'Gate-Verified',
     'Delivery Status': 'Pending',
     'Delivery Status Last Updated': now
-  });
+  };
+  if (!(typeof gateIsLive_ === 'function' && gateIsLive_())) gateFields['Dispatch Timestamp'] = now;
+  setRowFields(sheet, row, gateFields);
 
   var pdfUrl = generateGatePassPdf(trackerId, gatePassNo, data['Institution / Customer'], form.ewayBillNo, data['Vehicle No.'], form.itemDescription, form.itemQty, now, paymentTermsType, balanceDue, dispatchException);
 
@@ -2221,6 +2269,9 @@ function submitDeliveryUpdate_(form) {
   var currentStatus = getRowFields(sheet, row, ['Status'])['Status'];
   if (!isDispatchedStatus_(currentStatus)) {
     throw new Error('This order has not been dispatched yet (stage: "' + currentStatus + '") \u2013 delivery status can only be updated after dispatch.');
+  }
+  if (typeof gateWaitingForRow_ === 'function' && gateWaitingForRow_(sheet, row)) {
+    throw new Error('The gate pass is issued, but the gate hasn\u2019t marked the vehicle out yet. Delivery updates open once it leaves \u2013 it turns "In Transit" by itself then.');
   }
 
   var now = new Date();
@@ -2545,12 +2596,12 @@ var STAFF_SHEET_NAME = 'Staff';
 var ACTIVITY_LOG_SHEET_NAME = 'Activity Log';
 var STAFF_HEADERS = ['Staff Code', 'Staff Name', 'Role', 'Active', 'Set PIN', 'PIN Status', 'Last Sign-in',
                      'Email', 'Away From', 'Away To', 'Covered By'];
-var ROLES = ['CRE', 'Accounts', 'Director', 'Admin', 'Ops'];
+var ROLES = ['CRE', 'Accounts', 'Director', 'Admin', 'Ops', 'Gate'];
 var SESSION_SECONDS = 21600;   // 6 h -- CacheService maximum
 var LOCKOUT_ATTEMPTS = 5;
 var LOCKOUT_SECONDS = 900;     // 15 min
-var PAGE_ROLES = { cre: ['CRE'], accounts: ['Accounts'], dashboard: ['Director'], admin: [], settings: ['Director'], ops: ['Ops'] }; // Admin is always allowed...
-var PAGE_LABELS = { cre: 'the CRE page', accounts: 'the Accounts page', dashboard: 'the Owner Dashboard', admin: 'the Admin page', settings: 'the Settings page', ops: 'the Operations page' };
+var PAGE_ROLES = { cre: ['CRE'], accounts: ['Accounts'], dashboard: ['Director'], admin: [], settings: ['Director'], ops: ['Ops'], gate: ['Gate'] }; // Admin is always allowed...
+var PAGE_LABELS = { cre: 'the CRE page', accounts: 'the Accounts page', dashboard: 'the Owner Dashboard', admin: 'the Admin page', settings: 'the Settings page', ops: 'the Operations page', gate: 'the Gate page' };
 var DIRECTOR_ONLY_PAGES = { settings: true }; // ...except on these: Directors only, Admins too are refused (Oct 2026)
 
 /** May this role open this page? Admin may open everything except DIRECTOR_ONLY_PAGES. */
@@ -2630,6 +2681,16 @@ function apiMap_() {
     var extra5 = opsApiMap_();
     for (var k5 in extra5) map[k5] = extra5[k5];
   }
+  // Gate login (Oct 2026) -- defined in Gate.gs.
+  if (typeof gateApiMap_ === 'function') {
+    var extra6 = gateApiMap_();
+    for (var k6 in extra6) map[k6] = extra6[k6];
+  }
+  // CRM PO / customer PO uploads (Oct 2026) -- defined in Documents.gs.
+  if (typeof docsApiMap_ === 'function') {
+    var extra7 = docsApiMap_();
+    for (var k7 in extra7) map[k7] = extra7[k7];
+  }
   return map;
 }
 
@@ -2693,6 +2754,8 @@ function activityDetail_(fnName, a, result) {
       var d = (typeof standbyActivityDetail_ === 'function') ? standbyActivityDetail_(fnName, a, result) : '';
       if (!d && typeof cancellationActivityDetail_ === 'function') d = cancellationActivityDetail_(fnName, a, result);
       if (!d && typeof opsActivityDetail_ === 'function') d = opsActivityDetail_(fnName, a, result);
+      if (!d && typeof gateActivityDetail_ === 'function') d = gateActivityDetail_(fnName, a, result);
+      if (!d && typeof docsActivityDetail_ === 'function') d = docsActivityDetail_(fnName, a, result);
       return d;
   }
 }
@@ -2938,6 +3001,7 @@ function onOpen() {
     .addItem('Run approval alert check now', 'checkApprovalAlerts')
     .addItem('Set up standby (tab + settings rows)', 'setupStandby')
     .addItem('Ops login: set up and go live', 'setupOpsLogin')
+    .addItem('Gate login + PO uploads: set up and go live', 'setupGateAndDocs')
     .addSeparator()
     .addItem('Sign everyone out', 'signEveryoneOut')
     .addToUi();

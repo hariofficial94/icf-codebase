@@ -783,7 +783,9 @@
       }
       if (t.handoverToOpsDate) rows.push(['Sent to Ops (verified)', t.handoverToOpsDate]);
       if (t.pickupByOpsDate) rows.push(['Picked up by Ops', t.pickupByOpsDate]);
-      if (t.dispatchDate) rows.push([t.dispatchType === 'Courier' ? 'Date Posted' : 'Date of Dispatch', t.dispatchDate]);
+      if (t.gatePassIssuedDate && t.dispatchType !== 'Courier') rows.push(['Gate Pass Issued', t.gatePassIssuedDate]);
+      if (t.dispatchDate) rows.push([t.dispatchType === 'Courier' ? 'Date Posted' : (t.gateOutBy ? 'Left the Gate (dispatch)' : 'Date of Dispatch'), t.dispatchDate + (t.gateOutBy ? ' \u2013 ' + t.gateOutBy.replace(/\s*\([^)]*\)\s*$/, '') : '')]);
+      else if (t.gatePassIssuedDate && t.dispatchType !== 'Courier' && t.workflowStatus === 'Gate-Verified') rows.push(['Left the Gate', 'Not yet \u2013 waiting at the gate']);
       if (t.ewayBillNo) rows.push(['E-way Bill No.', t.ewayBillNo]);
       if (t.transportMode) rows.push(['Mode of Dispatch', t.transportMode + (t.courierName ? ' \u2013 ' + t.courierName : '')]);
       if (t.dispatchType === 'Courier' && t.trackingNo) rows.push(['Tracking No.', t.trackingNo]);

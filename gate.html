@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <!--
+    ICF Gate page (?page=gate) -- Oct 2026. Phone-first: Sanju at the gate.
+    Lists the vehicles that have a gate pass and haven't left yet. He checks
+    the paper gate pass against the card and taps "Vehicle left" -- the
+    system stamps that moment as the dispatch time and the order goes to
+    "In Transit". Server side is Gate.gs (getGateQueue_, markGateOut_,
+    undoGateOut_).
+  -->
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; background: #f4f6f8; color: #222; padding: 16px 12px 40px; -webkit-text-size-adjust: 100%; }
+    .wrap { max-width: 640px; margin: 0 auto; }
+    .top { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 12px; }
+    .top h1 { font-size: 22px; color: #1F3864; margin: 0; }
+    .top .sub { font-size: 12.5px; color: #666; margin-top: 2px; }
+    button { font-family: inherit; }
+    .btn-ghost { padding: 9px 14px; font-size: 13px; font-weight: 600; background: #fff; color: #2E74B5; border: 1px solid #d5dbe0; border-radius: 6px; cursor: pointer; }
+    .notlive { display: none; background: #fff4e5; border: 1px solid #f0c98a; color: #7a5300; border-radius: 8px; padding: 10px 12px; font-size: 13.5px; margin-bottom: 12px; }
+    .notlive.show { display: block; }
+    .search input { width: 100%; padding: 12px; font-size: 16px; border: 1px solid #ccc; border-radius: 6px; margin-bottom: 12px; }
+    h2 { font-size: 14px; text-transform: uppercase; letter-spacing: 0.04em; color: #666; margin: 18px 2px 8px; }
+    .count { display: inline-block; min-width: 22px; text-align: center; background: #1F3864; color: #fff; border-radius: 10px; font-size: 12px; padding: 1px 7px; margin-left: 6px; }
+    .card { background: #fff; border-radius: 10px; box-shadow: 0 1px 6px rgba(0,0,0,0.07); padding: 14px; margin-bottom: 10px; border-left: 4px solid #2E74B5; }
+    .card.high { border-left-color: #B00020; }
+    .card.done { border-left-color: #2c7a3f; }
+    .veh { font-size: 24px; font-weight: 800; color: #1F3864; letter-spacing: 0.02em; }
+    .gp { font-size: 14px; font-weight: 700; color: #333; margin-top: 2px; word-break: break-all; }
+    .inst { font-size: 15px; font-weight: 600; color: #222; margin-top: 8px; }
+    .meta { font-size: 13px; color: #555; margin-top: 4px; line-height: 1.45; }
+    .badge { display: inline-block; font-size: 11px; font-weight: 800; padding: 2px 8px; border-radius: 10px; background: #B00020; color: #fff; margin-left: 6px; vertical-align: middle; }
+    .acts { display: flex; gap: 8px; margin-top: 12px; }
+    .btn { flex: 1; padding: 15px 12px; font-size: 16px; font-weight: 800; border-radius: 8px; border: none; cursor: pointer; background: #2c7a3f; color: #fff; }
+    .btn.no { flex: 0 0 auto; background: #eef1f4; color: #333; }
+    .btn.undo { background: #fff; color: #B00020; border: 1px solid #e2a19a; font-size: 14px; padding: 10px 12px; flex: 0 0 auto; }
+    .btn:disabled { opacity: 0.6; cursor: default; }
+    .confirm { font-size: 14px; font-weight: 700; color: #1F3864; margin-top: 12px; }
+    .err { display: none; color: #B00020; font-size: 13px; margin-top: 8px; }
+    .err.show { display: block; }
+    .empty { font-size: 14px; color: #888; font-style: italic; padding: 16px 4px; }
+    a.pdf { font-size: 13px; color: #2E74B5; font-weight: 600; }
+    .toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: #1F3864; color: #fff; padding: 12px 18px; border-radius: 8px; font-size: 14px; font-weight: 600; z-index: 6000; display: none; max-width: 92vw; text-align: center; box-shadow: 0 4px 16px rgba(0,0,0,0.25); }
+    .toast.show { display: block; }
+    .toast.bad { background: #B00020; }
+  </style>
+</head>
+<body>
+  <script>window.ICF_PAGE = 'gate';</script>
+  <?!= include('auth'); ?>
+
+  <div class="wrap">
+    <div class="top">
+      <div>
+        <h1>Gate</h1>
+        <div class="sub">Check the gate pass, then tap when the vehicle leaves.</div>
+      </div>
+      <button type="button" class="btn-ghost refresh-btn" id="refreshBtn">&#8635; Refresh</button>
+    </div>
+    <div class="notlive" id="notLive">The gate login isn’t switched on yet – the admin still has to run “Gate login + PO uploads: set up and go live”. Until then, keep checking gate passes on paper as before.</div>
+    <div class="search"><input type="text" id="q" placeholder="Search vehicle no., gate pass no. or customer" autocomplete="off"></div>
+
+    <h2>Waiting to leave<span class="count" id="waitCount">0</span></h2>
+    <div id="waiting"><div class="empty">Loading...</div></div>
+
+    <h2>Left today<span class="count" id="leftCount">0</span></h2>
+    <div id="left"><div class="empty">Loading...</div></div>
+  </div>
+  <div class="toast" id="toast"></div>
+
+<script>
+(function () {
+  var DATA = null;
+  function esc(t) { return String(t == null ? '' : t).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+  function toast(msg, bad) {
+    var t = document.getElementById('toast');
+    t.textContent = msg; t.className = 'toast show' + (bad ? ' bad' : '');
+    clearTimeout(toast._t); toast._t = setTimeout(function () { t.className = 'toast'; }, 3500);
+  }
+  function matches(c, q) {
+    if (!q) return true;
+    var hay = (c.vehicleNo + ' ' + c.gatePassNo + ' ' + c.institution + ' ' + c.trackerId).toLowerCase().replace(/[\s-]/g, '');
+    return hay.indexOf(q.toLowerCase().replace(/[\s-]/g, '')) !== -1;
+  }
+
+  function waitingCard(c) {
+    return '<div class="card' + (c.priority === 'High' ? ' high' : '') + '" data-id="' + esc(c.trackerId) + '">' +
+      '<div class="veh">' + esc(c.vehicleNo || 'No vehicle no.') + (c.priority === 'High' ? '<span class="badge">HIGH</span>' : '') + '</div>' +
+      '<div class="gp">Gate pass ' + esc(c.gatePassNo) + '</div>' +
+      '<div class="inst">' + esc(c.institution) + '</div>' +
+      '<div class="meta">' + (c.location ? esc(c.location) + '<br>' : '') + (c.products ? esc(c.products) + '<br>' : '') +
+        (c.transport ? esc(c.transport) + '<br>' : '') + 'Gate pass issued ' + esc(c.issuedAt) +
+        (c.gatePassPdfUrl ? ' · <a class="pdf" href="' + esc(c.gatePassPdfUrl) + '" target="_blank">View gate pass</a>' : '') + '</div>' +
+      '<div class="acts step1"><button type="button" class="btn go">Vehicle left – mark dispatched</button></div>' +
+      '<div class="step2" style="display:none;"><div class="confirm">Vehicle ' + esc(c.vehicleNo) + ' with gate pass ' + esc(c.gatePassNo) + ' has left?</div>' +
+        '<div class="acts"><button type="button" class="btn yes">Yes, it has left</button><button type="button" class="btn no">Cancel</button></div></div>' +
+      '<div class="err"></div></div>';
+  }
+  function leftCard(c) {
+    return '<div class="card done" data-id="' + esc(c.trackerId) + '">' +
+      '<div class="veh" style="font-size:19px;">' + esc(c.vehicleNo || '–') + '</div>' +
+      '<div class="gp">Gate pass ' + esc(c.gatePassNo) + '</div>' +
+      '<div class="inst">' + esc(c.institution) + '</div>' +
+      '<div class="meta">Left at ' + esc(c.outAt) + (c.outBy ? ' – marked by ' + esc(c.outBy.replace(/\s*\([^)]*\)\s*$/, '')) : '') + '</div>' +
+      (c.canUndo ? '<div class="acts"><button type="button" class="btn undo">Undo – tapped by mistake</button></div>' : '') +
+      '<div class="err"></div></div>';
+  }
+
+  function render() {
+    if (!DATA) return;
+    document.getElementById('notLive').classList.toggle('show', !DATA.live);
+    var q = document.getElementById('q').value.trim();
+    var w = DATA.waiting.filter(function (c) { return matches(c, q); });
+    var l = DATA.leftToday.filter(function (c) { return matches(c, q); });
+    document.getElementById('waitCount').textContent = DATA.waiting.length;
+    document.getElementById('leftCount').textContent = DATA.leftToday.length;
+    document.getElementById('waiting').innerHTML = w.length ? w.map(waitingCard).join('')
+      : '<div class="empty">' + (q ? 'Nothing waiting matches “' + esc(q) + '”.' : 'No vehicles waiting. A vehicle shows here once Accounts issues its gate pass.') + '</div>';
+    document.getElementById('left').innerHTML = l.length ? l.map(leftCard).join('') : '<div class="empty">' + (q ? 'No match.' : 'Nothing has left yet today.') + '</div>';
+    bind();
+  }
+
+  function bind() {
+    Array.prototype.forEach.call(document.querySelectorAll('#waiting .card'), function (el) {
+      var id = el.getAttribute('data-id');
+      var s1 = el.querySelector('.step1'), s2 = el.querySelector('.step2'), err = el.querySelector('.err');
+      el.querySelector('.go').addEventListener('click', function () { s1.style.display = 'none'; s2.style.display = 'block'; });
+      el.querySelector('.no').addEventListener('click', function () { s2.style.display = 'none'; s1.style.display = 'flex'; });
+      el.querySelector('.yes').addEventListener('click', function () {
+        var b = this; b.disabled = true; b.textContent = 'Saving...'; err.className = 'err';
+        authRun()
+          .withSuccessHandler(function (r) { toast('Marked out at ' + r.outAt + '. In transit now.'); load(); })
+          .withFailureHandler(function (e) {
+            b.disabled = false; b.textContent = 'Yes, it has left';
+            err.textContent = String(e && e.message || e).replace(/^(Error:\s*)+/, ''); err.className = 'err show';
+          })
+          .markGateOut({ trackerId: id });
+      });
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('#left .card .undo'), function (b) {
+      var el = b.closest('.card'), err = el.querySelector('.err');
+      b.addEventListener('click', function () {
+        b.disabled = true; b.textContent = 'Undoing...';
+        authRun()
+          .withSuccessHandler(function () { toast('Undone – back on the waiting list.'); load(); })
+          .withFailureHandler(function (e) {
+            b.disabled = false; b.textContent = 'Undo – tapped by mistake';
+            err.textContent = String(e && e.message || e).replace(/^(Error:\s*)+/, ''); err.className = 'err show';
+          })
+          .undoGateOut({ trackerId: el.getAttribute('data-id') });
+      });
+    });
+  }
+
+  function load() {
+    authRun()
+      .withSuccessHandler(function (d) { DATA = d || { live: false, waiting: [], leftToday: [] }; render(); })
+      .withFailureHandler(function (e) {
+        document.getElementById('waiting').innerHTML = '<div class="empty">Could not load: ' + esc(e.message) + '</div>';
+      })
+      .getGateQueue();
+  }
+
+  document.getElementById('q').addEventListener('input', render);
+  document.getElementById('refreshBtn').addEventListener('click', load);
+  window.ICF_RELOAD = load;
+  // Refresh every 2 minutes while the page is open, so a new gate pass shows without tapping.
+  setInterval(function () { if (!document.hidden && window.ICF_STAFF) load(); }, 120000);
+  load();
+})();
+</script>
+</body>
+</html>

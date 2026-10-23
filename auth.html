@@ -160,7 +160,7 @@
     }
 
     // ---- Admin extras: page links + approvals counter (every page) ----
-    var PAGES = [['dashboard', 'Dashboard'], ['cre', 'CRE page'], ['accounts', 'Accounts'], ['ops', 'Operations'], ['admin', 'Admin']];
+    var PAGES = [['dashboard', 'Dashboard'], ['cre', 'CRE page'], ['accounts', 'Accounts'], ['ops', 'Operations'], ['gate', 'Gate'], ['admin', 'Admin']];
     var apprTimer = null, lastApprTotal = null, lastNewestId = null;
 
     function pageUrl(base, key) { return key === 'cre' ? base : base + '?page=' + key; }

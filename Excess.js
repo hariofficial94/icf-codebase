@@ -75,6 +75,8 @@ function prepareExcessRequest_(sheet, row, form) {
   var utr = String(form.bankReference || '').trim();
   if (!utr) throw new Error('Enter the Bank Reference / UTR No. for this payment.');
   var s = excessSplit_(sheet, row, amount);
+  // At verification the PO files must be on the order, same as a normal verification (Oct 2026).
+  if (s.stage === 'verification' && typeof docsAssertReadyForVerify_ === 'function') docsAssertReadyForVerify_(sheet, row, true);
   return {
     amount: Math.round(amount * 100) / 100, utr: utr,
     amountNote: 'Bank shows ' + exRupees_(amount) + ' \u2192 this order ' + exRupees_(s.share) + ' + excess ' + exRupees_(s.excess) +

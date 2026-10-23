@@ -1,0 +1,129 @@
+<!--
+  CRM PO / customer PO files (Oct 2026) -- shared by the CRE, Accounts and
+  Ops pages: <?!= include('docs_panel'); ?>. Server side is Documents.gs.
+
+  window.ICF_DOCS
+    .prepare(file, cb)            -- reads a chosen file for upload. Photos are
+                                     shrunk to 2400 px (still readable when
+                                     printed); PDFs go as they are, up to 8 MB.
+                                     cb(err, { data, mimeType, name })
+    .panel(docs, opts)            -- HTML for the two files with Open / Print
+                                     buttons. opts.upload = true adds the CRE's
+                                     upload / replace controls.
+    .bind(el, trackerId, onDone)  -- wires the upload controls inside el.
+-->
+<style>
+  .docs-box { margin-top: 12px; border: 1px solid #d5e3f1; background: #f7fafd; border-radius: 6px; padding: 10px 12px; }
+  .docs-box .docs-title { font-size: 12px; font-weight: 700; color: #1F3864; text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 6px; }
+  .docs-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 7px 0; border-top: 1px solid #e3ecf5; }
+  .docs-row:first-of-type { border-top: none; }
+  .docs-row .docs-name { flex: 1 1 140px; font-size: 13px; font-weight: 600; color: #333; }
+  .docs-row .docs-state { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 9px; }
+  .docs-row .docs-state.ok { background: #e3f1dc; color: #2c5a1e; }
+  .docs-row .docs-state.miss { background: #f8d7da; color: #B00020; }
+  .docs-row .docs-state.opt { background: #eef1f4; color: #666; }
+  .docs-row a.docs-open { display: inline-block; background: #2E74B5; color: #fff !important; text-decoration: none; padding: 7px 12px; border-radius: 4px; font-size: 12px; font-weight: 700; }
+  .docs-row a.docs-open:hover { background: #245d92; }
+  .docs-up { flex: 1 1 100%; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 2px; }
+  .docs-up input[type=file] { flex: 1 1 200px; min-width: 0; font-size: 12px; margin: 0; padding: 0; border: none; width: auto; }
+  .docs-up button { width: auto !important; margin: 0 !important; padding: 7px 12px !important; font-size: 12px !important; font-weight: 700; background: #1F3864; color: #fff; border: none; border-radius: 4px; cursor: pointer; }
+  .docs-up button:disabled { background: #9aa5b1; cursor: default; }
+  .docs-hint { font-size: 11px; color: #777; margin-top: 6px; }
+  .docs-msg { font-size: 12px; margin-top: 6px; display: none; }
+  .docs-msg.show { display: block; }
+  .docs-msg.err { color: #B00020; }
+  .docs-msg.ok { color: #2c5a1e; }
+</style>
+<script>
+window.ICF_DOCS = (function () {
+  var MAX = 8 * 1024 * 1024;
+  function esc(t) { return String(t == null ? '' : t).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+  function errText(e) { return String(e && e.message || e).replace(/^(Error:\s*)+/, ''); }
+
+  function prepare(file, cb) {
+    if (!file) return cb('Choose a file.');
+    var type = file.type || '';
+    if (type !== 'application/pdf' && !/^image\//.test(type)) return cb('Use a PDF or a photo (JPG/PNG).');
+    var reader = new FileReader();
+    reader.onerror = function () { cb('Could not read that file. Try again.'); };
+    reader.onload = function () {
+      var dataUrl = String(reader.result || '');
+      var raw = { data: dataUrl.split(',')[1] || '', mimeType: type, name: file.name || 'po' };
+      if (type === 'application/pdf') return file.size > MAX ? cb('That PDF is over 8 MB. Save it smaller and try again.') : cb(null, raw);
+      var img = new Image();
+      img.onload = function () {
+        try {
+          var max = 2400, w = img.naturalWidth, h = img.naturalHeight;
+          var scale = Math.min(1, max / Math.max(w, h));
+          var c = document.createElement('canvas');
+          c.width = Math.round(w * scale); c.height = Math.round(h * scale);
+          var ctx = c.getContext('2d');
+          ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
+          ctx.drawImage(img, 0, 0, c.width, c.height);
+          var out = c.toDataURL('image/jpeg', 0.85);
+          cb(null, { data: out.split(',')[1], mimeType: 'image/jpeg', name: (file.name || 'po').replace(/\.[^.]+$/, '') + '.jpg' });
+        } catch (e) { file.size > MAX ? cb('That photo is too large. Take it again.') : cb(null, raw); }
+      };
+      img.onerror = function () { file.size > MAX ? cb('That photo is too large. Take it again.') : cb(null, raw); };
+      img.src = dataUrl;
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function row(kind, label, url, required, opts, docs) {
+    var state = url ? '<span class="docs-state ok">Uploaded</span>'
+      : (required ? '<span class="docs-state miss">Missing – required</span>' : '<span class="docs-state opt">Not uploaded (optional)</span>');
+    var h = '<div class="docs-row"><span class="docs-name">' + esc(label) + '</span>' + state +
+      (url ? '<a class="docs-open" href="' + esc(url) + '" target="_blank" rel="noopener">Open / Print</a>' : '');
+    var canUpload = opts.upload && docs && (url ? docs.canReplace : docs.canAdd);
+    if (canUpload) {
+      h += '<div class="docs-up" data-kind="' + kind + '"><input type="file" accept="application/pdf,image/*">' +
+        '<button type="button">' + (url ? 'Replace' : 'Upload') + '</button></div>';
+    }
+    return h + '</div>';
+  }
+
+  function panel(docs, opts) {
+    opts = opts || {};
+    if (!docs) return '';
+    var anyUpload = opts.upload && (docs.canAdd || docs.canReplace);
+    return '<div class="docs-box"><div class="docs-title">' + esc(opts.title || 'Purchase orders') + '</div>' +
+      row('crm', 'CRM PO', docs.crmUrl, true, opts, docs) +
+      row('customer', 'Customer’s PO', docs.customerUrl, !!docs.customerRequired, opts, docs) +
+      (opts.hint ? '<div class="docs-hint">' + esc(opts.hint) + '</div>' : '<div class="docs-hint">Open / Print opens the file in Drive – use its printer icon (or Ctrl+P) to print.' +
+        (anyUpload && docs.canReplace === false ? ' Accounts has verified this order, so the files on it can’t be replaced now (the admin can).' : '') + '</div>') +
+      '<div class="docs-msg"></div></div>';
+  }
+
+  function bind(el, trackerId, onDone) {
+    if (!el) return;
+    var msg = el.querySelector('.docs-msg');
+    Array.prototype.forEach.call(el.querySelectorAll('.docs-up'), function (box) {
+      var input = box.querySelector('input'), btn = box.querySelector('button');
+      var kind = box.getAttribute('data-kind');
+      btn.addEventListener('click', function () {
+        msg.className = 'docs-msg';
+        var f = input.files && input.files[0];
+        if (!f) { msg.textContent = 'Choose the file first.'; msg.className = 'docs-msg show err'; return; }
+        var label = btn.textContent;
+        btn.disabled = true; btn.textContent = 'Uploading...';
+        prepare(f, function (err, file) {
+          if (err) { btn.disabled = false; btn.textContent = label; msg.textContent = err; msg.className = 'docs-msg show err'; return; }
+          authRun()
+            .withSuccessHandler(function (r) {
+              msg.textContent = r.label + (r.replaced ? ' replaced.' : ' uploaded.'); msg.className = 'docs-msg show ok';
+              if (typeof onDone === 'function') setTimeout(onDone, 700);
+            })
+            .withFailureHandler(function (e) {
+              btn.disabled = false; btn.textContent = label;
+              msg.textContent = errText(e); msg.className = 'docs-msg show err';
+            })
+            .uploadOrderDocument({ trackerId: trackerId, kind: kind, file: file });
+        });
+      });
+    });
+  }
+
+  return { prepare: prepare, panel: panel, bind: bind, errText: errText };
+})();
+</script>

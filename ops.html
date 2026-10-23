@@ -106,6 +106,7 @@
 <body>
   <script>window.ICF_PAGE = 'ops';</script>
   <?!= include('auth'); ?>
+  <?!= include('docs_panel'); ?>
 
   <div class="wrap">
     <div class="top">
@@ -374,6 +375,10 @@
           (o.verificationCode ? '<div class="code-box">Verification code (printed on the PO)<div class="code">' + esc(o.verificationCode) + '</div></div>' : '') +
           '<div class="err" id="poErr"></div></div>';
       }
+      // CRM PO / customer PO (Oct 2026): print them if needed, once the order is picked up.
+      if (o.docs && (o.docs.crmUrl || o.docs.customerUrl)) {
+        h += '<div class="panel"><h2>Purchase orders</h2>' + ICF_DOCS.panel({ crmUrl: o.docs.crmUrl, customerUrl: o.docs.customerUrl, customerRequired: false }, { title: 'From the CRE' }).replace('docs-box', 'docs-box" style="margin-top:0;') + '</div>';
+      }
       if (o.status === 'Sent to Ops' && o.acked && o.dispatchType !== 'Courier') h += gatePassForm(o);
       if (o.status === 'Sent to Ops' && o.acked && o.dispatchType === 'Courier') h += postingForm(o);
       if (o.status === 'On Hold - Site Not Ready') {
@@ -409,7 +414,7 @@
         case 'On Hold - Site Not Ready': return 'On hold: waiting for the customer’s site.';
         case 'Vehicle Confirmed': return o.paymentPending ? 'Gate pass blocked – the customer still has to pay. The CRE is collecting it.' : 'Gate pass requested' + (o.gatePassRequestedBy ? ' by ' + o.gatePassRequestedBy : '') + ' – with Accounts.';
         case 'Ready - Payment Pending': return 'Ready – waiting for the customer’s payment' + (o.payHoldSince ? ' since ' + o.payHoldSince : '') + '. The CRE is collecting it; your clock is paused.';
-        case 'Gate-Verified': return 'Dispatched' + (o.dispatchedAt ? ' ' + o.dispatchedAt : '') + ' (gate pass ' + o.gatePassNo + ').';
+        case 'Gate-Verified': return o.dispatchedAt ? 'Dispatched ' + o.dispatchedAt + ' (gate pass ' + o.gatePassNo + ').' : 'Gate pass ' + o.gatePassNo + ' issued \u2013 waiting for the gate to mark the vehicle out.';
         case 'Posted': return 'Posted' + (o.courierName ? ' via ' + o.courierName : '') + '. Delivery: ' + (o.deliveryStatus || 'In Transit') + '.';
         case 'On Standby': return 'On standby (customer delay)' + (o.standby && o.standby.open ? ' until ' + o.standby.open.resume + ' – ' + o.standby.open.reason : '') + '.';
         case 'Cancelled': return 'Cancelled – nothing to do.';

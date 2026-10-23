@@ -168,6 +168,7 @@
 <body>
   <script>window.ICF_PAGE = 'cre';</script>
   <?!= include('auth'); ?>
+  <?!= include('docs_panel'); ?>
   <div class="stat-strip" id="statStrip">
     <div class="stat-card clickable" data-set="all" data-title="All my orders">
       <div class="stat-value" id="statTotal">&ndash;</div>
@@ -271,6 +272,14 @@
             <option value="PO Customer">Dealer / Institution with own PO – partial payment allowed</option>
           </select>
           <div class="field-hint">Select "PO Customer" only if the buyer has provided their own separate purchase order. Gate pass generation will be blocked later for End Customer orders until fully paid.</div>
+
+          <label for="crmPoFile">CRM PO <span style="color:#B00020;">*</span></label>
+          <input type="file" id="crmPoFile" accept="application/pdf,image/*">
+          <div class="field-hint">The PO from the CRM software (PDF, or a clear photo). Accounts checks the delivery address, products and amounts on it before verifying.</div>
+
+          <label for="customerPoFile">Customer’s PO <span id="customerPoReq" style="color:#B00020;">*</span><span id="customerPoOpt" style="font-weight:400;color:#888;">(optional)</span></label>
+          <input type="file" id="customerPoFile" accept="application/pdf,image/*">
+          <div class="field-hint" id="customerPoHint"></div>
 
           <div class="row2">
             <div>
@@ -557,6 +566,33 @@
     totalInput.addEventListener('input', updateBalAfter);
     advanceInput.addEventListener('input', updateBalAfter);
     document.getElementById('paymentTermsType').addEventListener('change', updateBalAfter);
+    // CRM PO / customer PO (Oct 2026): the customer's PO is required for PO customers.
+    function updateCustomerPoLabel() {
+      var po = document.getElementById('paymentTermsType').value === 'PO Customer';
+      document.getElementById('customerPoReq').style.display = po ? 'inline' : 'none';
+      document.getElementById('customerPoOpt').style.display = po ? 'none' : 'inline';
+      document.getElementById('customerPoHint').textContent = po
+        ? 'Required for a PO Customer – the purchase order the customer gave you.'
+        : 'If the customer gave you a purchase order, attach it too.';
+    }
+    document.getElementById('paymentTermsType').addEventListener('change', updateCustomerPoLabel);
+    updateCustomerPoLabel();
+    // Files already uploaded for this form, so resending after an error doesn't upload them again.
+    var stagedDocs = {};
+    function fileKey(f) { return f ? [f.name, f.size, f.lastModified].join('|') : ''; }
+    function stageDoc(kind, inputId, done) {
+      var f = document.getElementById(inputId).files[0];
+      if (!f) return done(null, '');
+      var key = kind + '|' + fileKey(f);
+      if (stagedDocs[key]) return done(null, stagedDocs[key]);
+      ICF_DOCS.prepare(f, function (err, file) {
+        if (err) return done((kind === 'crm' ? 'CRM PO: ' : 'Customer’s PO: ') + err);
+        authRun()
+          .withSuccessHandler(function (r) { stagedDocs[key] = r.fileId; done(null, r.fileId); })
+          .withFailureHandler(function (e) { done((kind === 'crm' ? 'CRM PO: ' : 'Customer’s PO: ') + ICF_DOCS.errText(e)); })
+          .stageOrderDocument({ kind: kind, file: file });
+      });
+    }
     document.getElementById('balAfter').addEventListener('change', updateBalAfter);
     priorityLevel.addEventListener('change', function () {
       priorityBadge.classList.toggle('show', priorityLevel.value === 'High');
@@ -786,8 +822,19 @@
         return;
       }
 
+      if (!document.getElementById('crmPoFile').files[0]) {
+        errorBox.textContent = 'Attach the CRM PO (PDF or photo).';
+        errorBox.classList.add('show');
+        return;
+      }
+      if (document.getElementById('paymentTermsType').value === 'PO Customer' && !document.getElementById('customerPoFile').files[0]) {
+        errorBox.textContent = 'Attach the customer’s PO – it’s required for a PO Customer order.';
+        errorBox.classList.add('show');
+        return;
+      }
+
       submitBtn.disabled = true;
-      submitBtn.textContent = 'Generating...';
+      submitBtn.textContent = 'Uploading CRM PO...';
 
       var formData = {
         trackerId: document.getElementById('trackerId').value.trim(),
@@ -808,6 +855,29 @@
         lineItems: lineItems
       };
 
+      var failSubmit = function (msg) {
+        errorBox.textContent = 'Error: ' + msg;
+        errorBox.classList.add('show');
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Generate Internal PO';
+      };
+      stageDoc('crm', 'crmPoFile', function (err1, crmId) {
+        if (err1) return failSubmit(err1);
+        submitBtn.textContent = document.getElementById('customerPoFile').files[0] ? 'Uploading customer’s PO...' : 'Generating...';
+        stageDoc('customer', 'customerPoFile', function (err2, custId) {
+          if (err2) return failSubmit(err2);
+          formData.crmPoFileId = crmId;
+          formData.customerPoFileId = custId;
+          submitBtn.textContent = 'Generating...';
+          sendOrder(formData);
+        });
+      });
+    });
+
+    function sendOrder(formData) {
+      var submitBtn = document.getElementById('submitBtn');
+      var errorBox = document.getElementById('errorBox');
+      var resultBox = document.getElementById('resultBox');
       authRun()
         .withSuccessHandler(function (result) {
           document.getElementById('resultTrackerId').textContent = result.trackerId;
@@ -815,9 +885,12 @@
           document.getElementById('resultDispatch').textContent = (result.dispatchType === 'Courier'
             ? 'Courier order – goes to Ops for posting after payment verification. ' : '') +
             (result.balanceAfter ? (result.balanceAfter.error ? 'Balance after delivery: could not ask the admin (' + result.balanceAfter.error + ').'
-              : 'Balance after delivery: sent to the admin for approval (' + result.balanceAfter.requestId + ').') : '');
+              : 'Balance after delivery: sent to the admin for approval (' + result.balanceAfter.requestId + ').') : '') +
+            (result.docsWarning ? ' ' + result.docsWarning : '');
           resultBox.classList.add('show');
           document.getElementById('poForm').reset();
+          stagedDocs = {};
+          updateCustomerPoLabel();
           pctPreview.textContent = '';
           priorityBadge.classList.remove('show');
           pincodeHint.textContent = 'Enter the 6-digit pincode and State/District below fill in automatically.';
@@ -836,7 +909,7 @@
           submitBtn.textContent = 'Generate Internal PO';
         })
         .submitOrder(formData);
-    });
+    }
 
     // =====================================================================
     // Look Up an Enquiry + Needs Action (CRE now owns delivery status updates)
@@ -874,7 +947,9 @@
       }
       if (t.handoverToOpsDate) rows.push(['Sent to Ops (verified)', t.handoverToOpsDate]);
       if (t.pickupByOpsDate) rows.push(['Picked up by Ops', t.pickupByOpsDate]);
-      if (t.dispatchDate) rows.push([t.dispatchType === 'Courier' ? 'Date Posted' : 'Date of Dispatch', t.dispatchDate]);
+      if (t.gatePassIssuedDate && t.dispatchType !== 'Courier') rows.push(['Gate Pass Issued', t.gatePassIssuedDate]);
+      if (t.dispatchDate) rows.push([t.dispatchType === 'Courier' ? 'Date Posted' : (t.gateOutBy ? 'Left the Gate (dispatch)' : 'Date of Dispatch'), t.dispatchDate + (t.gateOutBy ? ' \u2013 ' + t.gateOutBy.replace(/\s*\([^)]*\)\s*$/, '') : '')]);
+      else if (t.gatePassIssuedDate && t.dispatchType !== 'Courier' && t.workflowStatus === 'Gate-Verified') rows.push(['Left the Gate', 'Not yet \u2013 waiting at the gate']);
       if (t.ewayBillNo) rows.push(['E-way Bill No.', t.ewayBillNo]);
       if (t.transportMode) rows.push(['Mode of Dispatch', t.transportMode + (t.courierName ? ' \u2013 ' + t.courierName : '')]);
       if (t.dispatchType === 'Courier' && t.trackingNo) rows.push(['Tracking No.', t.trackingNo]);
@@ -977,8 +1052,10 @@
             '<div><b>Payment Terms:</b> ' + order.paymentTermsType + '</div>' +
             '<div><b>Balance Due:</b> \u20b9' + Number(order.balanceDue).toLocaleString('en-IN') + '</div>' +
             '<div id="detailsProducts"><b>Products:</b> loading...</div>' +
-            (order.postalReceiptUrl ? '<div><a class="pdf-link" href="' + order.postalReceiptUrl + '" target="_blank">Postal receipt (photo from Ops)</a></div>' : '');
+            (order.postalReceiptUrl ? '<div><a class="pdf-link" href="' + order.postalReceiptUrl + '" target="_blank">Postal receipt (photo from Ops)</a></div>' : '') +
+            (order.docs ? '<div id="creDocs">' + ICF_DOCS.panel(order.docs, { upload: !(order.access && order.access.canAct === false) }) + '</div>' : '');
           details.classList.add('show');
+          if (order.docs) ICF_DOCS.bind(document.getElementById('creDocs'), order.trackerId, function () { runLookup(order.trackerId); });
           loadTimeline(order.trackerId);
           loadOrderProducts(order.trackerId);
           document.getElementById('btnDone').style.display = 'block';
@@ -1002,6 +1079,11 @@
               ? 'With Ops' + (order.opsPickedUpBy ? ' – picked up by ' + order.opsPickedUpBy + (order.opsPickedUpAt ? ' at ' + order.opsPickedUpAt : '') : '') + '. '
               : 'Verified by Accounts and waiting for Ops to pick it up. ') +
               (order.dispatchType === 'Courier' ? 'Ops posts it and records the receipt – you take delivery follow-up from there.' : 'Ops requests the gate pass when it’s ready.');
+            document.getElementById('stageClosed').classList.add('show');
+          } else if (order.waitingAtGate) {
+            // Gate login (Oct 2026): the gate marks the vehicle out; delivery updates open after that.
+            document.getElementById('closedMessage').textContent = 'Gate pass issued' + (order.gatePassIssuedAt ? ' ' + order.gatePassIssuedAt : '') +
+              ' \u2013 waiting for the vehicle to leave. When the gate marks it out, it turns "In Transit" by itself and delivery follow-up opens here.';
             document.getElementById('stageClosed').classList.add('show');
           } else if (isDispatched(order.status) && order.deliveryStatus !== 'Delivered' && order.deliveryStatus !== 'Returned') {
             document.getElementById('deliveryStatus').value = '';
