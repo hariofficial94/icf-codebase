@@ -3040,7 +3040,7 @@ function onOpen() {
     .addItem('Ops login: set up and go live', 'setupOpsLogin')
     .addItem('Gate login + PO uploads: set up and go live', 'setupGateAndDocs')
     .addSeparator()
-    .addItem('Delete test entries (anything named "test")', 'deleteTestEntries')
+    .addItem('Delete test entries ("Test Customer ...")', 'deleteTestEntries')
     .addItem('Sign everyone out', 'signEveryoneOut')
     .addToUi();
 }

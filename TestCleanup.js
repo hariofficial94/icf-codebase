@@ -1,10 +1,12 @@
 /**
  * DELETE TEST ENTRIES (Oct 2026) -- ICF Admin menu
  * ---------------------------------------------------------------------
- * Hari tests with names like "Test Customer 2", "Test reference", "test12345".
- * This finds every order whose Tracker ID or Institution / Customer has a word
- * starting with "test" (so "Test", "test123", "Testing" -- but not "Contest"),
- * LISTS THEM and asks before touching anything. On Yes it:
+ * Test orders are named "Test Customer ..." (Hari, 23 Oct 2026 -- the phrase,
+ * not just the word "test", so a real customer like "Testing Labs" can never
+ * be caught). This finds every order whose Tracker ID or Institution /
+ * Customer contains "Test Customer" (any capitals, any spacing: "test
+ * customer 2", "TestCustomer"), LISTS THEM and asks before touching anything.
+ * On Yes it:
  *   1. copies the full tracker rows to the "Deleted Test Orders" tab (a record,
  *      in case a real order was caught by mistake -- it can be pasted back);
  *   2. moves ALL of the order's files to the Drive trash (recoverable for 30
@@ -20,7 +22,7 @@
  * Not reachable from here: emails already sent about those orders.
  */
 var TEST_ARCHIVE_SHEET_NAME = 'Deleted Test Orders';
-var TEST_MATCH_RE = /(^|[^a-z0-9])test/i;
+var TEST_MATCH_RE = /test\s*customer/i;
 var TEST_FILE_COLS = ['Wrapper PO PDF URL', 'Gate Pass PDF URL', 'Postal Receipt URL', 'CRM PO URL', 'Customer PO URL'];
 var TEST_ORDER_COLS = ['tracker id', 'came with order']; // headers that name the order in other tabs
 
@@ -51,7 +53,7 @@ function deleteTestEntries() {
     if (!id) return;
     if (TEST_MATCH_RE.test(id) || TEST_MATCH_RE.test(String(r[instCol] || ''))) hits.push({ row: i + 2, id: id, inst: String(r[instCol] || ''), values: r });
   });
-  if (!hits.length) { ui.alert('Delete test entries', 'No orders with "test" in the quotation no. or customer name.', ui.ButtonSet.OK); return; }
+  if (!hits.length) { ui.alert('Delete test entries', 'No orders with "Test Customer" in the quotation no. or customer name.', ui.ButtonSet.OK); return; }
 
   var list = hits.slice(0, 40).map(function (h) { return '• ' + h.id + (h.inst && h.inst !== h.id ? '  (' + h.inst + ')' : ''); }).join('\n') +
     (hits.length > 40 ? '\n… and ' + (hits.length - 40) + ' more' : '');
