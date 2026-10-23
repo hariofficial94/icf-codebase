@@ -3843,6 +3843,8 @@ function getApprovalSummary_() {
     cancellations: cx.length,
     total: px.length + ar.length + sb.length + cx.length,
     overdue: overdue, // past the target in OFFICE time -- a request left overnight isn't overdue at 9:30
+    // Gate nudge (Oct 2026): vehicles with a gate pass not marked out in time. Shown as its own badge.
+    gate: (typeof gateOverdueSummary_ === 'function') ? (function () { try { return gateOverdueSummary_(); } catch (e) { return { count: 0 }; } })() : { count: 0 },
 
     oldestMinutes: oldest === null ? null : Math.max(0, Math.floor((now - oldest) / 60000)),
     newestId: px.concat(ar, sb, cx).reduce(function (m, r) { return (!m || (r.requestedAtMs || 0) > m.t) ? { id: r.requestId, t: r.requestedAtMs || 0 } : m; }, null)

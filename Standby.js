@@ -883,6 +883,12 @@ function sbSettingsSchema_() {
       rows.push({ label: r[0], def: r[1], help: r[2], kind: 'number', group: 'Ops nudges', min: 1, max: OPS_HOURS_CEILING });
     });
   }
+  // Gate nudge (Oct 2026, Gate.gs): office hours, 1 to 48.
+  if (typeof GATE_SETTINGS_ROWS !== 'undefined') {
+    GATE_SETTINGS_ROWS.forEach(function (r) {
+      rows.push({ label: r[0], def: r[1], help: r[2], kind: 'number', group: 'Ops nudges', min: 1, max: GATE_NUDGE_CEILING });
+    });
+  }
   return rows;
 }
 
@@ -1012,6 +1018,7 @@ function saveSettings_(values) {
   cache.remove('alert_settings');
   cache.remove('sb_settings');
   cache.remove('ops_settings');
+  cache.remove('gate_nudge_hours'); cache.remove('gate_overdue');
   if (changes.length) logActivity_(me, 'Changed settings', '', changes.join('; ').slice(0, 45000));
   return { changed: changes.length, changes: changes };
 }

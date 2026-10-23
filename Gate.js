@@ -33,6 +33,51 @@
 var GATE_GO_LIVE_PROP = 'gate_go_live_ms';
 var GATE_UNDO_MINUTES = 30;
 var GATE_NEW_HEADERS = ['Gate Pass Issued Timestamp', 'Gate Out Timestamp', 'Gate Out By', 'CRM PO URL', 'Customer PO URL'];
+// In-app nudge (Oct 2026, Hari): a vehicle normally leaves within ~3 hours of its
+// gate pass. Past this many OFFICE hours it shows red on the gate page and as a
+// red "not out at the gate" badge in the Admin's bar (Ananthu) on every page.
+// No email or WhatsApp -- it lives in the web app only.
+var GATE_SETTINGS_ROWS = [
+  ['Gate: flag a vehicle not out within (office hours)', '6', 'After Accounts issues the gate pass. Shown red on the gate page and to the admins in the web app. Office hours only.']
+];
+var GATE_NUDGE_CEILING = 48;
+var GATE_OVERDUE_CACHE = 'gate_overdue';
+
+/** Office hours before a waiting vehicle is flagged. Cached 5 minutes. */
+function gateNudgeHours_() {
+  var cache = CacheService.getScriptCache();
+  var hit = cache.get('gate_nudge_hours');
+  if (hit) return Number(hit);
+  var raw = sbReadSettingsMap_()[GATE_SETTINGS_ROWS[0][0].toLowerCase()];
+  var v = Number(String(raw == null ? '' : raw).replace(/[,\s]/g, ''));
+  if (raw === undefined || raw === '' || isNaN(v)) v = Number(GATE_SETTINGS_ROWS[0][1]);
+  v = Math.min(GATE_NUDGE_CEILING, Math.max(1, Math.floor(v)));
+  cache.put('gate_nudge_hours', String(v), 300);
+  return v;
+}
+
+/** Office minutes a vehicle has waited since its gate pass. */
+function gateWaitedMins_(issuedMs, nowMs, cfg) {
+  return issuedMs ? officeMinutesBetween_(issuedMs, nowMs, cfg) : 0;
+}
+
+/** For the Admin's bar: { count, oldestHours }. Cached 2 minutes -- the bar asks every minute. */
+function gateOverdueSummary_() {
+  if (!gateIsLive_()) return { count: 0 };
+  var cache = CacheService.getScriptCache();
+  var hit = cache.get(GATE_OVERDUE_CACHE);
+  if (hit) return JSON.parse(hit);
+  var cfg = getAlertSettings_(), limit = gateNudgeHours_() * 60, now = Date.now();
+  var count = 0, oldest = 0;
+  opsReadOrders_().rows.forEach(function (o) {
+    if (!gateWaitingFromValues_(o.get('Status'), o.get('Dispatch Type'), o.get('Gate Pass Issued Timestamp'), o.get('Gate Out Timestamp'))) return;
+    var mins = gateWaitedMins_(opsMs_(o.get('Gate Pass Issued Timestamp')), now, cfg);
+    if (mins >= limit) { count++; if (mins > oldest) oldest = mins; }
+  });
+  var out = { count: count, oldestHours: Math.floor(oldest / 60), limitHours: limit / 60 };
+  cache.put(GATE_OVERDUE_CACHE, JSON.stringify(out), 120);
+  return out;
+}
 
 function gateGoLiveMs_() {
   return Number(PropertiesService.getScriptProperties().getProperty(GATE_GO_LIVE_PROP) || 0) || 0;
@@ -81,8 +126,10 @@ function gateCard_(o, products) {
 /** Gate page: vehicles waiting to leave, and what left today. */
 function getGateQueue_() {
   var live = gateGoLiveMs_();
-  var out = { live: live > 0, waiting: [], leftToday: [], undoMinutes: GATE_UNDO_MINUTES };
+  var out = { live: live > 0, waiting: [], leftToday: [], undoMinutes: GATE_UNDO_MINUTES, nudgeHours: 0, overdue: 0 };
   if (!live) return out;
+  var cfg = getAlertSettings_(), limit = gateNudgeHours_() * 60;
+  out.nudgeHours = limit / 60;
   var data = opsReadOrders_();
   var products = opsProductsByOrder_();
   var tz = Session.getScriptTimeZone();
@@ -91,7 +138,13 @@ function getGateQueue_() {
   var now = Date.now();
   data.rows.forEach(function (o) {
     if (gateWaitingFromValues_(o.get('Status'), o.get('Dispatch Type'), o.get('Gate Pass Issued Timestamp'), o.get('Gate Out Timestamp'))) {
-      out.waiting.push(gateCard_(o, products));
+      var wc = gateCard_(o, products);
+      var mins = gateWaitedMins_(wc.issuedMs, now, cfg);
+      wc.waitedHours = Math.floor(mins / 60);
+      wc.waitedMins = mins;
+      wc.overdue = mins >= limit;
+      if (wc.overdue) out.overdue++;
+      out.waiting.push(wc);
       return;
     }
     var outMs = opsMs_(o.get('Gate Out Timestamp'));
@@ -129,6 +182,7 @@ function markGateOut_(form) {
     if (!gateWaitingFromValues_(f['Status'], f['Dispatch Type'], f['Gate Pass Issued Timestamp'], f['Gate Out Timestamp'])) {
       throw new Error('This order isn’t waiting at the gate (stage: "' + f['Status'] + '"). Refresh the list.');
     }
+    CacheService.getScriptCache().remove(GATE_OVERDUE_CACHE);
     setRowFields(sheet, row, {
       'Gate Out Timestamp': now,
       'Gate Out By': me.name + ' (' + me.code + ')',
@@ -160,6 +214,7 @@ function undoGateOut_(form) {
     if (!gateCanUndo_(f['Gate Out By'], outMs, f['Delivery Status'], me, Date.now())) {
       throw new Error('This can only be undone by the person who marked it, within ' + GATE_UNDO_MINUTES + ' minutes, before the CRE updates delivery. Ask the admin.');
     }
+    CacheService.getScriptCache().remove(GATE_OVERDUE_CACHE);
     setRowFields(sheet, row, {
       'Gate Out Timestamp': '', 'Gate Out By': '', 'Dispatch Timestamp': '', 'Gate Verification Result': '',
       'Delivery Status': 'Pending', 'Delivery Status Last Updated': new Date()
@@ -219,6 +274,19 @@ function setupGateAndDocs() {
     }
   }
 
+  // 2b. Settings row for the gate nudge
+  var settings = ss.getSheetByName(SETTINGS_SHEET_NAME);
+  if (settings) {
+    var existing = settings.getLastRow() >= 2 ? settings.getRange(2, 1, settings.getLastRow() - 1, 1).getValues().map(function (x) { return String(x[0]).trim().toLowerCase(); }) : [];
+    GATE_SETTINGS_ROWS.forEach(function (row) {
+      if (existing.indexOf(row[0].toLowerCase()) !== -1) return;
+      var n = settings.getLastRow() + 1;
+      settings.getRange(n, 2).setNumberFormat('@');
+      settings.getRange(n, 1, 1, 3).setValues([[row[0], row[1], row[2]]]);
+      report.push('Settings: "' + row[0] + '" = ' + row[1] + ' (change it on the Settings page).');
+    });
+  }
+
   // 3. Upload folder
   getOrCreateFolder(DOCS_FOLDER_NAME);
   report.push('Upload folder "' + DOCS_FOLDER_NAME + '" ready in Drive.');
@@ -235,7 +303,7 @@ function setupGateAndDocs() {
   }
 
   var cache = CacheService.getScriptCache();
-  cache.remove('staff_map');
+  cache.remove('staff_map'); cache.remove('gate_nudge_hours'); cache.remove(GATE_OVERDUE_CACHE);
   var msg = report.join('\n');
   Logger.log(msg);
   try { SpreadsheetApp.getUi().alert('Gate login + PO uploads', msg, SpreadsheetApp.getUi().ButtonSet.OK); } catch (e) { /* run from the editor */ }

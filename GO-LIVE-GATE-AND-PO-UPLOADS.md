@@ -30,7 +30,13 @@ What changes for each person:
 - **Data**: nothing existing is rewritten. Only new columns are added. Uploaded files sit in the ICF Order POs folder. Replaced files are renamed "(replaced …)", never deleted.
 - To switch the gate login back off, delete the script property `gate_go_live_ms` (Project Settings → Script properties). Gate passes then stamp the dispatch time again.
 
-## Later (agreed with Hari, 23 Oct 2026)
+## Gate nudge (in the web app only)
 
-- **Gate nudge**: a vehicle normally leaves within about 3 hours of its gate pass. If it isn't marked out after 6–8 office hours, nudge Sanju and Ananthu. It would hook into the 10-minute sweep (`opsSweep_`), the same way the Ops nudges do.
-- Settled: Ops may see prices on the CRM PO, and verification stays blocked until the CRE uploads the PO.
+- A vehicle normally leaves within about 3 hours of its gate pass. If it isn't marked out after **6 office hours**, it shows **red** on Sanju's gate page with a banner at the top. A red **"⚠ N vehicles not out at the gate"** badge also appears in the bar of every page for the admins (Ananthu) and links to the gate page. An admin can mark the vehicle out there on Sanju's behalf.
+- The hours are counted in office hours only, so a gate pass issued at 5 PM isn't flagged overnight. Directors can change the number on the Settings page under "Ops nudges" ("Gate: flag a vehicle not out within (office hours)", 1–48). The setup step adds this row.
+- No email or WhatsApp is sent.
+
+## Decisions (Hari, 23 Oct 2026)
+
+- Ops may see prices on the CRM PO.
+- Verification stays blocked until the CRE uploads the PO.

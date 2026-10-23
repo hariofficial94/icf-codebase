@@ -54,6 +54,8 @@
   .auth-appr .n b { color: #fff; }
   @keyframes authPulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.12); } }
   .auth-appr.pulse { animation: authPulse 0.6s ease-in-out 3; }
+  .auth-gate { display: none; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; padding: 4px 10px; border-radius: 12px; text-decoration: none;
+               background: #f8d7da; color: #B00020; border: 1px solid #e2a19a; }
   @media (max-width: 700px) { .auth-bar { flex-wrap: wrap; } .auth-nav { width: 100%; } }
 </style>
 
@@ -95,6 +97,7 @@
   <nav class="auth-nav" id="authNav"></nav>
   <span>Signed in as <b id="authBarName"></b> (<span id="authBarRole"></span>)</span>
   <a class="auth-appr" id="authAppr" href="#" target="_top" title="Requests waiting for an admin decision"></a>
+  <a class="auth-gate" id="authGate" href="#" target="_top" title="Vehicles with a gate pass that the gate hasn't marked out in time"></a>
   <button type="button" id="authBarChangePin">Change PIN</button>
   <button type="button" id="authBarSignOut">Sign out</button>
 </div>
@@ -170,7 +173,8 @@
       var appr = document.getElementById('authAppr');
       nav.innerHTML = '';
       if (apprTimer) { clearInterval(apprTimer); apprTimer = null; }
-      if (staff.role !== 'Admin' || !staff.appUrl) { appr.style.display = 'none'; return; }
+      if (staff.role !== 'Admin' || !staff.appUrl) { appr.style.display = 'none'; document.getElementById('authGate').style.display = 'none'; return; }
+      document.getElementById('authGate').href = pageUrl(staff.appUrl, 'gate');
       nav.innerHTML = PAGES.map(function (p) {
         return p[0] === PAGE ? '<span>' + p[1] + '</span>'
           : '<a href="' + pageUrl(staff.appUrl, p[0]) + '" target="_top">' + p[1] + '</a>';
@@ -216,6 +220,14 @@
             appr.classList.remove('pulse'); void appr.offsetWidth; appr.classList.add('pulse');
           }
           lastApprTotal = s.total; lastNewestId = newest;
+          // Gate nudge (Oct 2026): vehicles not marked out within the set office hours.
+          var gb = document.getElementById('authGate'), g = s.gate || { count: 0 };
+          if (g.count) {
+            gb.textContent = '\u26a0 ' + g.count + (g.count === 1 ? ' vehicle' : ' vehicles') + ' not out at the gate (' + g.limitHours + '+ office h)';
+            gb.style.display = 'inline-flex';
+          } else {
+            gb.style.display = 'none';
+          }
         })
         .withFailureHandler(function () { /* keep the last value; try again next minute */ })
         .getApprovalSummary();
