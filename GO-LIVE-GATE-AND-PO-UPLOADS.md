@@ -29,3 +29,8 @@ What changes for each person:
 - **Code**: Deploy → Manage deployments → choose the previous version.
 - **Data**: nothing existing is rewritten. Only new columns are added. Uploaded files sit in the ICF Order POs folder. Replaced files are renamed "(replaced …)", never deleted.
 - To switch the gate login back off, delete the script property `gate_go_live_ms` (Project Settings → Script properties). Gate passes then stamp the dispatch time again.
+
+## Later (agreed with Hari, 23 Oct 2026)
+
+- **Gate nudge**: a vehicle normally leaves within about 3 hours of its gate pass. If it isn't marked out after 6–8 office hours, nudge Sanju and Ananthu. It would hook into the 10-minute sweep (`opsSweep_`), the same way the Ops nudges do.
+- Settled: Ops may see prices on the CRM PO, and verification stays blocked until the CRE uploads the PO.
