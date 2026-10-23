@@ -234,6 +234,28 @@
     }
     window.ICF_REFRESH_APPROVALS = refreshApprovalBadge;
 
+    // ---- Live lists (Oct 2026) ----
+    // Every read is live from the sheet; what made a request from another
+    // department look late was the page not ASKING again. On the CRE,
+    // Accounts and Gate pages, the lists and tiles reload every minute while
+    // the tab is on screen, and straight away when you come back to the tab
+    // (switching tabs/windows, waking the phone). Only lists and tiles reload
+    // -- nothing being typed is touched. Ops has its own (it mustn't close an
+    // open order), and the dashboard/admin/settings pages stay manual.
+    var LIVE_PAGES = { cre: true, accounts: true, gate: true };
+    var lastLive = Date.now();
+    function liveReload(force) {
+      if (!LIVE_PAGES[PAGE] || !window.ICF_STAFF || !token || document.hidden) return;
+      if (!force && Date.now() - lastLive < 55000) return;
+      if (Date.now() - lastLive < 8000) return; // a burst of focus events = one reload
+      lastLive = Date.now();
+      if (typeof window.ICF_RELOAD === 'function') { try { window.ICF_RELOAD(); } catch (e) {} }
+      refreshApprovalBadge();
+    }
+    setInterval(function () { liveReload(false); }, 60000);
+    document.addEventListener('visibilitychange', function () { if (!document.hidden) liveReload(true); });
+    window.addEventListener('focus', function () { liveReload(true); });
+
     function flushQueue() {
       var pending = queue; queue = [];
       pending.forEach(send);
