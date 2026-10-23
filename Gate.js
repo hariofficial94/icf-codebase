@@ -118,7 +118,7 @@ function gateCard_(o, products) {
     outMs: opsMs_(o.get('Gate Out Timestamp')),
     outBy: String(o.get('Gate Out By') || ''),
     gatePassPdfUrl: String(o.get('Gate Pass PDF URL') || ''),
-    priority: o.get('Priority Level') === 'High' ? 'High' : 'Normal',
+    priority: normalizePriority_(o.get('Priority Level')),
     products: products[id.toLowerCase()] || ''
   };
 }

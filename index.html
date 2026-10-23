@@ -160,6 +160,20 @@
     .pi-tag.cover { background: #fff1dc; color: #9a5b00; }
     .access-note { margin-top: 12px; padding: 10px 12px; background: #fff4e5; border: 1px solid #f0c98a; border-radius: 6px; font-size: 12px; color: #7a5300; display: none; }
     .access-note.show { display: block; }
+    /* Payment needed for dispatch -- can't be missed (Oct 2026) */
+    .pay-banner { display: none; max-width: 1180px; margin: 0 auto 16px; background: #fdeceb; border: 2px solid #B00020; border-radius: 8px; padding: 12px 16px; }
+    .pay-banner.show { display: block; }
+    .pay-banner h3 { margin: 0 0 4px; font-size: 15px; color: #B00020; }
+    .pay-banner .pb-sub { font-size: 12.5px; color: #7a1c14; margin-bottom: 8px; }
+    .pay-banner .pb-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid #f0c3bf; font-size: 13.5px; }
+    .pay-banner .pb-row b { color: #1F3864; }
+    .pay-banner .pb-row button { width: auto; margin: 0; padding: 7px 14px; font-size: 12.5px; background: #B00020; }
+    @keyframes pbPulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(176,0,32,0.0); } 50% { box-shadow: 0 0 0 6px rgba(176,0,32,0.25); } }
+    .pay-banner.pulse { animation: pbPulse 0.9s ease-in-out 4; }
+    .says-paid { margin-top: 12px; padding: 12px; border: 1px solid #b7d9a3; background: #f3f9ef; border-radius: 6px; }
+    .says-paid h4 { margin: 0 0 4px; font-size: 13.5px; color: #2c5a1e; }
+    .says-paid input { margin-top: 6px; }
+    .says-paid button { margin-top: 8px; }
     .locked-box { margin-top: 8px; padding: 12px; background: #F2F2F2; border-radius: 6px; font-size: 13px; color: #333; }
     textarea { width: 100%; padding: 9px 10px; font-size: 14px; border: 1px solid #ccc; border-radius: 4px; font-family: inherit; resize: vertical; }
     .closed-box { margin-top: 16px; padding: 14px; background: #eef4ea; border: 1px solid #b7d9a3; border-radius: 6px; font-size: 13px; color: #2c5a1e; }
@@ -203,6 +217,8 @@
       <div class="stat-label">In Transit</div>
     </div>
   </div>
+
+  <div class="pay-banner" id="payBanner"></div>
 
   <div class="page-flex">
     <div class="left-col">
@@ -315,11 +331,12 @@
               <label for="priorityLevel">Priority Level</label>
               <select id="priorityLevel">
                 <option value="Normal">Normal</option>
+                <option value="Medium">Medium</option>
                 <option value="High">High</option>
               </select>
             </div>
           </div>
-          <div class="priority-badge" id="priorityBadge">High priority – remember the red sticker on the file.</div>
+          <div class="priority-badge" id="priorityBadge"></div>
 
           <button type="submit" id="submitBtn">Generate Internal PO</button>
         </form>
@@ -332,6 +349,7 @@
           <div id="resultPct" style="margin-top:6px; font-size:13px; color:#333;"></div>
           <div id="resultDispatch" style="margin-top:4px; font-size:13px; color:#2E74B5; font-weight:600;"></div>
           <div id="resultNext" style="margin-top:8px; font-size:13px; color:#2c5a1e; font-weight:600;">Logged. No printout needed – Accounts verifies the payment, then Ops picks it up and prints the PO.</div>
+          <button type="button" id="resultOkBtn" style="width:auto; padding:8px 22px;">OK</button>
         </div>
       </div>
 
@@ -594,9 +612,14 @@
       });
     }
     document.getElementById('balAfter').addEventListener('change', updateBalAfter);
-    priorityLevel.addEventListener('change', function () {
-      priorityBadge.classList.toggle('show', priorityLevel.value === 'High');
+    // The "Logged" result stays until OK is pressed or the next entry is started (Oct 2026).
+    document.getElementById('resultOkBtn').addEventListener('click', function () {
+      document.getElementById('resultBox').classList.remove('show');
+      document.getElementById('trackerId').focus();
     });
+    document.getElementById('trackerId').addEventListener('input', function () { document.getElementById('resultBox').classList.remove('show'); });
+    // Stickers are Ops' job now (they print the PO): High = red, Medium = yellow. Nothing for the CRE to do.
+    priorityLevel.addEventListener('change', function () { priorityBadge.classList.remove('show'); });
 
     // ---------- Product line items (add-a-line) ----------
     var productLinesContainer = document.getElementById('productLines');
@@ -881,7 +904,7 @@
       authRun()
         .withSuccessHandler(function (result) {
           document.getElementById('resultTrackerId').textContent = result.trackerId;
-          document.getElementById('resultPct').textContent = 'Advance: ' + result.advancePct + '% of total order value' + (result.priority === 'High' ? '  \u2014  PRIORITY: HIGH' : '');
+          document.getElementById('resultPct').textContent = 'Advance: ' + result.advancePct + '% of total order value' + (result.priority !== 'Normal' ? '  \u2014  PRIORITY: ' + String(result.priority).toUpperCase() : '');
           document.getElementById('resultDispatch').textContent = (result.dispatchType === 'Courier'
             ? 'Courier order – goes to Ops for posting after payment verification. ' : '') +
             (result.balanceAfter ? (result.balanceAfter.error ? 'Balance after delivery: could not ask the admin (' + result.balanceAfter.error + ').'
@@ -1054,6 +1077,27 @@
             '<div id="detailsProducts"><b>Products:</b> loading...</div>' +
             (order.postalReceiptUrl ? '<div><a class="pdf-link" href="' + order.postalReceiptUrl + '" target="_blank">Postal receipt (photo from Ops)</a></div>' : '') +
             (order.docs ? '<div id="creDocs">' + ICF_DOCS.panel(order.docs, { upload: !(order.access && order.access.canAct === false) }) + '</div>' : '');
+          // Customer has paid? Tell Accounts (Oct 2026) -- for any order still waiting for money.
+          // "Ready - Payment Pending" has its own stage below with the same button.
+          var canAct = !(order.access && order.access.canAct === false);
+          if (canAct && order.status !== 'Cancelled' && order.status !== 'Ready - Payment Pending' && (order.status === 'Logged' || Number(order.balanceDue) > 0)) {
+            details.insertAdjacentHTML('beforeend', '<div class="says-paid" id="saysPaidBox"><h4>Customer has paid? Ask Accounts to verify</h4>' +
+              (order.customerSaysPaid ? '<div class="access-note show" style="margin-top:4px;">You told Accounts: ' + escHtml(order.customerSaysPaid) + '. It\u2019s at the top of their page until they record it.</div>' :
+                '<div class="field-hint" style="margin-top:0;">' + (order.status === 'Logged' ? 'The advance isn\u2019t verified yet.' : '\u20b9' + Number(order.balanceDue).toLocaleString('en-IN') + ' is still due.') +
+                ' This puts it at the top of the Accounts page \u2013 no need to call.</div>' +
+                '<input type="text" id="spUtr" placeholder="UTR / bank reference (if the customer gave one)">' +
+                '<input type="text" id="spNote" placeholder="Note for Accounts (optional), e.g. paid by NEFT this morning">' +
+                '<button type="button" id="spBtn">Customer has paid \u2013 tell Accounts</button><div class="error" id="spErr"></div>') + '</div>');
+            var spBtn = document.getElementById('spBtn');
+            if (spBtn) spBtn.addEventListener('click', function () {
+              var err = document.getElementById('spErr'); err.classList.remove('show');
+              spBtn.disabled = true; spBtn.textContent = 'Sending...';
+              authRun()
+                .withSuccessHandler(function () { runLookup(order.trackerId); })
+                .withFailureHandler(function (e) { spBtn.disabled = false; spBtn.textContent = 'Customer has paid \u2013 tell Accounts'; err.textContent = 'Error: ' + e.message; err.classList.add('show'); })
+                .creCustomerSaysPaid({ trackerId: order.trackerId, utr: document.getElementById('spUtr').value.trim(), note: document.getElementById('spNote').value.trim() });
+            });
+          }
           details.classList.add('show');
           if (order.docs) ICF_DOCS.bind(document.getElementById('creDocs'), order.trackerId, function () { runLookup(order.trackerId); });
           loadTimeline(order.trackerId);
@@ -1300,7 +1344,33 @@
       });
     }
 
+    // ---------- Payment needed for dispatch: red banner at the top (Oct 2026) ----------
+    var lastPayIds = null;
+    function renderPayBanner(items) {
+      var pay = (items || []).filter(function (it) { return it.deliveryStatus === 'Payment needed for dispatch'; });
+      var b = document.getElementById('payBanner');
+      if (!pay.length) { b.className = 'pay-banner'; b.innerHTML = ''; lastPayIds = ''; return; }
+      b.innerHTML = '<h3>\u26a0 ' + pay.length + (pay.length === 1 ? ' order is' : ' orders are') + ' ready to dispatch \u2013 the customer must pay first</h3>' +
+        '<div class="pb-sub">Ops has the goods ready. Call the customer now. When they pay, open the order and tap \u201cCustomer says paid \u2013 tell Accounts\u201d.</div>' +
+        pay.map(function (it) {
+          return '<div class="pb-row"><span><b>' + escHtml(it.institution) + '</b> \u2013 ' + escHtml(it.trackerId) +
+            (it.accessNote ? ' <span style="color:#7a5300;">(' + escHtml(it.accessNote) + ')</span>' : '') + '</span>' +
+            '<button type="button" data-id="' + escHtml(it.trackerId) + '">Open</button></div>';
+        }).join('');
+      var ids = pay.map(function (it) { return it.trackerId; }).join('|');
+      b.className = 'pay-banner show' + (lastPayIds !== null && ids !== lastPayIds && pay.length ? ' pulse' : '');
+      lastPayIds = ids;
+      Array.prototype.forEach.call(b.querySelectorAll('button[data-id]'), function (btn) {
+        btn.addEventListener('click', function () {
+          lookupTrackerIdInput.value = btn.getAttribute('data-id');
+          runLookup(btn.getAttribute('data-id'));
+          document.getElementById('lookupCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
+      });
+    }
+
     function renderActionList(items) {
+      renderPayBanner(items);
       allActionItems = items || [];
       var moreBtn = document.getElementById('actionShowMore');
       if (allActionItems.length === 0) {
@@ -1333,6 +1403,8 @@
     }
     loadActionList();
     document.getElementById('refreshActionBtn').addEventListener('click', loadActionList);
+    // Keep the urgent banner and tiles fresh without a manual refresh (Oct 2026).
+    setInterval(function () { if (window.ICF_STAFF && !document.hidden) { loadActionList(); loadCreSummary(); } }, 120000);
     document.getElementById('actionShowMore').addEventListener('click', function () {
       openModal('All Needs Action (' + allActionItems.length + ')', buildActionItemsHtml(allActionItems), bindActionItemClicks);
     });
@@ -1496,6 +1568,7 @@
       details.classList.remove('show');
       hideAllStages();
       document.getElementById('resultBox').classList.remove('show');
+      var pb = document.getElementById('payBanner'); pb.className = 'pay-banner'; pb.innerHTML = ''; lastPayIds = null;
       closeModal();
     };
     window.ICF_RELOAD = function () {

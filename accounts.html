@@ -87,6 +87,17 @@
     .result a { display: inline-block; margin-top: 8px; background: #2E74B5; color: #fff; text-decoration: none; padding: 8px 14px; border-radius: 4px; font-size: 13px; font-weight: 600; }
     .pdf-link { display: inline-block; margin-top: 10px; background: #2E74B5; color: #fff; text-decoration: none; padding: 8px 14px; border-radius: 4px; font-size: 12px; font-weight: 600; }
     .pdf-link:hover { background: #245d92; }
+    /* CRE says the customer has paid -- verify now (Oct 2026) */
+    .nudge-banner { display: none; max-width: 1180px; margin: 0 auto 16px; background: #eef8f0; border: 2px solid #2c7a3f; border-radius: 8px; padding: 12px 16px; }
+    .nudge-banner.show { display: block; }
+    .nudge-banner h3 { margin: 0 0 4px; font-size: 15px; color: #2c5a1e; }
+    .nudge-banner .nb-row { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 0; border-top: 1px solid #cfe6d4; font-size: 13.5px; }
+    .nudge-banner .nb-row b { color: #1F3864; }
+    .nudge-banner .nb-says { font-size: 12px; color: #555; flex: 1 1 100%; }
+    .nudge-banner .nb-tag { display: inline-block; font-size: 10.5px; font-weight: 800; padding: 2px 7px; border-radius: 9px; background: #B00020; color: #fff; margin-left: 6px; }
+    .nudge-banner button { width: auto !important; margin: 0 0 0 6px !important; padding: 7px 12px !important; font-size: 12.5px !important; }
+    @keyframes nbPulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(44,122,63,0); } 50% { box-shadow: 0 0 0 6px rgba(44,122,63,0.3); } }
+    .nudge-banner.pulse { animation: nbPulse 0.9s ease-in-out 4; }
     .error { margin-top: 14px; color: #B00020; font-size: 13px; display: none; }
     .error.show { display: block; }
     .side-panel-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
@@ -166,6 +177,8 @@
       <div class="stat-label">On Standby</div>
     </div>
   </div>
+
+  <div class="nudge-banner" id="nudgeBanner"></div>
 
   <div class="page-flex">
     <div class="left-col">
@@ -679,6 +692,7 @@
               loadAccountsSummary();
               loadActionList(); // a held courier order drops off Needs Action once released to Ops
               loadApprovals();
+              loadNudges();
             })
             .withFailureHandler(function (err) {
               saveBtn.disabled = false; saveBtn.textContent = 'Record Payment';
@@ -1119,6 +1133,7 @@
           loadActionList();
           loadNewEnquiries();
           loadAccountsSummary();
+          loadNudges();
         })
         .withFailureHandler(function (e) {
           btn.disabled = false; btn.textContent = 'Confirm Verification';
@@ -1230,7 +1245,39 @@
       hideAllStages();
       closeModal();
     };
+    // ---------- CRE says the customer has paid: verify now (Oct 2026) ----------
+    var lastNudgeIds = null;
+    function loadNudges() {
+      authRun()
+        .withSuccessHandler(function (items) {
+          items = items || [];
+          var b = document.getElementById('nudgeBanner');
+          if (!items.length) { b.className = 'nudge-banner'; b.innerHTML = ''; lastNudgeIds = ''; return; }
+          b.innerHTML = '<h3>\u2714 ' + items.length + (items.length === 1 ? ' customer has' : ' customers have') + ' paid, says the CRE \u2013 verify now</h3>' +
+            items.map(function (it) {
+              return '<div class="nb-row"><span><b>' + escapeHtml(it.institution) + '</b> \u2013 ' + escapeHtml(it.trackerId) +
+                (it.readyForDispatch ? '<span class="nb-tag">GOODS READY \u2013 WAITING ON THIS</span>' : '') +
+                (it.verify ? ' (advance to verify)' : ' (\u20b9' + Number(it.balanceDue).toLocaleString('en-IN') + ' due)') + '</span>' +
+                '<span><button type="button" class="nb-open" data-id="' + escapeHtml(it.trackerId) + '">Open</button>' +
+                (it.verify ? '' : '<button type="button" class="record-pay-btn" data-id="' + escapeHtml(it.trackerId) + '">Record payment</button>') + '</span>' +
+                '<div class="nb-says">CRE: ' + escapeHtml(it.says) + '</div></div>';
+            }).join('');
+          var ids = items.map(function (it) { return it.trackerId; }).join('|');
+          b.className = 'nudge-banner show' + (lastNudgeIds !== null && ids !== lastNudgeIds ? ' pulse' : '');
+          lastNudgeIds = ids;
+          Array.prototype.forEach.call(b.querySelectorAll('.nb-open'), function (btn) {
+            btn.addEventListener('click', function () { trackerIdInput.value = btn.getAttribute('data-id'); lookupBtn.click(); window.scrollTo({ top: 0, behavior: 'smooth' }); });
+          });
+        })
+        .withFailureHandler(function () { /* keep what's shown; try again next time */ })
+        .getPaymentNudges();
+    }
+    loadNudges();
+    setInterval(function () { if (window.ICF_STAFF && !document.hidden) loadNudges(); }, 120000);
+    window.ICF_REFRESH_NUDGES = loadNudges;
+
     window.ICF_RELOAD = function () {
+      loadNudges();
       loadApprovals();
       loadAccountsSummary();
       loadNewEnquiries();

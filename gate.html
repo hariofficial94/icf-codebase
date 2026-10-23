@@ -27,6 +27,7 @@
     .count { display: inline-block; min-width: 22px; text-align: center; background: #1F3864; color: #fff; border-radius: 10px; font-size: 12px; padding: 1px 7px; margin-left: 6px; }
     .card { background: #fff; border-radius: 10px; box-shadow: 0 1px 6px rgba(0,0,0,0.07); padding: 14px; margin-bottom: 10px; border-left: 4px solid #2E74B5; }
     .card.high { border-left-color: #B00020; }
+    .card.medium { border-left-color: #E0A800; }
     .card.done { border-left-color: #2c7a3f; }
     .card.late { background: #fff6f6; box-shadow: 0 0 0 2px #B00020 inset, 0 1px 6px rgba(0,0,0,0.07); border-left-color: #B00020; }
     .waited { font-size: 13px; font-weight: 700; color: #9a5b00; margin-top: 6px; }
@@ -93,7 +94,7 @@
   }
 
   function waitingCard(c) {
-    return '<div class="card' + (c.priority === 'High' ? ' high' : '') + (c.overdue ? ' late' : '') + '" data-id="' + esc(c.trackerId) + '">' +
+    return '<div class="card' + (c.priority === 'High' ? ' high' : c.priority === 'Medium' ? ' medium' : '') + (c.overdue ? ' late' : '') + '" data-id="' + esc(c.trackerId) + '">' +
       '<div class="veh">' + esc(c.vehicleNo || 'No vehicle no.') + (c.priority === 'High' ? '<span class="badge">HIGH</span>' : '') + '</div>' +
       '<div class="gp">Gate pass ' + esc(c.gatePassNo) + '</div>' +
       '<div class="inst">' + esc(c.institution) + '</div>' +

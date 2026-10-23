@@ -215,7 +215,7 @@ function opsCard_(o, nowMs, startMs, limitHours) {
     trackerId: String(o.get('Tracker ID')),
     institution: String(o.get('Institution / Customer') || ''),
     location: [o.get('District'), o.get('State')].filter(function (x) { return String(x || '').trim(); }).join(', '),
-    priority: priority === 'High' ? 'High' : 'Normal',
+    priority: normalizePriority_(priority),
     dispatchType: normalizeDispatchType_(o.get('Dispatch Type')),
     status: String(o.get('Status') || ''),
     creName: String(o.get('CRE Name') || ''),
@@ -300,7 +300,7 @@ function getOpsQueue_() {
   });
   // High priority first, then whatever has waited longest.
   var byUrgency = function (a, b) {
-    if (a.priority !== b.priority) return a.priority === 'High' ? -1 : 1;
+    if (a.priority !== b.priority) return PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority];
     return (a.startMs || Infinity) - (b.startMs || Infinity);
   };
   ['newOrders', 'inHand', 'cleared', 'readyPay', 'siteHold', 'gatePass', 'standby'].forEach(function (k) { out[k].sort(byUrgency); });
@@ -362,7 +362,7 @@ function getOpsOrder_(query) {
     creName: String(f['CRE Name'] || ''),
     crePhone: ownerCode ? staffPhone_(ownerCode) : '',
     status: status,
-    priority: f['Priority Level'] === 'High' ? 'High' : 'Normal',
+    priority: normalizePriority_(f['Priority Level']),
     dispatchType: normalizeDispatchType_(f['Dispatch Type']),
     requestedDelivery: opsFmtDate_(f['Customer Requested Delivery Date']),
     verifiedAt: opsFmt_(f['Verified Date']),
@@ -463,7 +463,7 @@ function opsBuildPo_(sheet, row) {
   var pct = total > 0 ? Math.round((advance / total) * 1000) / 10 : 0;
   var pickedAt = opsFmt_(f['Received by Ops Timestamp']);
   var url = generateWrapperPdf(id, f['Date Logged'], String(f['Institution / Customer'] || ''), String(f['CRE Name'] || ''), total, advance, pct,
-    f['Customer Requested Delivery Date'] || '', f['Priority Level'] === 'High' ? 'High' : 'Normal', f['Payment Terms Type'] || 'End Customer',
+    f['Customer Requested Delivery Date'] || '', normalizePriority_(f['Priority Level']), f['Payment Terms Type'] || 'End Customer',
     f['State'], f['District'], f['Pincode'], getOrderLineItems_(id), normalizeDispatchType_(f['Dispatch Type']), {
       verifiedBy: String(f['Verified By'] || ''),
       verifiedAt: opsFmt_(f['Verified Date']),
@@ -553,7 +553,7 @@ function getGatePassQueue_() {
       trackerId: id,
       institution: String(o.get('Institution / Customer') || ''),
       location: [o.get('District'), o.get('State')].filter(function (x) { return String(x || '').trim(); }).join(', '),
-      priority: o.get('Priority Level') === 'High' ? 'High' : 'Normal',
+      priority: normalizePriority_(o.get('Priority Level')),
       vehicleNo: String(o.get('Vehicle No.') || ''),
       requestedBy: String(o.get('Gate Pass Requested By') || ''),
       requestedAt: opsFmt_(o.get('Vehicle Confirmed Timestamp')),
@@ -575,7 +575,7 @@ function getGatePassQueue_() {
   }
   var out = Object.keys(items).map(function (k) { return items[k]; });
   out.sort(function (a, b) {
-    if (a.priority !== b.priority) return a.priority === 'High' ? -1 : 1;
+    if (a.priority !== b.priority) return PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority];
     return (a.requestedAtMs || 0) - (b.requestedAtMs || 0);
   });
   return out;
@@ -892,7 +892,7 @@ function opsProductsByOrder_() {
 
 function opsListHtml_(cards, products) {
   return '<table cellpadding="6" style="border-collapse:collapse;font-size:13px;">' + cards.map(function (c) {
-    return '<tr style="border-bottom:1px solid #eee;"><td><b>' + opsEsc_(c.trackerId) + '</b>' + (c.priority === 'High' ? ' <span style="color:#B00020;font-weight:700;">HIGH</span>' : '') +
+    return '<tr style="border-bottom:1px solid #eee;"><td><b>' + opsEsc_(c.trackerId) + '</b>' + (c.priority === 'High' ? ' <span style="color:#B00020;font-weight:700;">HIGH</span>' : c.priority === 'Medium' ? ' <span style="color:#B07800;font-weight:700;">MEDIUM</span>' : '') +
       (c.dispatchType === DISPATCH_COURIER ? ' (courier)' : '') + '<br>' + opsEsc_(c.institution) + (c.location ? ' – ' + opsEsc_(c.location) : '') +
       (products[c.trackerId.toLowerCase()] ? '<br><span style="color:#555;">' + opsEsc_(products[c.trackerId.toLowerCase()]) + '</span>' : '') +
       (c.hoursWaiting !== null ? '<br><span style="color:#9a5b00;">Waiting ' + c.hoursWaiting + ' h</span>' : '') + '</td></tr>';
@@ -901,7 +901,7 @@ function opsListHtml_(cards, products) {
 
 function opsListText_(cards) {
   return cards.map(function (c) {
-    return c.trackerId + ' – ' + c.institution + (c.priority === 'High' ? ' (HIGH)' : '') + (c.hoursWaiting !== null ? ', ' + c.hoursWaiting + ' h' : '');
+    return c.trackerId + ' – ' + c.institution + (c.priority === 'High' ? ' (HIGH)' : c.priority === 'Medium' ? ' (MEDIUM)' : '') + (c.hoursWaiting !== null ? ', ' + c.hoursWaiting + ' h' : '');
   }).join('; ');
 }
 
@@ -1437,19 +1437,39 @@ function creReadyPayRow_(form) {
 }
 
 /** form = { trackerId, utr, note } -- tells Accounts to verify now. */
+/**
+ * "Customer has paid -- ask Accounts to verify" (widened 23 Oct 2026, Hari):
+ * any order that is still waiting for money -- the advance not yet verified
+ * (Logged) or a balance still due -- not only goods ready at dispatch. It
+ * shows at the top of the Accounts page until Accounts records the payment
+ * (recordBalancePayment_ / submitVerification_ clear it).
+ */
+function creSaysPaidRow_(form) {
+  var sheet = getSheet();
+  var row = resolveTrackerId(sheet, String((form && form.trackerId) || ''));
+  if (row === -1) throw new Error('Order not found.');
+  requireCanAct_(sheet, row);
+  var f = getRowFields(sheet, row, ['Status', 'Total Order Value', 'Advance Received']);
+  if (f['Status'] === 'Cancelled') throw new Error('This order is cancelled.');
+  if (f['Status'] !== 'Logged' && computeBalanceDue(f['Total Order Value'], f['Advance Received']) <= 0) {
+    throw new Error('Nothing is due on this order \u2013 it\u2019s fully paid.');
+  }
+  return { sheet: sheet, row: row };
+}
 function creCustomerSaysPaid_(form) {
   form = form || {};
   var me = CURRENT_STAFF_;
-  var x = creReadyPayRow_(form);
+  var x = creSaysPaidRow_(form);
   var utr = String(form.utr || '').trim(), note = String(form.note || '').trim();
   var text = opsStamp_() + ' – ' + me.name + (utr ? ' – UTR ' + utr : ' – no UTR yet') + (note ? ' – ' + note : '');
   setRowFields(x.sheet, x.row, { 'Customer Says Paid': text });
-  var f = getRowFields(x.sheet, x.row, ['Tracker ID', 'Institution / Customer']);
+  var f = getRowFields(x.sheet, x.row, ['Tracker ID', 'Institution / Customer', 'Status']);
   try {
     var staffMap = getStaffMap_(false);
     var url = appUrl_();
-    var msg = me.name + ' says the customer has paid for ' + f['Tracker ID'] + ' (' + f['Institution / Customer'] + ')' + (utr ? ', UTR ' + utr : '') +
-      '. The goods are ready – please verify and record the payment; the order goes back to Ops by itself.';
+    var msg = me.name + ' says the customer has paid for ' + f['Tracker ID'] + ' (' + f['Institution / Customer'] + ')' + (utr ? ', UTR ' + utr : '') + '. ' +
+      (f['Status'] === STATUS_READY_PAY ? 'The goods are ready – please verify and record the payment; the order goes back to Ops by itself.'
+        : f['Status'] === 'Logged' ? 'Please verify the order.' : 'Please verify and record the payment.');
     notify_('CUSTOMER_SAYS_PAID', String(f['Tracker ID']), opsStaffOfRole_(staffMap, 'Accounts').map(staffRecipient_), {
       subject: 'Customer says paid – verify now: ' + f['Tracker ID'], text: msg, email: true,
       link: url ? url + '?page=accounts' : '', linkLabel: 'Open the Accounts page', html: '<p>' + opsEsc_(msg) + '</p>' });

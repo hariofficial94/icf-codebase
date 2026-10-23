@@ -45,6 +45,10 @@
 
     .card { background: #fff; border-radius: 10px; box-shadow: 0 1px 6px rgba(0,0,0,0.07); padding: 14px; margin-bottom: 10px; border-left: 4px solid #2E74B5; }
     .card.high { border-left-color: #B00020; }
+    .card.medium { border-left-color: #E0A800; }
+    .sticker { font-size: 15px; font-weight: 800; padding: 12px; border-radius: 8px; margin-bottom: 12px; text-align: center; }
+    .sticker.high { background: #B00020; color: #fff; }
+    .sticker.medium { background: #FFD43B; color: #5a4300; }
     .card.overdue { background: #fff8f8; }
     .card .row1 { display: flex; justify-content: space-between; gap: 8px; align-items: flex-start; }
     .card .inst { font-size: 15.5px; font-weight: 700; color: #1F3864; }
@@ -54,6 +58,7 @@
     .card.overdue .wait { color: #B00020; }
     .badge { flex: 0 0 auto; font-size: 11px; font-weight: 800; padding: 3px 8px; border-radius: 10px; background: #eef1f4; color: #1F3864; }
     .badge.high { background: #B00020; color: #fff; }
+    .badge.medium { background: #FFD43B; color: #5a4300; }
     .tag { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 9px; background: #e6f0fa; color: #2E74B5; margin-left: 6px; vertical-align: middle; }
     .tag.cut { background: #f1eefa; color: #6b4c9a; }
     .card .acts { display: flex; gap: 8px; margin-top: 12px; }
@@ -277,12 +282,12 @@
       else if (TAB === 'cleared') waitLine = 'Cleared: ' + c.clearedNote;
       else if (TAB === 'late') waitLine = 'Now at: ' + ({ 'Sent to Ops': c.pickedUpAt || c.cutover ? 'in hand' : 'not picked up yet', 'On Hold - Site Not Ready': 'site not ready', 'Vehicle Confirmed': 'gate pass with Accounts' }[c.status] || c.status);
       else if (TAB === 'dispatchedToday') waitLine = (c.dispatchType === 'Courier' ? 'Posted ' : 'Gate pass issued ') + c.dispatchedAt + (c.gatePassNo ? ' – ' + c.gatePassNo : (c.trackingNo ? ' – tracking ' + c.trackingNo : ''));
-      return '<div class="card' + (c.priority === 'High' ? ' high' : '') + (c.overdue ? ' overdue' : '') + '" data-id="' + esc(c.trackerId) + '">' +
+      return '<div class="card' + (c.priority === 'High' ? ' high' : c.priority === 'Medium' ? ' medium' : '') + (c.overdue ? ' overdue' : '') + '" data-id="' + esc(c.trackerId) + '">' +
         '<div class="row1"><div><div class="inst">' + esc(c.institution) +
         (c.dispatchType === 'Courier' ? '<span class="tag">Courier</span>' : '') + (c.cutover ? '<span class="tag cut">Go-live</span>' : '') +
         (c.paymentPending && TAB !== 'gatePass' ? '<span class="tag pay">Payment pending</span>' : '') + '</div>' +
         '<div class="id">' + esc(c.trackerId) + '</div></div>' +
-        '<span class="badge' + (c.priority === 'High' ? ' high' : '') + '">' + (c.priority === 'High' ? 'HIGH' : 'Normal') + '</span></div>' +
+        '<span class="badge' + (c.priority === 'High' ? ' high' : c.priority === 'Medium' ? ' medium' : '') + '">' + (c.priority === 'Normal' ? 'Normal' : c.priority.toUpperCase()) + '</span></div>' +
         '<div class="meta">' + [c.location, c.requestedDelivery ? 'Wanted by ' + c.requestedDelivery + (dueText(c.daysUntilDelivery) ? ' (' + dueText(c.daysUntilDelivery) + ')' : '') : '', c.creName ? 'CRE: ' + c.creName : '']
           .filter(Boolean).map(esc).join('<br>') + '</div>' +
         (waitLine ? '<div class="wait"' + ({ late: 1, dispatchedToday: 1, cleared: 1 }[TAB] || (TAB === 'gatePass' && c.paymentPending) ? ' style="color:' + (TAB === 'late' || TAB === 'gatePass' ? '#B00020' : '#2c7a3f') + ';"' : '') + '>' + esc(waitLine) + '</div>' : '') +
@@ -361,6 +366,10 @@
           ' (asked by ' + esc(o.pendingRequest.requestedByName) + '). Gate pass and posting are locked until then.</div>';
       }
 
+      // Priority stickers are Ops' job (Oct 2026): red for High, yellow for Medium, on the PO file.
+      if (o.priority === 'High' || o.priority === 'Medium') {
+        h += '<div class="sticker ' + o.priority.toLowerCase() + '">' + (o.priority === 'High' ? 'HIGH PRIORITY \u2013 put a RED sticker on the file' : 'MEDIUM PRIORITY \u2013 put a YELLOW sticker on the file') + '</div>';
+      }
       // Actions first -- that's what Ops opens the order for.
       if (o.status === 'Sent to Ops' && !o.acked) {
         h += '<div class="panel"><h2>Pick it up</h2><div class="hint" style="margin-top:0;">Tap when you start on this order. The system records the time and prepares the PO with the payment verification and your pick-up printed on it.</div>' +

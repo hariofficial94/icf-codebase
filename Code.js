@@ -293,6 +293,13 @@ function isDispatchedStatus_(status) {
   return status === 'Gate-Verified' || status === STATUS_POSTED;
 }
 
+/** Priority (Oct 2026): High (red sticker), Medium (yellow sticker, added 23 Oct 2026), Normal. Anything else reads as Normal. */
+function normalizePriority_(v) {
+  var p = String(v || '').trim().toLowerCase();
+  return p === 'high' ? 'High' : p === 'medium' ? 'Medium' : 'Normal';
+}
+var PRIORITY_RANK = { High: 0, Medium: 1, Normal: 2 };
+
 /** Blank (older orders) reads as Vehicle. */
 function normalizeDispatchType_(val) {
   return String(val || '').trim().toLowerCase() === 'courier' ? DISPATCH_COURIER : DISPATCH_VEHICLE;
@@ -917,7 +924,7 @@ function submitOrder_(form) {
     if (!balanceAfterReason) throw new Error('Say why the balance will be paid after delivery (the admin decides on this).');
   }
   var dateLogged = new Date();
-  var priority = form.priorityLevel === 'High' ? 'High' : 'Normal';
+  var priority = normalizePriority_(form.priorityLevel);
 
   var row = new Array(HEADERS.length).fill('');
   function set(name, val) { row[HEADERS.indexOf(name)] = val; }
@@ -1126,9 +1133,9 @@ function generateWrapperPdf(trackerId, dateLogged, institution, creName, total, 
   var kicker = body.appendParagraph('ICF GROUP');
   kicker.editAsText().setBold(true).setFontSize(11).setForegroundColor('#1F3864');
 
-  if (priority === 'High') {
-    var flag = body.appendParagraph('PRIORITY: HIGH \u2013 AFFIX RED STICKER');
-    flag.editAsText().setBold(true).setFontSize(13).setForegroundColor('#B00020');
+  if (priority === 'High' || priority === 'Medium') {
+    var flag = body.appendParagraph(priority === 'High' ? 'PRIORITY: HIGH \u2013 AFFIX RED STICKER' : 'PRIORITY: MEDIUM \u2013 AFFIX YELLOW STICKER');
+    flag.editAsText().setBold(true).setFontSize(13).setForegroundColor(priority === 'High' ? '#B00020' : '#B07800');
     flag.setSpacingAfter(6);
   }
 
@@ -1311,6 +1318,32 @@ function getPendingOrders_() {
  * Capped at 50 for the same reason as getPendingOrders -- the sidebar only
  * shows the first 5, with the rest reachable via the "Show all" popup.
  */
+/**
+ * Accounts: orders where the CRE says the customer has paid and Accounts
+ * hasn't recorded it yet -- shown at the top of the Accounts page (Oct 2026).
+ * readyForDispatch = the goods are ready and waiting only for this money.
+ */
+function getPaymentNudges_() {
+  var data = opsReadOrders_();
+  var out = [];
+  data.rows.forEach(function (o) {
+    var says = String(o.get('Customer Says Paid') || '').trim();
+    if (!says) return;
+    var status = String(o.get('Status') || '');
+    if (status === 'Cancelled') return;
+    var bal = computeBalanceDue(o.get('Total Order Value'), o.get('Advance Received'));
+    if (status !== 'Logged' && bal <= 0) return;
+    out.push({
+      trackerId: String(o.get('Tracker ID')), institution: String(o.get('Institution / Customer') || ''),
+      cre: String(o.get('CRE Name') || ''), says: says, status: status, balanceDue: bal,
+      verify: status === 'Logged', readyForDispatch: status === STATUS_READY_PAY,
+      priority: normalizePriority_(o.get('Priority Level'))
+    });
+  });
+  out.sort(function (a, b) { return (b.readyForDispatch ? 1 : 0) - (a.readyForDispatch ? 1 : 0); });
+  return out;
+}
+
 function getCREActionItems_() {
   var sheet = getSheet();
   var lastRow = sheet.getLastRow();
@@ -1694,7 +1727,8 @@ function recordBalancePayment_(form) {
   var newRef = existingRef ? existingRef + ' | Balance: ' + bankReference : bankReference;
 
   var now = new Date();
-  setRowFields(sheet, row, { 'Advance Received': newAdvance, 'Bank Reference / UTR': newRef, 'Last Payment Timestamp': now });
+  // 'Customer Says Paid' cleared: Accounts has acted on the CRE's nudge (Oct 2026).
+  setRowFields(sheet, row, { 'Advance Received': newAdvance, 'Bank Reference / UTR': newRef, 'Last Payment Timestamp': now, 'Customer Says Paid': '' });
 
   // Same plain-text guard as the intake tool, so this doesn't silently become 0.987.
   var pctRange = sheet.getRange(row, getHeaderIndex('Advance % of Total'));
@@ -1992,7 +2026,8 @@ function submitVerification_(form) {
     'Verified Date': now,
     'Bank Reference / UTR': bankReference,
     'Verification Code': code,
-    'Status': holdForBalance ? STATUS_HOLD_BALANCE : 'Sent to Ops'
+    'Status': holdForBalance ? STATUS_HOLD_BALANCE : 'Sent to Ops',
+    'Customer Says Paid': '' // the CRE's "customer has paid" nudge is answered (Oct 2026)
   };
   if (advanceAmt > 0) fields['Last Payment Timestamp'] = now; // no payment, no payment timestamp
   if (newPaymentRecorded) {
@@ -2634,6 +2669,7 @@ function apiMap_() {
     getOrderTimeline:       { fn: getOrderTimeline_,       roles: ANY },
     getOrderLineItems:      { fn: getOrderLineItems_,      roles: ['CRE', 'Accounts', 'Director', 'Ops'] },
     getPendingPayments:     { fn: getPendingPayments_,     roles: ['CRE', 'Accounts'] },
+    getPaymentNudges:       { fn: getPaymentNudges_,       roles: ['Accounts'] },
     getNewEnquiries:        { fn: getNewEnquiries_,        roles: ACC },
     getPendingOrders:       { fn: getPendingOrders_,       roles: ACC },
     getAccountsSummary:     { fn: getAccountsSummary_,     roles: ACC },
@@ -3004,6 +3040,7 @@ function onOpen() {
     .addItem('Ops login: set up and go live', 'setupOpsLogin')
     .addItem('Gate login + PO uploads: set up and go live', 'setupGateAndDocs')
     .addSeparator()
+    .addItem('Delete test entries (anything named "test")', 'deleteTestEntries')
     .addItem('Sign everyone out', 'signEveryoneOut')
     .addToUi();
 }
