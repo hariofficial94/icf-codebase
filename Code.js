@@ -277,7 +277,9 @@ var HEADERS = [
   'Payment Hold From', 'Payment Hold Hours', 'Payment Hold Note', 'Cleared For Gate Pass', 'Customer Says Paid', 'Balance After Delivery',
   // Gate login + PO documents (Oct 2026) -- see Gate.js and Documents.js. Header cells are filled in automatically.
   'Gate Pass Issued Timestamp', 'Gate Out Timestamp', 'Gate Out By', 'CRM PO URL', 'Customer PO URL',
-  'CRM PO Printed'
+  'CRM PO Printed',
+  // Payment follow-up (Oct 2026): the CRE's next call date for a pending balance. Header cells are filled in automatically.
+  'Payment Follow-up Date', 'Payment Follow-up Note'
 ];
 
 var DISPATCH_VEHICLE = 'Vehicle';
@@ -1344,6 +1346,83 @@ function getPaymentNudges_() {
   return out;
 }
 
+/**
+ * CRE: the next date to call the customer about a pending balance (Oct 2026).
+ * form = { trackerId, date (yyyy-MM-dd, after today; blank clears), note }.
+ * Until that date the order sits in the CRE's "Payment follow-ups" pane
+ * instead of Pending Payments; on the day it comes back, marked as due.
+ */
+function setPaymentFollowUp_(form) {
+  form = form || {};
+  var sheet = getSheet();
+  var row = resolveTrackerId(sheet, String(form.trackerId || ''));
+  if (row === -1) throw new Error('Order not found.');
+  requireCanAct_(sheet, row);
+  var f = getRowFields(sheet, row, ['Tracker ID', 'Status', 'Total Order Value', 'Advance Received']);
+  if (isCancelledStatus_(f['Status'])) throw new Error('This order is cancelled.');
+  if (computeBalanceDue(f['Total Order Value'], f['Advance Received']) <= 0) throw new Error('Nothing is due on this order.');
+  var date = String(form.date || '').trim();
+  var note = String(form.note || '').trim().slice(0, 200);
+  if (!date) {
+    setRowFields(sheet, row, { 'Payment Follow-up Date': '', 'Payment Follow-up Note': '' });
+    return { trackerId: String(f['Tracker ID']), cleared: true };
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error('Choose a date.');
+  var today = todayYmd_();
+  if (date <= today) throw new Error('Choose a date after today \u2013 if you are calling today, just call.');
+  var max = Utilities.formatDate(new Date(Date.now() + 180 * 86400000), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+  if (date > max) throw new Error('Choose a date within the next 6 months.');
+  var d = Utilities.parseDate(date + ' 00:00:00', Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
+  setRowFields(sheet, row, { 'Payment Follow-up Date': d, 'Payment Follow-up Note': note });
+  return { trackerId: String(f['Tracker ID']), date: fmtYmd_(date), note: note };
+}
+
+/**
+ * Accounts: every payment verification and balance payment recorded, from the
+ * Activity Log, joined to the order (Oct 2026). form = { from, to } (yyyy-MM-dd).
+ * Amount/UTR come from the log line; older verifications (before Oct 2026)
+ * didn't log the amount, so it shows blank for those.
+ */
+function getVerificationHistory_(form) {
+  form = form || {};
+  var tz = Session.getScriptTimeZone();
+  var from = String(form.from || ''), to = String(form.to || '');
+  var log = SpreadsheetApp.openById(SHEET_ID).getSheetByName(ACTIVITY_LOG_SHEET_NAME);
+  if (!log || log.getLastRow() < 2) return { rows: [] };
+  var data = log.getRange(2, 1, log.getLastRow() - 1, 7).getValues();
+  var orders = {};
+  opsReadOrders_().rows.forEach(function (o) {
+    orders[String(o.get('Tracker ID')).toLowerCase()] = {
+      institution: String(o.get('Institution / Customer') || ''), cre: String(o.get('CRE Name') || ''),
+      terms: String(o.get('Payment Terms Type') || 'End Customer'), total: Number(o.get('Total Order Value')) || 0,
+      balance: computeBalanceDue(o.get('Total Order Value'), o.get('Advance Received')), status: String(o.get('Status') || '')
+    };
+  });
+  var TYPES = { 'Verified payment': 'Advance verified', 'Recorded balance payment': 'Balance payment' };
+  var rows = [];
+  for (var i = data.length - 1; i >= 0; i--) {
+    var r = data[i];
+    var type = TYPES[String(r[4] || '')];
+    if (!type || !(r[0] instanceof Date)) continue;
+    var ymd = Utilities.formatDate(r[0], tz, 'yyyy-MM-dd');
+    if ((from && ymd < from) || (to && ymd > to)) continue;
+    var id = String(r[5] || ''), detail = String(r[6] || '');
+    var o = orders[id.toLowerCase()] || {};
+    var amt = detail.match(/Rs\.\s*([\d,]+(?:\.\d+)?)/);
+    var utr = detail.match(/UTR\s+([^,\u2013(]+?)(?:\s*[,\u2013(]|$)/);
+    rows.push({
+      at: Utilities.formatDate(r[0], tz, 'dd-MMM-yyyy, hh:mm a'), atMs: r[0].getTime(), ymd: ymd,
+      type: type, trackerId: id, institution: o.institution || '(order no longer in the tracker)', cre: o.cre || '',
+      amount: amt ? Number(amt[1].replace(/,/g, '')) : null,
+      noAdvance: /No advance/.test(detail), utr: utr ? utr[1].trim() : '',
+      by: String(r[2] || ''), byCode: String(r[1] || ''), detail: detail,
+      terms: o.terms || '', balanceNow: o.balance || 0, statusNow: o.status || ''
+    });
+    if (rows.length >= 3000) break;
+  }
+  return { rows: rows };
+}
+
 function getCREActionItems_() {
   var sheet = getSheet();
   var lastRow = sheet.getLastRow();
@@ -1461,6 +1540,15 @@ function getPendingPayments_() {
   var deliveryDateVals = sheet.getRange(2, deliveryDateCol, numRows, 1).getValues();
   var statusVals = sheet.getRange(2, statusCol, numRows, 1).getValues();
   var deliveryStatusVals = sheet.getRange(2, deliveryStatusCol, numRows, 1).getValues();
+  // Payment follow-up (Oct 2026): days since the order left (Dispatch Timestamp = gate out / posted)
+  // and the CRE's next call date. A future date moves it to the "Follow-ups" pane on the CRE page.
+  var dispatchVals = sheet.getRange(2, getHeaderIndex('Dispatch Timestamp'), numRows, 1).getValues();
+  var fuDateVals = sheet.getRange(2, getHeaderIndex('Payment Follow-up Date'), numRows, 1).getValues();
+  var fuNoteVals = sheet.getRange(2, getHeaderIndex('Payment Follow-up Note'), numRows, 1).getValues();
+  var tzP = Session.getScriptTimeZone();
+  var todayP = todayYmd_();
+  var ymdOf = function (v) { return (v instanceof Date && !isNaN(v.getTime())) ? Utilities.formatDate(v, tzP, 'yyyy-MM-dd') : ''; };
+  var daysFrom = function (ymd) { return ymd ? Math.round((Date.parse(todayP + 'T00:00:00Z') - Date.parse(ymd + 'T00:00:00Z')) / 86400000) : null; };
   var owners = readOrderOwners_(sheet, numRows);
   var scope = creScope_(); // null for Accounts/Admin -- they see every balance
 
@@ -1486,7 +1574,16 @@ function getPendingPayments_() {
       deliveryStatus: deliveryStatusVals[i][0] || '',
       // Payment at dispatch (Oct 2026): goods ready, and the CRE may already have heard it's paid.
       readyForDispatch: typeof STATUS_READY_PAY !== 'undefined' && statusVals[i][0] === STATUS_READY_PAY,
-      customerSaysPaid: String(saysPaidVals[i][0] || '')
+      customerSaysPaid: String(saysPaidVals[i][0] || ''),
+      dispatched: isDispatchedStatus_(statusVals[i][0]) && !!ymdOf(dispatchVals[i][0]),
+      dispatchedOn: ymdOf(dispatchVals[i][0]) ? fmtYmd_(ymdOf(dispatchVals[i][0])) : '',
+      daysSinceDispatch: isDispatchedStatus_(statusVals[i][0]) ? daysFrom(ymdOf(dispatchVals[i][0])) : null,
+      followUpYmd: ymdOf(fuDateVals[i][0]),
+      followUp: ymdOf(fuDateVals[i][0]) ? fmtYmd_(ymdOf(fuDateVals[i][0])) : '',
+      followUpNote: String(fuNoteVals[i][0] || ''),
+      followUpLater: ymdOf(fuDateVals[i][0]) > todayP,   // waiting for its date -> "Follow-ups" pane
+      // CRE page red rule (Hari, 23 Oct 2026): only once 3+ days have passed since it went in transit, and not while a follow-up date is pending.
+      creUrgent: isDispatchedStatus_(statusVals[i][0]) && daysFrom(ymdOf(dispatchVals[i][0])) >= 3 && !(ymdOf(fuDateVals[i][0]) > todayP)
     });
     if (results.length >= 200) break;
   }
@@ -1728,7 +1825,8 @@ function recordBalancePayment_(form) {
 
   var now = new Date();
   // 'Customer Says Paid' cleared: Accounts has acted on the CRE's nudge (Oct 2026).
-  setRowFields(sheet, row, { 'Advance Received': newAdvance, 'Bank Reference / UTR': newRef, 'Last Payment Timestamp': now, 'Customer Says Paid': '' });
+  setRowFields(sheet, row, { 'Advance Received': newAdvance, 'Bank Reference / UTR': newRef, 'Last Payment Timestamp': now, 'Customer Says Paid': '',
+    'Payment Follow-up Date': '', 'Payment Follow-up Note': '' }); // a payment came in: the CRE looks at what's left afresh
 
   // Same plain-text guard as the intake tool, so this doesn't silently become 0.987.
   var pctRange = sheet.getRange(row, getHeaderIndex('Advance % of Total'));
@@ -2670,6 +2768,8 @@ function apiMap_() {
     getOrderLineItems:      { fn: getOrderLineItems_,      roles: ['CRE', 'Accounts', 'Director', 'Ops'] },
     getPendingPayments:     { fn: getPendingPayments_,     roles: ['CRE', 'Accounts'] },
     getPaymentNudges:       { fn: getPaymentNudges_,       roles: ['Accounts'] },
+    setPaymentFollowUp:     { fn: setPaymentFollowUp_,     roles: ['CRE'], log: 'Set payment follow-up' },
+    getVerificationHistory: { fn: getVerificationHistory_, roles: ['Accounts', 'Director'] },
     getNewEnquiries:        { fn: getNewEnquiries_,        roles: ACC },
     getPendingOrders:       { fn: getPendingOrders_,       roles: ACC },
     getAccountsSummary:     { fn: getAccountsSummary_,     roles: ACC },
@@ -2782,7 +2882,8 @@ function activityDetail_(fnName, a, result) {
     case 'submitDeliveryUpdate': return a.deliveryStatus || '';
     case 'requestPaymentException': return (result.requestId || '') + ' \u2013 ' + (PX_LABELS[a.type] || a.type) + ': ' + (a.reason || '');
     case 'decidePaymentException': return (a.requestId || '') + ' \u2013 ' + (a.approve ? 'approved' : 'declined') + (result.releasedToOps ? ', released to Ops' : '');
-    case 'submitVerification': return (result.newPaymentRecorded ? 'Advance recorded at verification: Rs. ' + result.advanceAmount + ', ' : '') + (result.noAdvance ? 'No advance' + (result.approvedBy ? ' \u2013 approved by ' + result.approvedBy : ' \u2013 PO customer') : 'UTR ' + (a.bankReference || '')) + (result.heldForBalance ? ' \u2013 held: balance due' : '');
+    case 'submitVerification': return 'Rs. ' + (result.advanceAmount || 0) + (result.newPaymentRecorded ? ' (advance recorded at verification)' : '') + ', ' + (result.noAdvance ? 'No advance' + (result.approvedBy ? ' \u2013 approved by ' + result.approvedBy : ' \u2013 PO customer') : 'UTR ' + (a.bankReference || '')) + (result.heldForBalance ? ' \u2013 held: balance due' : '');
+    case 'setPaymentFollowUp': return result.cleared ? 'Follow-up cleared' : 'Call on ' + (result.date || '') + (result.note ? ' \u2013 ' + result.note : '');
     case 'requestOrderAccess': return (result.requestId || '') + ' \u2013 ' + (a.reason || '');
     case 'decideAccessRequest': return (a.requestId || '') + ' \u2013 ' + (a.approve ? 'approved' : 'declined');
     case 'setStaffCover': return (a.staffCode || '') + (a.coveredBy ? ' away ' + (a.awayFrom || '') + ' to ' + (a.awayTo || '') + ', covered by ' + a.coveredBy : ' \u2013 cover cleared');

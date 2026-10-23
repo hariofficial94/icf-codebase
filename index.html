@@ -134,6 +134,21 @@
     .payment-item .pi-terms { font-size: 10px; color: #888; margin-top: 2px; }
     .payment-item .pi-due { font-size: 11px; font-weight: 700; margin-top: 3px; }
     .payment-item .pi-due.urgent-text { color: #B00020; }
+    /* Payment follow-ups (Oct 2026) */
+    .payment-item .pi-age { font-size: 11px; color: #555; margin-top: 3px; }
+    .payment-item.urgent .pi-age { color: #B00020; font-weight: 700; }
+    .payment-item .pi-fu { font-size: 11px; font-weight: 700; color: #1F3864; background: #e6eef8; border-radius: 4px; padding: 3px 6px; margin-top: 5px; }
+    .payment-item .pi-fu.due { background: #fff1dc; color: #9a5b00; }
+    .payment-item .pi-acts { display: flex; gap: 6px; margin-top: 6px; }
+    .payment-item .pi-acts button { width: auto; margin: 0; padding: 5px 9px; font-size: 11px; background: #fff; color: #1F3864; border: 1px solid #1F3864; }
+    .payment-item .pi-acts button.clear { color: #B00020; border-color: #e2a19a; }
+    .payment-item .pi-form { margin-top: 6px; display: none; }
+    .payment-item .pi-form.show { display: block; }
+    .payment-item .pi-form input { padding: 6px; font-size: 12px; margin-top: 4px; }
+    .payment-item .pi-form button { padding: 6px 10px; font-size: 12px; margin-top: 6px; }
+    .payment-item .pi-err { font-size: 11px; color: #B00020; margin-top: 4px; display: none; }
+    .payment-item .pi-err.show { display: block; }
+    .fu-count { display: none; background: #2E74B5; color: #fff; font-size: 11px; font-weight: 700; border-radius: 10px; padding: 1px 8px; margin-left: 6px; vertical-align: middle; }
 
     /* Look Up / Update Enquiry card */
     .details { margin-top: 16px; padding: 14px; background: #F2F2F2; border-radius: 6px; font-size: 13px; display: none; }
@@ -456,8 +471,18 @@
           <div class="filter-tab" data-filter="End Customer">End Customer</div>
           <div class="filter-tab" data-filter="PO Customer">Dealer/Inst.</div>
         </div>
+        <div class="field-hint" style="margin-top:0; margin-bottom:8px;">Balances to collect now. Red = in transit for 3+ days. Agreed to pay later (e.g. 30-day credit)? Set a follow-up date and it waits in Follow-ups below until then.</div>
         <div id="pendingPaymentsList" class="pending-empty">Loading...</div>
         <button type="button" class="show-more-btn" id="paymentsShowMore">Show all</button>
+      </div>
+
+      <div class="side-panel">
+        <div class="side-panel-header">
+          <h3>Payment Follow-ups<span class="fu-count" id="fuCount">0</span></h3>
+        </div>
+        <div class="field-hint" style="margin-top:0; margin-bottom:8px;">Balances with a call date you set. Each one moves back to Pending Payments on its date.</div>
+        <div id="followUpList" class="pending-empty">Loading...</div>
+        <button type="button" class="show-more-btn" id="followUpShowMore">Show all</button>
       </div>
     </div>
   </div>
@@ -764,34 +789,105 @@
       return formatDueLabel(item.daysUntilDelivery);
     }
 
-    function buildPaymentItemsHtml(items) {
+    // Payment follow-ups (Oct 2026): how long since it went in transit, the CRE's
+    // next call date, and red only once it has been in transit for 3+ days.
+    function ageLabel(it) {
+      if (!it.dispatched) return 'Not dispatched yet' + (it.workflowStatus ? ' (' + it.workflowStatus + ')' : '');
+      var d = it.daysSinceDispatch;
+      var when = d === 0 ? 'today' : d === 1 ? '1 day ago' : d + ' days ago';
+      var where = it.deliveryStatus === 'Delivered' ? 'Delivered' : it.deliveryStatus === 'Returned' ? 'Returned' : 'In transit';
+      return where + ' \u2013 dispatched ' + it.dispatchedOn + ' (' + when + ')';
+    }
+    function tomorrowYmd() {
+      var d = new Date(); d.setDate(d.getDate() + 1); d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+      return d.toISOString().slice(0, 10);
+    }
+    function buildPaymentItemsHtml(items, inFollowUps) {
       return items.map(function (it) {
-        var dueLabel = formatPaymentDueLabel(it);
-        return '<div class="payment-item' + (it.isUrgent ? ' urgent' : '') + '">' +
-          '<div class="pi-inst">' + it.institution + '</div>' +
-          '<div class="pi-id">' + it.trackerId + '</div>' +
-          '<div class="pi-balance">\u20b9' + it.balanceDue.toLocaleString('en-IN') + ' due</div>' +
-          (dueLabel ? '<div class="pi-due' + (it.isUrgent ? ' urgent-text' : '') + '">' + dueLabel + '</div>' : '') +
-          '<div class="pi-terms">' + it.paymentTermsType + '</div>' +
+        var red = !inFollowUps && it.creUrgent;
+        var fu = it.followUpYmd
+          ? '<div class="pi-fu' + (inFollowUps ? '' : ' due') + '">' + (inFollowUps ? 'Call on ' : 'Follow-up due \u2013 ') + escHtml(it.followUp) +
+            (it.followUpNote ? '<br><span style="font-weight:400;">' + escHtml(it.followUpNote) + '</span>' : '') + '</div>' : '';
+        return '<div class="payment-item' + (red ? ' urgent' : '') + '" data-id="' + escHtml(it.trackerId) + '">' +
+          '<div class="pi-inst">' + escHtml(it.institution) + '</div>' +
+          '<div class="pi-id">' + escHtml(it.trackerId) + '</div>' +
+          '<div class="pi-balance">\u20b9' + Number(it.balanceDue).toLocaleString('en-IN') + ' due</div>' +
+          '<div class="pi-age">' + escHtml(ageLabel(it)) + '</div>' +
+          (it.customerSaysPaid ? '<div class="pi-fu">You told Accounts it\u2019s paid \u2013 they\u2019re verifying</div>' : '') +
+          fu +
+          '<div class="pi-terms">' + escHtml(it.paymentTermsType) + '</div>' +
+          '<div class="pi-acts"><button type="button" class="fu-set">' + (it.followUpYmd ? 'Change date' : 'Set follow-up date') + '</button>' +
+            (it.followUpYmd ? '<button type="button" class="clear fu-clear">' + (inFollowUps ? 'Call now instead' : 'Clear date') + '</button>' : '') + '</div>' +
+          '<div class="pi-form"><input type="date" class="fu-date" min="' + tomorrowYmd() + '" value="' + escHtml(it.followUpLater ? it.followUpYmd : '') + '">' +
+            '<input type="text" class="fu-note" maxlength="200" placeholder="Note, e.g. 30-day credit, pays after installation" value="' + escHtml(it.followUpNote || '') + '">' +
+            '<button type="button" class="fu-save">Save</button></div>' +
+          '<div class="pi-err"></div>' +
           '</div>';
       }).join('');
     }
+    function bindPaymentItems(container) {
+      Array.prototype.forEach.call(container.querySelectorAll('.payment-item'), function (el) {
+        var id = el.getAttribute('data-id'), form = el.querySelector('.pi-form'), err = el.querySelector('.pi-err');
+        var send = function (date, note, btn) {
+          err.className = 'pi-err';
+          var label = btn.textContent; btn.disabled = true; btn.textContent = 'Saving...';
+          authRun()
+            .withSuccessHandler(function () { closeModal(); loadPendingPayments(); })
+            .withFailureHandler(function (e) { btn.disabled = false; btn.textContent = label; err.textContent = String(e.message || e).replace(/^(Error:\s*)+/, ''); err.className = 'pi-err show'; })
+            .setPaymentFollowUp({ trackerId: id, date: date, note: note });
+        };
+        el.querySelector('.fu-set').addEventListener('click', function () { form.classList.toggle('show'); });
+        el.querySelector('.fu-save').addEventListener('click', function () {
+          var d = el.querySelector('.fu-date').value;
+          if (!d) { err.textContent = 'Pick the date to call the customer.'; err.className = 'pi-err show'; return; }
+          send(d, el.querySelector('.fu-note').value.trim(), this);
+        });
+        var clr = el.querySelector('.fu-clear');
+        if (clr) clr.addEventListener('click', function () { send('', '', this); });
+      });
+    }
+
+    var currentFollowUps = [];
+    function renderFollowUps(items) {
+      currentFollowUps = items;
+      var list = document.getElementById('followUpList'), more = document.getElementById('followUpShowMore'), cnt = document.getElementById('fuCount');
+      cnt.textContent = items.length; cnt.style.display = items.length ? 'inline-block' : 'none';
+      if (!items.length) { list.className = 'pending-empty'; list.textContent = 'No follow-ups scheduled.'; more.style.display = 'none'; return; }
+      list.className = '';
+      list.innerHTML = buildPaymentItemsHtml(items.slice(0, PANEL_LIMIT), true);
+      bindPaymentItems(list);
+      more.style.display = items.length > PANEL_LIMIT ? 'block' : 'none';
+      more.textContent = 'Show all ' + items.length;
+    }
+    document.getElementById('followUpShowMore').addEventListener('click', function () {
+      openModal('Payment Follow-ups (' + currentFollowUps.length + ')', buildPaymentItemsHtml(currentFollowUps, true), bindPaymentItems);
+    });
 
     function renderPendingPayments() {
-      var items = currentPaymentsFilter === 'all'
+      var byTerms = currentPaymentsFilter === 'all'
         ? allPayments
         : allPayments.filter(function (it) { return (it.paymentTermsType || 'End Customer') === currentPaymentsFilter; });
+      // Waiting for their call date -> the Follow-ups pane, soonest first.
+      renderFollowUps(byTerms.filter(function (it) { return it.followUpLater; })
+        .sort(function (a, b) { return a.followUpYmd < b.followUpYmd ? -1 : a.followUpYmd > b.followUpYmd ? 1 : 0; }));
+      // To call now: red ones first (in transit 3+ days), then follow-ups that have come due, then the rest.
+      var rank = function (it) { return it.creUrgent ? 0 : it.followUpYmd ? 1 : 2; };
+      var items = byTerms.filter(function (it) { return !it.followUpLater; })
+        .map(function (it, i) { return { it: it, i: i }; })
+        .sort(function (a, b) { return rank(a.it) - rank(b.it) || a.i - b.i; })
+        .map(function (x) { return x.it; });
       currentFilteredPayments = items;
 
       var moreBtn = document.getElementById('paymentsShowMore');
       if (!items || items.length === 0) {
         pendingPaymentsList.className = 'pending-empty';
-        pendingPaymentsList.textContent = 'No outstanding balances right now.';
+        pendingPaymentsList.textContent = 'Nothing to collect right now.';
         moreBtn.style.display = 'none';
         return;
       }
       pendingPaymentsList.className = '';
       pendingPaymentsList.innerHTML = buildPaymentItemsHtml(items.slice(0, PANEL_LIMIT));
+      bindPaymentItems(pendingPaymentsList);
 
       if (items.length > PANEL_LIMIT) {
         moreBtn.style.display = 'block';
@@ -801,7 +897,7 @@
       }
     }
     document.getElementById('paymentsShowMore').addEventListener('click', function () {
-      openModal('All Pending Payments (' + currentFilteredPayments.length + ')', buildPaymentItemsHtml(currentFilteredPayments));
+      openModal('All Pending Payments (' + currentFilteredPayments.length + ')', buildPaymentItemsHtml(currentFilteredPayments), bindPaymentItems);
     });
 
     function loadPendingPayments() {
@@ -1562,6 +1658,8 @@
       Array.prototype.forEach.call(document.querySelectorAll('#statStrip .stat-value'), function (el) { el.innerHTML = '&ndash;'; });
       actionList.className = 'pending-empty'; actionList.textContent = 'Loading...';
       pendingPaymentsList.className = 'pending-empty'; pendingPaymentsList.textContent = 'Loading...';
+      var fl = document.getElementById('followUpList'); fl.className = 'pending-empty'; fl.textContent = 'Loading...';
+      document.getElementById('fuCount').style.display = 'none'; document.getElementById('followUpShowMore').style.display = 'none';
       document.getElementById('actionShowMore').style.display = 'none';
       document.getElementById('paymentsShowMore').style.display = 'none';
       lookupTrackerIdInput.value = '';

@@ -650,6 +650,7 @@
           (it.customerSaysPaid ? '<div class="pi-flag paid">Customer says paid \u2013 verify now<br><span>' + escapeHtml(it.customerSaysPaid) + '</span></div>'
             : it.readyForDispatch ? '<div class="pi-flag ready">Goods ready \u2013 waiting only for this payment</div>' : '') +
           (dueLabel ? '<div class="pi-due' + (it.isUrgent ? ' urgent-text' : '') + '">' + dueLabel + '</div>' : '') +
+          (it.followUpLater ? '<div class="pi-terms" style="color:#1F3864;font-weight:700;">CRE calls the customer on ' + escapeHtml(it.followUp) + (it.followUpNote ? ' \u2013 ' + escapeHtml(it.followUpNote) : '') + '</div>' : '') +
           '<div class="pi-terms">' + it.paymentTermsType + '</div>' +
           (notVerified
             ? '<div class="pi-error show" style="margin-top:6px;">Verify the initial advance first (still at "Logged") before recording a further payment.</div>'
@@ -1307,5 +1308,6 @@
   <?!= include('cancel_accounts'); ?>
   <?!= include('gatepass_accounts'); ?>
   <?!= include('tiles_accounts'); ?>
+  <?!= include('verified_accounts'); ?>
 </body>
 </html>

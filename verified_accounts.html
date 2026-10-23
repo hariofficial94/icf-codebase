@@ -1,0 +1,179 @@
+<!--
+  Verified payments (Oct 2026) -- Accounts page pop-up: every advance verified
+  and balance payment recorded, from the Activity Log, with filters for date
+  range, CRE, type and who verified it. Server: getVerificationHistory_.
+  Included by accounts.html: <?!= include('verified_accounts'); ?>
+-->
+<style>
+  .vh-overlay { display: none; position: fixed; inset: 0; background: rgba(20, 30, 45, 0.45); z-index: 1100; align-items: flex-start; justify-content: center; padding: 30px 12px; overflow-y: auto; }
+  .vh-overlay.show { display: flex; }
+  .vh-box { background: #fff; border-radius: 8px; width: 100%; max-width: 1040px; box-shadow: 0 8px 30px rgba(0,0,0,0.25); display: flex; flex-direction: column; max-height: 92vh; }
+  .vh-head { display: flex; justify-content: space-between; align-items: center; padding: 14px 18px; border-bottom: 1px solid #e5e5e5; }
+  .vh-head h3 { margin: 0; font-size: 17px; color: #1F3864; }
+  .vh-close { width: auto !important; margin: 0 !important; background: none !important; color: #666 !important; border: none !important; font-size: 24px !important; line-height: 1; cursor: pointer; padding: 0 4px !important; }
+  .vh-filters { display: flex; flex-wrap: wrap; gap: 10px; padding: 12px 18px; border-bottom: 1px solid #eee; align-items: flex-end; }
+  .vh-filters div { display: flex; flex-direction: column; gap: 3px; }
+  .vh-filters label { font-size: 10.5px; font-weight: 700; color: #888; margin: 0; }
+  .vh-filters input, .vh-filters select { padding: 6px 8px; font-size: 12.5px; border: 1px solid #ccc; border-radius: 4px; min-width: 120px; width: auto; margin: 0; }
+  .vh-filters .vh-q { min-width: 200px; }
+  .vh-quick { display: flex; gap: 4px; flex-direction: row !important; }
+  .vh-quick button, .vh-filters .vh-clear { width: auto !important; margin: 0 !important; padding: 6px 9px !important; font-size: 11.5px !important; font-weight: 600; background: #f4f6f8 !important; color: #2E74B5 !important; border: 1px solid #d5dbe0 !important; border-radius: 4px; cursor: pointer; }
+  .vh-quick button.on { background: #1F3864 !important; color: #fff !important; border-color: #1F3864 !important; }
+  .vh-sum { padding: 8px 18px; font-size: 12.5px; color: #555; }
+  .vh-sum b { color: #1F3864; }
+  .vh-table-wrap { overflow: auto; padding: 0 18px 16px; }
+  .vh-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  .vh-table th { text-align: left; font-size: 11px; color: #666; font-weight: 700; padding: 7px 6px; border-bottom: 2px solid #e5e5e5; white-space: nowrap; position: sticky; top: 0; background: #fff; }
+  .vh-table td { padding: 7px 6px; border-bottom: 1px solid #eee; vertical-align: top; }
+  .vh-table td.num, .vh-table th.num { text-align: right; white-space: nowrap; }
+  .vh-table tbody tr { cursor: pointer; }
+  .vh-table tbody tr:hover { background: #eef4fa; }
+  .vh-type { display: inline-block; font-size: 10.5px; font-weight: 700; padding: 2px 7px; border-radius: 9px; white-space: nowrap; }
+  .vh-type.adv { background: #e3edf7; color: #1F3864; }
+  .vh-type.bal { background: #e3f1dc; color: #2c5a1e; }
+  .vh-empty { font-size: 13px; color: #888; font-style: italic; padding: 24px 0; text-align: center; }
+  .vh-open-btn { width: auto !important; margin: 10px 0 0 0 !important; padding: 8px 14px !important; font-size: 13px !important; font-weight: 700; background: #fff !important; color: #1F3864 !important; border: 1px solid #1F3864 !important; border-radius: 5px; cursor: pointer; }
+</style>
+
+<div class="vh-overlay" id="vhOverlay">
+  <div class="vh-box">
+    <div class="vh-head">
+      <h3>Verified payments</h3>
+      <button type="button" class="vh-close" id="vhClose">&times;</button>
+    </div>
+    <div class="vh-filters">
+      <div><label>Quick range</label>
+        <div class="vh-quick" id="vhQuick">
+          <button type="button" data-days="0">Today</button>
+          <button type="button" data-days="7">7 days</button>
+          <button type="button" data-days="30" class="on">30 days</button>
+          <button type="button" data-days="90">90 days</button>
+        </div>
+      </div>
+      <div><label>From</label><input type="date" id="vhFrom"></div>
+      <div><label>To</label><input type="date" id="vhTo"></div>
+      <div><label>CRE</label><select id="vhCre"><option value="">All CREs</option></select></div>
+      <div><label>Type</label><select id="vhType"><option value="">Both</option><option value="Advance verified">Advance verified</option><option value="Balance payment">Balance payment</option></select></div>
+      <div><label>Verified by</label><select id="vhBy"><option value="">Anyone</option></select></div>
+      <div><label>Search</label><input type="text" class="vh-q" id="vhQ" placeholder="Customer, quotation no. or UTR"></div>
+      <button type="button" class="vh-clear" id="vhClear">Clear filters</button>
+    </div>
+    <div class="vh-sum" id="vhSum"></div>
+    <div class="vh-table-wrap" id="vhTable"><div class="vh-empty">Loading...</div></div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var overlay = document.getElementById('vhOverlay');
+  var ROWS = [], loadedFrom = null, loadedTo = null;
+  function esc(t) { return String(t == null ? '' : t).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+  function ymd(d) { var x = new Date(d.getTime() - d.getTimezoneOffset() * 60000); return x.toISOString().slice(0, 10); }
+  function daysAgo(n) { var d = new Date(); d.setDate(d.getDate() - n); return ymd(d); }
+  function inr(n) { return n === null || n === undefined ? '–' : '₹' + Number(n).toLocaleString('en-IN'); }
+
+  // The button sits under the Accounts page title.
+  var anchor = document.querySelector('.card .subtitle');
+  if (anchor) {
+    var btn = document.createElement('button');
+    btn.type = 'button'; btn.className = 'vh-open-btn'; btn.innerHTML = '&#128203; Verified payments';
+    anchor.parentNode.insertBefore(btn, anchor.nextSibling);
+    btn.addEventListener('click', open);
+  }
+
+  function open() {
+    overlay.classList.add('show');
+    if (!document.getElementById('vhFrom').value) setRange(30);
+    else fetchIfNeeded();
+  }
+  function close() { overlay.classList.remove('show'); }
+  document.getElementById('vhClose').addEventListener('click', close);
+  overlay.addEventListener('click', function (e) { if (e.target === overlay) close(); });
+
+  function setRange(days) {
+    document.getElementById('vhFrom').value = daysAgo(days);
+    document.getElementById('vhTo').value = ymd(new Date());
+    Array.prototype.forEach.call(document.querySelectorAll('#vhQuick button'), function (b) { b.classList.toggle('on', Number(b.getAttribute('data-days')) === days); });
+    fetchIfNeeded();
+  }
+  Array.prototype.forEach.call(document.querySelectorAll('#vhQuick button'), function (b) {
+    b.addEventListener('click', function () { setRange(Number(b.getAttribute('data-days'))); });
+  });
+  ['vhFrom', 'vhTo'].forEach(function (id) {
+    document.getElementById(id).addEventListener('change', function () {
+      Array.prototype.forEach.call(document.querySelectorAll('#vhQuick button'), function (b) { b.classList.remove('on'); });
+      fetchIfNeeded();
+    });
+  });
+  ['vhCre', 'vhType', 'vhBy'].forEach(function (id) { document.getElementById(id).addEventListener('change', render); });
+  document.getElementById('vhQ').addEventListener('input', render);
+  document.getElementById('vhClear').addEventListener('click', function () {
+    document.getElementById('vhCre').value = ''; document.getElementById('vhType').value = '';
+    document.getElementById('vhBy').value = ''; document.getElementById('vhQ').value = '';
+    setRange(30);
+  });
+
+  // The server filters by date; CRE / type / person / search filter here, instantly.
+  function fetchIfNeeded() {
+    var from = document.getElementById('vhFrom').value, to = document.getElementById('vhTo').value;
+    if (from && to && from > to) { document.getElementById('vhTable').innerHTML = '<div class="vh-empty">"From" is after "To".</div>'; return; }
+    if (from === loadedFrom && to === loadedTo) { render(); return; }
+    document.getElementById('vhTable').innerHTML = '<div class="vh-empty">Loading...</div>';
+    document.getElementById('vhSum').textContent = '';
+    authRun()
+      .withSuccessHandler(function (res) {
+        ROWS = (res && res.rows) || []; loadedFrom = from; loadedTo = to;
+        fillSelect('vhCre', ROWS.map(function (r) { return r.cre; }), 'All CREs');
+        fillSelect('vhBy', ROWS.map(function (r) { return r.by; }), 'Anyone');
+        render();
+      })
+      .withFailureHandler(function (e) { document.getElementById('vhTable').innerHTML = '<div class="vh-empty">Could not load: ' + esc(e.message) + '</div>'; })
+      .getVerificationHistory({ from: from, to: to });
+  }
+  function fillSelect(id, values, allLabel) {
+    var sel = document.getElementById(id), keep = sel.value;
+    var uniq = values.filter(function (v, i) { return v && values.indexOf(v) === i; }).sort();
+    sel.innerHTML = '<option value="">' + allLabel + '</option>' + uniq.map(function (v) { return '<option value="' + esc(v) + '">' + esc(v) + '</option>'; }).join('');
+    if (keep && uniq.indexOf(keep) !== -1) sel.value = keep;
+  }
+
+  function render() {
+    var cre = document.getElementById('vhCre').value, type = document.getElementById('vhType').value;
+    var by = document.getElementById('vhBy').value, q = document.getElementById('vhQ').value.trim().toLowerCase();
+    var rows = ROWS.filter(function (r) {
+      if (cre && r.cre !== cre) return false;
+      if (type && r.type !== type) return false;
+      if (by && r.by !== by) return false;
+      if (q && (r.institution + ' ' + r.trackerId + ' ' + r.utr).toLowerCase().indexOf(q) === -1) return false;
+      return true;
+    });
+    var total = rows.reduce(function (s, r) { return s + (Number(r.amount) || 0); }, 0);
+    var missing = rows.filter(function (r) { return r.amount === null; }).length;
+    document.getElementById('vhSum').innerHTML = '<b>' + rows.length + '</b> entr' + (rows.length === 1 ? 'y' : 'ies') +
+      ' · total <b>' + inr(total) + '</b>' + (missing ? ' <span style="color:#999;">(' + missing + ' older verification' + (missing === 1 ? '' : 's') + ' without an amount on record)</span>' : '');
+    if (!rows.length) { document.getElementById('vhTable').innerHTML = '<div class="vh-empty">Nothing matches these filters.</div>'; return; }
+    document.getElementById('vhTable').innerHTML = '<table class="vh-table"><thead><tr>' +
+      '<th>Date &amp; time</th><th>Type</th><th>Customer</th><th>Quotation no.</th><th>CRE</th><th class="num">Amount</th><th>UTR / reference</th><th>Verified by</th>' +
+      '</tr></thead><tbody>' + rows.map(function (r) {
+        return '<tr data-id="' + esc(r.trackerId) + '"><td style="white-space:nowrap;">' + esc(r.at) + '</td>' +
+          '<td><span class="vh-type ' + (r.type === 'Balance payment' ? 'bal' : 'adv') + '">' + esc(r.type) + '</span></td>' +
+          '<td>' + esc(r.institution) + '</td><td>' + esc(r.trackerId) + '</td><td>' + esc(r.cre) + '</td>' +
+          '<td class="num">' + inr(r.amount) + '</td>' +
+          '<td>' + (r.utr ? esc(r.utr) : (r.noAdvance ? '<span style="color:#888;">No advance</span>' : '')) + '</td>' +
+          '<td>' + esc(r.by) + '</td></tr>';
+      }).join('') + '</tbody></table>';
+    // Click a row to open that order on the page.
+    Array.prototype.forEach.call(document.querySelectorAll('#vhTable tbody tr'), function (tr) {
+      tr.addEventListener('click', function () {
+        var input = document.getElementById('trackerId'), go = document.getElementById('lookupBtn');
+        if (!input || !go) return;
+        close(); input.value = tr.getAttribute('data-id'); go.click(); window.scrollTo({ top: 0, behavior: 'smooth' });
+      });
+    });
+  }
+
+  // Sign out / sign in as someone else: forget what was loaded.
+  var prevClear = window.ICF_CLEAR;
+  window.ICF_CLEAR = function () { if (typeof prevClear === 'function') prevClear(); close(); ROWS = []; loadedFrom = loadedTo = null; };
+})();
+</script>
