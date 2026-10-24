@@ -2,6 +2,7 @@
 <html>
 <head>
   <base target="_top">
+  <script>try { if (localStorage.getItem('icf_cre_beta_theme') === 'light') document.documentElement.setAttribute('data-theme', 'light'); } catch (e) {}</script>
   <!--
     CRE page -- new layout, BETA (Oct 2026). Opened with ?page=cre-beta.
     A separate page: the classic CRE page (index.html + cancel_cre.html) is
@@ -28,11 +29,30 @@
       --blue: #6aa8f7;  --blue-bg: rgba(106,168,247,0.12);
       --grey: #8b8f96;  --grey-bg: rgba(139,143,150,0.14);
       --radius: 8px; --rail-w: 60px; --top-h: 56px;
+      --leaf-ink: var(--leaf-a); --hover-card: #202123; --hover-bd: #45484d; --btn-hover-bd: #4a4d52;
+      --pop-shadow: 0 16px 40px rgba(0,0,0,0.5); --scrim: rgba(0,0,0,0.5); --drawer-shadow: -20px 0 50px rgba(0,0,0,0.45);
+      --scheme: dark;
     }
+    /* Light theme: same layout, swapped tokens (toggle in the top bar) */
+    :root[data-theme="light"] {
+      --bg: #f6f7f8; --bg-2: #ffffff; --surface: #ffffff; --surface-2: #f1f2f4; --surface-3: #e5e7ea;
+      --border: #e3e5e8; --border-2: #d2d5da;
+      --text: #17181a; --text-2: #565a62; --text-3: #8a8e96;
+      --leaf-ink: #3d8a2a; --on-leaf: #0e1a0b;
+      --red: #cf3f3f;   --red-bg: rgba(207,63,63,0.09);   --red-bd: rgba(207,63,63,0.35);
+      --amber: #a86a0c; --amber-bg: rgba(214,150,30,0.12); --amber-bd: rgba(214,150,30,0.4);
+      --teal: #13897c;  --teal-bg: rgba(19,137,124,0.1);
+      --blue: #2a64c8;  --blue-bg: rgba(42,100,200,0.09);
+      --grey: #6b7079;  --grey-bg: rgba(107,112,121,0.11);
+      --hover-card: #fbfbfc; --hover-bd: #c4c8ce; --btn-hover-bd: #bfc3c9;
+      --pop-shadow: 0 12px 32px rgba(20,24,30,0.14); --scrim: rgba(20,24,30,0.32); --drawer-shadow: -16px 0 40px rgba(20,24,30,0.14);
+      --scheme: light;
+    }
+    html { color-scheme: var(--scheme); }
     * { box-sizing: border-box; }
     html, body { height: 100%; }
     body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 'Inter', 'Segoe UI', Arial, sans-serif; -webkit-font-smoothing: antialiased; }
-    a { color: var(--leaf-a); }
+    a { color: var(--leaf-ink); }
     button { font: inherit; color: inherit; }
     input, select, textarea { font: inherit; }
     ::-webkit-scrollbar { width: 10px; height: 10px; }
@@ -45,7 +65,7 @@
     /* ---------- Buttons ---------- */
     .btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 34px; padding: 0 14px; border-radius: 6px; border: 1px solid var(--border-2);
            background: var(--surface-2); color: var(--text); font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; transition: background .12s, border-color .12s; }
-    .btn:hover { background: var(--surface-3); border-color: #4a4d52; }
+    .btn:hover { background: var(--surface-3); border-color: var(--btn-hover-bd); }
     .btn:disabled { opacity: 0.55; cursor: not-allowed; }
     .btn svg { width: 15px; height: 15px; flex: 0 0 auto; }
     .btn.primary { background: var(--leaf-grad); color: var(--on-leaf); border: 1px solid rgba(155,203,74,0.6); }
@@ -72,7 +92,7 @@
       background-repeat: no-repeat; background-position: right 10px center; }
     .inp:focus { outline: none; border-color: var(--leaf); box-shadow: 0 0 0 3px rgba(109,184,81,0.18); }
     .inp::placeholder { color: var(--text-3); }
-    input[type=date].inp, input[type=datetime-local].inp { color-scheme: dark; }
+    input[type=date].inp, input[type=datetime-local].inp { color-scheme: var(--scheme); }
     .hint { font-size: 11.5px; color: var(--text-3); margin-top: 5px; line-height: 1.45; }
     .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
     .check { display: flex; gap: 9px; align-items: flex-start; font-size: 13px; color: var(--text); cursor: pointer; }
@@ -110,14 +130,14 @@
     .brand-sep { color: var(--text-3); font-size: 18px; font-weight: 300; }
     .brand-user { display: flex; align-items: center; gap: 8px; font-weight: 600; white-space: nowrap; min-width: 0; }
     .brand-user span { overflow: hidden; text-overflow: ellipsis; }
-    .beta { display: inline-flex; align-items: center; height: 20px; padding: 0 7px; border-radius: 10px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.06em; color: var(--leaf-a); border: 1px solid rgba(155,203,74,0.45); }
+    .beta { display: inline-flex; align-items: center; height: 20px; padding: 0 7px; border-radius: 10px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.06em; color: var(--leaf-ink); border: 1px solid rgba(155,203,74,0.45); }
     .role-tag { display: inline-flex; align-items: center; height: 20px; padding: 0 7px; border-radius: 4px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.05em; color: var(--text-2); border: 1px solid var(--border-2); text-transform: uppercase; }
     .top-spacer { flex: 1 1 auto; }
     .top-search { position: relative; width: 340px; max-width: 34vw; }
     .top-search .inp { padding-left: 34px; padding-right: 62px; height: 34px; background: var(--surface); border-radius: 17px; }
     .top-search .s-icon { position: absolute; left: 12px; top: 9px; width: 16px; height: 16px; color: var(--text-3); pointer-events: none; }
     .top-search .kbd { position: absolute; right: 10px; top: 8px; font-size: 11px; color: var(--text-3); border: 1px solid var(--border-2); border-radius: 4px; padding: 0 5px; line-height: 17px; pointer-events: none; }
-    .search-pop { display: none; position: absolute; top: 40px; right: 0; width: 460px; max-width: calc(100vw - 24px); max-height: 70vh; overflow-y: auto; background: var(--surface); border: 1px solid var(--border-2); border-radius: 10px; box-shadow: 0 16px 40px rgba(0,0,0,0.5); z-index: 60; }
+    .search-pop { display: none; position: absolute; top: 40px; right: 0; width: 460px; max-width: calc(100vw - 24px); max-height: 70vh; overflow-y: auto; background: var(--surface); border: 1px solid var(--border-2); border-radius: 10px; box-shadow: var(--pop-shadow); z-index: 60; }
     .search-pop.show { display: block; }
     .sp-head { padding: 10px 14px; font-size: 12px; color: var(--text-2); border-bottom: 1px solid var(--border); }
     .sp-row { padding: 10px 14px; border-bottom: 1px solid var(--border); cursor: pointer; }
@@ -125,13 +145,16 @@
     .sp-row:hover, .sp-row.kb { background: var(--surface-2); }
     .sp-top { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; font-weight: 600; }
     .sp-sub { font-size: 11.5px; color: var(--text-2); margin-top: 2px; }
-    .sp-why { font-size: 10px; font-weight: 700; color: var(--leaf-a); border: 1px solid rgba(155,203,74,0.35); border-radius: 8px; padding: 0 6px; margin-left: 6px; }
+    .sp-why { font-size: 10px; font-weight: 700; color: var(--leaf-ink); border: 1px solid rgba(155,203,74,0.35); border-radius: 8px; padding: 0 6px; margin-left: 6px; }
     .sp-msg { padding: 14px; font-size: 12.5px; color: var(--text-2); }
     .bell { position: relative; }
+    .theme-btn .i-sun { display: none; }
+    :root[data-theme="light"] .theme-btn .i-sun { display: block; }
+    :root[data-theme="light"] .theme-btn .i-moon { display: none; }
     .bell .count { position: absolute; top: -3px; right: -4px; }
     .avatar { width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--border-2); background: var(--surface-2); color: var(--text); font-weight: 700; font-size: 13px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
     .avatar:hover { border-color: var(--leaf); }
-    .menu { display: none; position: absolute; top: 48px; right: 12px; width: 260px; background: var(--surface); border: 1px solid var(--border-2); border-radius: 10px; box-shadow: 0 16px 40px rgba(0,0,0,0.5); z-index: 60; padding: 6px; }
+    .menu { display: none; position: absolute; top: 48px; right: 12px; width: 260px; background: var(--surface); border: 1px solid var(--border-2); border-radius: 10px; box-shadow: var(--pop-shadow); z-index: 60; padding: 6px; }
     .menu.show { display: block; }
     .menu-head { padding: 10px 10px 12px; border-bottom: 1px solid var(--border); margin-bottom: 6px; }
     .menu-head b { display: block; font-size: 14px; }
@@ -162,7 +185,7 @@
     .rail-btn { position: relative; width: 42px; height: 42px; border-radius: 8px; border: none; background: none; color: var(--text-2); cursor: pointer; display: flex; align-items: center; justify-content: center; }
     .rail-btn svg { width: 20px; height: 20px; }
     .rail-btn:hover { background: var(--surface); color: var(--text); }
-    .rail-btn.active { background: var(--surface-2); color: var(--leaf-a); }
+    .rail-btn.active { background: var(--surface-2); color: var(--leaf-ink); }
     .rail-btn.active::before { content: ''; position: absolute; left: -9px; top: 10px; bottom: 10px; width: 3px; border-radius: 0 3px 3px 0; background: var(--leaf-grad); }
     .rail-btn .count { position: absolute; top: 2px; right: 0; }
     .rail-btn .draft-dot { position: absolute; top: 8px; right: 8px; width: 7px; height: 7px; border-radius: 50%; background: var(--amber); display: none; }
@@ -224,7 +247,7 @@
     .seg button.on { background: var(--surface-3); color: var(--text); }
     .seg.text button { width: auto; padding: 0 12px; font-size: 12.5px; font-weight: 600; }
     .filter-pop-wrap { position: relative; }
-    .filter-pop { display: none; position: absolute; top: 40px; left: 0; width: 300px; padding: 14px; background: var(--surface); border: 1px solid var(--border-2); border-radius: 10px; box-shadow: 0 16px 40px rgba(0,0,0,0.5); z-index: 30; }
+    .filter-pop { display: none; position: absolute; top: 40px; left: 0; width: 300px; padding: 14px; background: var(--surface); border: 1px solid var(--border-2); border-radius: 10px; box-shadow: var(--pop-shadow); z-index: 30; }
     .filter-pop.show { display: block; }
     .active-filters { display: flex; flex-wrap: wrap; gap: 6px; margin: -6px 0 14px; }
     .active-filters:empty { display: none; }
@@ -237,7 +260,7 @@
     /* ---------- Order cards ---------- */
     .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 16px; }
     .ocard { position: relative; display: flex; flex-direction: column; min-height: 168px; padding: 18px 18px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); cursor: pointer; transition: border-color .12s, background .12s; text-align: left; width: 100%; }
-    .ocard:hover { border-color: #45484d; background: #202123; }
+    .ocard:hover { border-color: var(--hover-bd); background: var(--hover-card); }
     .ocard:focus-visible { outline: 2px solid var(--leaf); outline-offset: 2px; }
     .ocard.closed { opacity: 0.62; }
     .ocard.closed:hover { opacity: 0.9; }
@@ -281,9 +304,9 @@
     .stat-row.alert .stat-val { color: var(--red); }
 
     /* ---------- Drawer ---------- */
-    .scrim { position: fixed; inset: 0; z-index: 70; background: rgba(0,0,0,0.5); opacity: 0; pointer-events: none; transition: opacity .18s; }
+    .scrim { position: fixed; inset: 0; z-index: 70; background: var(--scrim); opacity: 0; pointer-events: none; transition: opacity .18s; }
     .scrim.show { opacity: 1; pointer-events: auto; }
-    .drawer { position: fixed; top: 0; right: 0; bottom: 0; z-index: 80; width: min(580px, 100vw); background: var(--bg-2); border-left: 1px solid var(--border-2); box-shadow: -20px 0 50px rgba(0,0,0,0.45); transform: translateX(100%); transition: transform .2s ease; display: flex; flex-direction: column; }
+    .drawer { position: fixed; top: 0; right: 0; bottom: 0; z-index: 80; width: min(580px, 100vw); background: var(--bg-2); border-left: 1px solid var(--border-2); box-shadow: var(--drawer-shadow); transform: translateX(100%); transition: transform .2s ease; display: flex; flex-direction: column; }
     .drawer.show { transform: none; }
     .dr-head { padding: 18px 22px 16px; border-bottom: 1px solid var(--border); display: flex; gap: 12px; align-items: flex-start; }
     .dr-head-main { flex: 1 1 auto; min-width: 0; }
@@ -354,7 +377,7 @@
     .pay.urgent { border-color: var(--red-bd); box-shadow: inset 3px 0 0 var(--red); }
     .pay-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
     .pay-name { font-weight: 600; font-size: 14px; cursor: pointer; }
-    .pay-name:hover { color: var(--leaf-a); }
+    .pay-name:hover { color: var(--leaf-ink); }
     .pay-id { font-size: 12px; color: var(--text-3); margin-top: 1px; }
     .pay-bal { text-align: right; white-space: nowrap; }
     .pay-bal .v { font-size: 16px; font-weight: 600; color: var(--amber); font-variant-numeric: tabular-nums; }
@@ -368,7 +391,7 @@
     .req-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; align-items: start; }
     .req { padding: 13px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
     .req-open { cursor: pointer; }
-    .req-open:hover .req-name { color: var(--leaf-a); }
+    .req-open:hover .req-name { color: var(--leaf-ink); }
     .req-name { font-weight: 600; font-size: 13.5px; }
     .req-sub { font-size: 12px; color: var(--text-2); margin-top: 2px; }
     .req-ack { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
@@ -384,7 +407,7 @@
     .pline:first-child { margin-top: 0; }
     .pline .rm { width: 34px; height: 36px; border-radius: 6px; border: 1px solid var(--border-2); background: var(--surface-2); color: var(--text-2); cursor: pointer; font-size: 17px; line-height: 1; }
     .pline .rm:hover { color: var(--red); border-color: var(--red-bd); }
-    .add-line { margin-top: 10px; height: 34px; padding: 0 14px; border-radius: 6px; border: 1px dashed var(--border-2); background: none; color: var(--leaf-a); font-size: 13px; font-weight: 600; cursor: pointer; }
+    .add-line { margin-top: 10px; height: 34px; padding: 0 14px; border-radius: 6px; border: 1px dashed var(--border-2); background: none; color: var(--leaf-ink); font-size: 13px; font-weight: 600; cursor: pointer; }
     .add-line:hover { border-color: var(--leaf); background: rgba(109,184,81,0.06); }
     .file-box { padding: 12px; border: 1px dashed var(--border-2); border-radius: 6px; background: var(--bg); }
     .file-box input { width: 100%; color: var(--text-2); font-size: 12.5px; }
@@ -404,9 +427,9 @@
     .po-done .next { margin-top: 14px; font-size: 13px; color: var(--teal); }
 
     /* ---------- Modal (All refunds) ---------- */
-    .modal { position: fixed; inset: 0; z-index: 90; display: none; align-items: flex-start; justify-content: center; padding: 50px 16px; background: rgba(0,0,0,0.55); overflow-y: auto; }
+    .modal { position: fixed; inset: 0; z-index: 90; display: none; align-items: flex-start; justify-content: center; padding: 50px 16px; background: var(--scrim); overflow-y: auto; }
     .modal.show { display: flex; }
-    .modal-box { width: 100%; max-width: 980px; background: var(--bg-2); border: 1px solid var(--border-2); border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,0.6); }
+    .modal-box { width: 100%; max-width: 980px; background: var(--bg-2); border: 1px solid var(--border-2); border-radius: 12px; box-shadow: var(--pop-shadow); }
     .modal-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid var(--border); }
     .modal-head h3 { margin: 0; font-size: 16px; font-weight: 600; }
     .modal-body { padding: 16px 20px 20px; }
@@ -417,16 +440,16 @@
 
     /* ---------- Sign-in screen from auth.html, restyled ---------- */
     #authOverlay { background: radial-gradient(1200px 600px at 50% -10%, rgba(109,184,81,0.10), transparent 60%), var(--bg) !important; }
-    #authOverlay .auth-card { background: var(--surface); border: 1px solid var(--border-2); box-shadow: 0 20px 60px rgba(0,0,0,0.5); border-radius: 12px; }
+    #authOverlay .auth-card { background: var(--surface); border: 1px solid var(--border-2); box-shadow: var(--pop-shadow); border-radius: 12px; }
     #authOverlay .auth-head { background: none; border-bottom: 1px solid var(--border); position: relative; }
     #authOverlay .auth-head::before { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 3px; background: var(--leaf-grad); }
-    #authOverlay .auth-head .auth-brand { color: var(--leaf-a); opacity: 1; }
+    #authOverlay .auth-head .auth-brand { color: var(--leaf-ink); opacity: 1; }
     #authOverlay .auth-head .auth-title { color: var(--text); }
     #authOverlay .auth-body label { color: var(--text); }
     #authOverlay .auth-body input { background: var(--bg); color: var(--text); border: 1px solid var(--border-2); border-radius: 6px; }
     #authOverlay .auth-body input:focus { border-color: var(--leaf); box-shadow: 0 0 0 3px rgba(109,184,81,0.18); }
     #authOverlay .auth-body button.auth-primary { background: var(--leaf-grad); color: var(--on-leaf); border-radius: 6px; }
-    #authOverlay .auth-body button.auth-link { color: var(--leaf-a); }
+    #authOverlay .auth-body button.auth-link { color: var(--leaf-ink); }
     #authOverlay .auth-note { color: var(--text-2); }
     #authOverlay .auth-msg { color: var(--red); }
     #authOverlay .auth-msg.ok { color: var(--teal); }
@@ -504,6 +527,10 @@
     </div>
     <button class="btn icon-btn search-mobile" id="findMobileBtn" type="button" title="Find any order">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+    </button>
+    <button class="btn icon-btn theme-btn" id="themeBtn" type="button" title="Switch light / dark theme">
+      <svg class="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+      <svg class="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
     </button>
     <button class="btn icon-btn bell" id="bellBtn" type="button" title="Needs your action">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
@@ -657,8 +684,18 @@
       </div>
       <div class="req-grid">
         <div>
-          <div class="panel-title"><h3>Access to other CREs’ orders <span class="count" id="apprCount" style="display:none;">0</span></h3></div>
-          <div class="panel-sub">Your requests to update another CRE’s order. Approved ones stay here for the 24 hours you have access.</div>
+          <div class="panel-title"><h3>Access to other CREs’ orders <span class="count" id="apprCount" style="display:none;">0</span></h3>
+            <button class="btn primary sm" type="button" id="raBtn">+ Request access</button></div>
+          <div class="panel-sub">Another CRE on leave and their customer needs something done? Find the order and ask the admin for access. Approved ones stay here for the 24 hours you have access.</div>
+          <div class="card-box" id="raBox" style="display:none; padding:14px; margin-bottom:12px;">
+            <label class="lbl" for="raInput">Which order? Quotation no., customer phone or name</label>
+            <div style="display:flex; gap:8px;">
+              <input class="inp" id="raInput" type="text" placeholder="e.g. ICESPL-123-26-27, 98470 12345, or Booma">
+              <button class="btn" type="button" id="raFind">Find</button>
+            </div>
+            <div class="hint">Open the order, then use “Request access from admin” in it.</div>
+            <div id="raOut" style="margin-top:10px;"></div>
+          </div>
           <div class="req-list" id="apprList"><div class="loading">Loading…</div></div>
         </div>
         <div>
@@ -924,6 +961,13 @@
     }
     $('menuPin').addEventListener('click', function () { authClick('authBarChangePin'); });
     $('menuSignOut').addEventListener('click', function () { authClick('authBarSignOut'); });
+
+    // Light / dark theme (remembered in this browser only)
+    $('themeBtn').addEventListener('click', function () {
+      var light = document.documentElement.getAttribute('data-theme') !== 'light';
+      if (light) document.documentElement.setAttribute('data-theme', 'light'); else document.documentElement.removeAttribute('data-theme');
+      try { localStorage.setItem('icf_cre_beta_theme', light ? 'light' : 'dark'); } catch (e) {}
+    });
 
     // =====================================================================
     // Views
@@ -1405,21 +1449,35 @@
       loadDrawerTimeline(order.trackerId);
     }
 
-    // The stage-specific box -- same decision order as the classic page.
+    // "What happens now" for the order. On another CRE's open order, the request
+    // for access is offered at every stage (the server accepts it at any stage) --
+    // e.g. the owner is on leave and the customer needs something done.
     function actionSectionHtml(order, access) {
       var needsCreAction = (isDispatched(order.status) && order.deliveryStatus !== 'Delivered' && order.deliveryStatus !== 'Returned') || order.status === 'Ready - Payment Pending';
+      var closed = order.status === 'Cancelled' || (isDispatched(order.status) && (order.deliveryStatus === 'Delivered' || order.deliveryStatus === 'Returned'));
       var title = '<div class="dr-sec-title">What happens now</div>';
-      if (needsCreAction && !access.canAct) {
-        var msg = 'This is <b>' + esc(order.ownerName || 'another CRE') + '</b>’s order. You can see its details, but only ' + esc(order.ownerName || 'they') + ' can update it – unless the admin gives you access.';
-        if (access.pendingRequest) msg += ' Your request is waiting for an admin to respond.';
-        else if (access.lastDecision) msg += ' ' + esc(access.lastDecision);
-        return title + '<div class="act-card grey"><h4>Owned by another CRE</h4><div class="msg">' + msg + '</div>' +
-          (access.pendingRequest ? '' :
-            '<div class="field"><label class="lbl" for="accessReason">Why do you need to update it?</label>' +
-            '<textarea class="inp" id="accessReason" rows="2" placeholder="e.g. Customer called for delivery update, Greeshma on leave today"></textarea></div>' +
-            '<div class="act-actions"><button class="btn primary" type="button" id="btnRequestAccess">Request access from admin</button></div>') +
-          '<div class="err" id="errRequest"></div><div class="ok-msg" id="okRequest"></div></div>';
-      }
+      if (needsCreAction && !access.canAct) return title + accessCardHtml(order, access);
+      var html = title + stageBoxHtml(order);
+      if (!access.canAct && !closed) html += '<div style="margin-top:12px;">' + accessCardHtml(order, access) + '</div>';
+      return html;
+    }
+
+    function accessCardHtml(order, access) {
+      var owner = order.ownerName || 'another CRE';
+      var msg = 'This is <b>' + esc(owner) + '</b>’s order. You can see its details, but only ' + esc(order.ownerName || 'they') + ' can update it – unless the admin gives you access (24 hours once approved).';
+      if (access.pendingRequest) msg += ' <b>Your request is waiting for an admin to respond.</b>';
+      else if (access.lastDecision) msg += ' ' + esc(access.lastDecision);
+      return '<div class="act-card grey"><h4>Owned by another CRE</h4><div class="msg">' + msg + '</div>' +
+        (access.pendingRequest ? '' :
+          '<div class="field"><label class="lbl" for="accessReason">Why do you need to update it?</label>' +
+          '<textarea class="inp" id="accessReason" rows="2" placeholder="e.g. ' + esc(order.ownerName || 'Greeshma') + ' on leave today, customer called for a delivery update"></textarea></div>' +
+          '<div class="act-actions"><button class="btn primary" type="button" id="btnRequestAccess">Request access from admin</button></div>') +
+        '<div class="err" id="errRequest"></div><div class="ok-msg" id="okRequest"></div></div>';
+    }
+
+    // The stage box -- same decision order as the classic page.
+    function stageBoxHtml(order) {
+      var title = '';
       if (order.status === 'Ready - Payment Pending') {
         var px = order.paymentExceptions && order.paymentExceptions.dispatch;
         var pending = px && px.status === 'Pending';
@@ -1820,6 +1878,32 @@
       });
     }
     $('refreshReq').addEventListener('click', function () { loadApprovals(); loadCancellations(); });
+
+    // "+ Request access": find another CRE's order from here, then ask in its drawer.
+    $('raBtn').addEventListener('click', function () {
+      var box = $('raBox'), show = box.style.display === 'none';
+      box.style.display = show ? 'block' : 'none';
+      if (show) $('raInput').focus();
+    });
+    function raFind() {
+      var q = $('raInput').value.trim(), out = $('raOut');
+      if (!q) { out.innerHTML = '<div class="hint">Type a quotation number, phone number or customer name.</div>'; return; }
+      out.innerHTML = '<div class="hint">Searching…</div>';
+      authRun()
+        .withSuccessHandler(function (res) {
+          if (res.order) { out.innerHTML = ''; showOrderInDrawer(res.order); return; }
+          if (!res.matches || !res.matches.length) { out.innerHTML = '<div class="hint">No order matches “' + esc(q) + '”.</div>'; return; }
+          out.innerHTML = '<div class="card-box">' + res.matches.map(function (m) {
+            return '<div class="sp-row" data-id="' + esc(m.trackerId) + '"><div class="sp-top"><span>' + esc(m.institution) + '</span><span class="mono">' + inr2(m.total) + '</span></div>' +
+              '<div class="sp-sub">' + esc(m.trackerId) + ' · ' + esc(m.status) + (m.cre ? ' · ' + esc(m.cre) : '') + '</div></div>';
+          }).join('') + '</div>';
+          each(out.querySelectorAll('.sp-row'), function (r) { r.addEventListener('click', function () { openOrder(r.getAttribute('data-id')); }); });
+        })
+        .withFailureHandler(function (e) { out.innerHTML = '<div class="err show">' + esc(errText(e)) + '</div>'; })
+        .findOrders(q);
+    }
+    $('raFind').addEventListener('click', raFind);
+    $('raInput').addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); raFind(); } });
 
     // ---- All refunds report ----
     var refunds = [], RF = ['rfCre', 'rfFrom', 'rfTo', 'rfMin', 'rfMax', 'rfType', 'rfStatus'];
