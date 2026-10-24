@@ -110,7 +110,8 @@
       accounts: 'Accounts \u2013 payment verification and dispatch.',
       dashboard: 'Owner dashboard.',
       admin: 'Admin – access requests, leave cover and reassignment.',
-      ops: 'Operations – pick up orders, print the PO, request gate passes.'
+      ops: 'Operations – pick up orders, print the PO, request gate passes.',
+      rental: 'Rentals – from paid order to installation, off-hire and return.'
     };
     var STORE_KEY = 'icf_session_token';
     var token = null;
@@ -163,7 +164,9 @@
     }
 
     // ---- Admin extras: page links + approvals counter (every page) ----
-    var PAGES = [['dashboard', 'Dashboard'], ['cre', 'CRE page'], ['accounts', 'Accounts'], ['ops', 'Operations'], ['gate', 'Gate'], ['admin', 'Admin']];
+    var PAGES = [['dashboard', 'Dashboard'], ['cre', 'CRE page'], ['accounts', 'Accounts'], ['ops', 'Operations'], ['gate', 'Gate'], ['rental', 'Rentals'], ['admin', 'Admin']];
+    // Rentals (Oct 2026): everyone else who uses the Rentals page gets two links -- their own page and Rentals.
+    var ROLE_HOME = { CRE: ['cre', 'CRE page'], Accounts: ['accounts', 'Accounts'], Ops: ['ops', 'Operations'], Director: ['dashboard', 'Dashboard'] };
     var apprTimer = null, lastApprTotal = null, lastNewestId = null;
 
     function pageUrl(base, key) { return key === 'cre' ? base : base + '?page=' + key; }
@@ -173,7 +176,16 @@
       var appr = document.getElementById('authAppr');
       nav.innerHTML = '';
       if (apprTimer) { clearInterval(apprTimer); apprTimer = null; }
-      if (staff.role !== 'Admin' || !staff.appUrl) { appr.style.display = 'none'; document.getElementById('authGate').style.display = 'none'; return; }
+      if (staff.role !== 'Admin' || !staff.appUrl) {
+        appr.style.display = 'none'; document.getElementById('authGate').style.display = 'none';
+        var home = ROLE_HOME[staff.role];
+        if (home && staff.appUrl) {
+          nav.innerHTML = [home, ['rental', 'Rentals']].map(function (p) {
+            return p[0] === PAGE ? '<span>' + p[1] + '</span>' : '<a href="' + pageUrl(staff.appUrl, p[0]) + '" target="_top">' + p[1] + '</a>';
+          }).join('');
+        }
+        return;
+      }
       document.getElementById('authGate').href = pageUrl(staff.appUrl, 'gate');
       nav.innerHTML = PAGES.map(function (p) {
         return p[0] === PAGE ? '<span>' + p[1] + '</span>'
@@ -242,7 +254,7 @@
     // (switching tabs/windows, waking the phone). Only lists and tiles reload
     // -- nothing being typed is touched. Ops has its own (it mustn't close an
     // open order), and the dashboard/admin/settings pages stay manual.
-    var LIVE_PAGES = { cre: true, accounts: true, gate: true };
+    var LIVE_PAGES = { cre: true, accounts: true, gate: true, rental: true }; // Rentals reloads its tiles only -- an open rental is left alone
     var lastLive = Date.now();
     function liveReload(force) {
       if (!LIVE_PAGES[PAGE] || !window.ICF_STAFF || !token || document.hidden) return;

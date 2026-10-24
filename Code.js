@@ -523,7 +523,8 @@ function doGet(e) {
     admin: 'admin',
     settings: 'settings',
     gate: 'gate',        // Gate login (Oct 2026) -- Sanju marks vehicles out
-    'cre-beta': 'cre_beta' // CRE page, new layout on trial (Oct 2026) -- a separate file; the classic CRE page is untouched
+    'cre-beta': 'cre_beta', // CRE page, new layout on trial (Oct 2026) -- a separate file; the classic CRE page is untouched
+    rental: 'rental'     // Rentals (Oct 2026) -- one page for CRE, Accounts, Ops and Ananthu; see Rental.js
   };
   var file = fileMap[page] || 'index';
   var titleMap = {
@@ -536,7 +537,8 @@ function doGet(e) {
     admin: 'ICF Admin',
     settings: 'ICF Settings',
     gate: 'ICF Gate',
-    'cre-beta': 'ICF CRE (Beta)'
+    'cre-beta': 'ICF CRE (Beta)',
+    rental: 'ICF Rentals'
   };
   // Evaluated as a template (not a plain file) so each page can pull in the
   // shared sign-in screen with <?!= include('auth'); ?> -- one copy of the
@@ -2736,8 +2738,8 @@ var ROLES = ['CRE', 'Accounts', 'Director', 'Admin', 'Ops', 'Gate'];
 var SESSION_SECONDS = 21600;   // 6 h -- CacheService maximum
 var LOCKOUT_ATTEMPTS = 5;
 var LOCKOUT_SECONDS = 900;     // 15 min
-var PAGE_ROLES = { cre: ['CRE'], accounts: ['Accounts'], dashboard: ['Director'], admin: [], settings: ['Director'], ops: ['Ops'], gate: ['Gate'] }; // Admin is always allowed...
-var PAGE_LABELS = { cre: 'the CRE page', accounts: 'the Accounts page', dashboard: 'the Owner Dashboard', admin: 'the Admin page', settings: 'the Settings page', ops: 'the Operations page', gate: 'the Gate page' };
+var PAGE_ROLES = { cre: ['CRE'], accounts: ['Accounts'], dashboard: ['Director'], admin: [], settings: ['Director'], ops: ['Ops'], gate: ['Gate'], rental: ['CRE', 'Accounts', 'Ops', 'Director'] }; // Admin is always allowed...
+var PAGE_LABELS = { cre: 'the CRE page', accounts: 'the Accounts page', dashboard: 'the Owner Dashboard', admin: 'the Admin page', settings: 'the Settings page', ops: 'the Operations page', gate: 'the Gate page', rental: 'the Rentals page' };
 var DIRECTOR_ONLY_PAGES = { settings: true }; // ...except on these: Directors only, Admins too are refused (Oct 2026)
 
 /** May this role open this page? Admin may open everything except DIRECTOR_ONLY_PAGES. */
@@ -2830,6 +2832,11 @@ function apiMap_() {
     var extra7 = docsApiMap_();
     for (var k7 in extra7) map[k7] = extra7[k7];
   }
+  // Rentals (Oct 2026) -- defined in Rental.gs / RentalFleet.gs.
+  if (typeof rentalApiMap_ === 'function') {
+    var extra8 = rentalApiMap_();
+    for (var k8 in extra8) map[k8] = extra8[k8];
+  }
   return map;
 }
 
@@ -2896,6 +2903,7 @@ function activityDetail_(fnName, a, result) {
       if (!d && typeof opsActivityDetail_ === 'function') d = opsActivityDetail_(fnName, a, result);
       if (!d && typeof gateActivityDetail_ === 'function') d = gateActivityDetail_(fnName, a, result);
       if (!d && typeof docsActivityDetail_ === 'function') d = docsActivityDetail_(fnName, a, result);
+      if (!d && typeof rentalActivityDetail_ === 'function') d = rentalActivityDetail_(fnName, a, result);
       return d;
   }
 }
@@ -2936,7 +2944,7 @@ function staffLogin(staffCode, pin, page) {
   cache.put('sess_' + token, JSON.stringify({ code: code, epoch: sessionEpoch_() }), SESSION_SECONDS);
   stampLastSignIn_(staff.row);
   logActivity_(staff, 'Signed in', '', page || '');
-  return { token: token, code: code, name: staff.name, role: staff.role, appUrl: staff.role === 'Admin' ? appUrl_() : '' };
+  return { token: token, code: code, name: staff.name, role: staff.role, appUrl: (staff.role === 'Admin' || canOpenPage_(staff.role, 'rental')) ? appUrl_() : '' };
 }
 
 /** For a page reload: returns the staff info if the token is still good for this page, else null. Never throws. */
@@ -2944,7 +2952,7 @@ function checkSession(token, page) {
   try {
     var staff = requireSession_(token);
     if (!canOpenPage_(staff.role, page)) return null;
-    return { code: staff.code, name: staff.name, role: staff.role, appUrl: staff.role === 'Admin' ? appUrl_() : '' };
+    return { code: staff.code, name: staff.name, role: staff.role, appUrl: (staff.role === 'Admin' || canOpenPage_(staff.role, 'rental')) ? appUrl_() : '' };
   } catch (e) {
     return null;
   }
@@ -3142,8 +3150,10 @@ function onOpen() {
     .addItem('Set up standby (tab + settings rows)', 'setupStandby')
     .addItem('Ops login: set up and go live', 'setupOpsLogin')
     .addItem('Gate login + PO uploads: set up and go live', 'setupGateAndDocs')
+    .addItem('Rentals: set up and go live', 'setupRentals')
     .addSeparator()
     .addItem('Delete test entries ("Test Customer ...")', 'deleteTestEntries')
+    .addItem('Delete rental test entries ("Test Customer ...")', 'deleteRentalTestEntries')
     .addItem('Sign everyone out', 'signEveryoneOut')
     .addToUi();
 }
@@ -4337,6 +4347,10 @@ function checkApprovalAlerts() {
     // Ops login (Oct 2026): new-order notices, 24h nudges + escalation, customer updates.
     if (typeof opsSweep_ === 'function') {
       try { sent += opsSweep_(now, staffMap, cfg); } catch (e) { Logger.log('Ops sweep failed: ' + e); }
+    }
+    // Rentals (Oct 2026): verification, acknowledgement, end dates, overrun, payments, pickup, inspection, settlement.
+    if (typeof rentalSweep_ === 'function') {
+      try { sent += rentalSweep_(now, staffMap, cfg); } catch (e) { Logger.log('Rental sweep failed: ' + e); }
     }
     return sent;
   } finally {

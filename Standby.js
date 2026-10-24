@@ -889,6 +889,14 @@ function sbSettingsSchema_() {
       rows.push({ label: r[0], def: r[1], help: r[2], kind: 'number', group: 'Ops nudges', min: 1, max: GATE_NUDGE_CEILING });
     });
   }
+  // Rentals (Oct 2026, Rental.gs): numbers with their own ranges, and the deposit Yes/No.
+  if (typeof RENTAL_SETTINGS_ROWS !== 'undefined') {
+    RENTAL_SETTINGS_ROWS.forEach(function (r) {
+      var row = { label: r[0], def: r[1], help: r[2], kind: r[3], group: 'Rentals' };
+      if (r[3] === 'number') { row.min = r[4]; row.max = r[5]; }
+      rows.push(row);
+    });
+  }
   return rows;
 }
 
@@ -950,6 +958,10 @@ function saveSettings_(values) {
           var s = staffMap[v];
           if (!s || !s.active || (s.role !== 'Admin' && s.role !== 'Director')) throw new Error(v + ' isn\u2019t an active Admin or Director');
         }
+      } else if (r.kind === 'yesno') {
+        var yn = v.toLowerCase();
+        if (yn !== 'yes' && yn !== 'no') throw new Error('choose Yes or No');
+        v = yn === 'yes' ? 'Yes' : 'No';
       } else if (r.kind === 'minutes' || r.kind === 'number' || r.kind === 'money') {
         var n = Number(v.replace(/[,\s\u20b9]/g, ''));
         var lo = r.kind === 'minutes' ? 1 : r.min, hi = r.kind === 'minutes' ? SB_CEILINGS.minutes : r.max;
@@ -975,7 +987,9 @@ function saveSettings_(values) {
     [['Payment approval: remind after (office minutes)', 'Payment approval: escalate after (office minutes)'],
      ['CRE access request: remind after (office minutes)', 'CRE access request: escalate after (office minutes)'],
      [SB_SETTINGS_ROWS[4][0], SB_SETTINGS_ROWS[5][0]]].concat(typeof OPS_SETTINGS_ROWS !== 'undefined'
-      ? [[OPS_SETTINGS_ROWS[0][0], OPS_SETTINGS_ROWS[1][0]], [OPS_SETTINGS_ROWS[2][0], OPS_SETTINGS_ROWS[3][0]], [OPS_SETTINGS_ROWS[6][0], OPS_SETTINGS_ROWS[7][0]]] : []).forEach(function (p) {
+      ? [[OPS_SETTINGS_ROWS[0][0], OPS_SETTINGS_ROWS[1][0]], [OPS_SETTINGS_ROWS[2][0], OPS_SETTINGS_ROWS[3][0]], [OPS_SETTINGS_ROWS[6][0], OPS_SETTINGS_ROWS[7][0]]] : [])
+     .concat(typeof RENTAL_SETTINGS_ROWS !== 'undefined'
+      ? [[RENTAL_SETTINGS_ROWS[1][0], RENTAL_SETTINGS_ROWS[2][0]], [RENTAL_SETTINGS_ROWS[3][0], RENTAL_SETTINGS_ROWS[4][0]]] : []).forEach(function (p) {
       if (Number(get(p[0])) >= Number(get(p[1]))) errors.push('"' + p[1] + '" must be longer than "' + p[0] + '".');
     });
   }
@@ -1019,6 +1033,7 @@ function saveSettings_(values) {
   cache.remove('sb_settings');
   cache.remove('ops_settings');
   cache.remove('gate_nudge_hours'); cache.remove('gate_overdue');
+  cache.remove('rental_settings');
   if (changes.length) logActivity_(me, 'Changed settings', '', changes.join('; ').slice(0, 45000));
   return { changed: changes.length, changes: changes };
 }

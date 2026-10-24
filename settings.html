@@ -59,12 +59,13 @@
   </div>
 
   <script>
-    var GROUPS = ['Office hours', 'Approvers', 'Approval timings', 'Standby limits', 'Ops nudges'];
+    var GROUPS = ['Office hours', 'Approvers', 'Approval timings', 'Standby limits', 'Ops nudges', 'Rentals'];
     var GROUP_NOTES = {
       'Office hours': 'Reminder and escalation clocks only run during these hours. Standbys end at the next office opening on or after their resume date.',
       'Approvers': 'Who is reminded first, and who gets the escalation when a request is still waiting.',
       'Approval timings': 'Counted in office minutes. The escalation must come after the reminder.',
       'Standby limits': 'Past any of these, an admin\u2019s approval goes on to a director. The hard limits are fixed in the code.',
+      'Rentals': 'Rental reminders go to the first approver (Ananthu) and escalate to the escalation contact above. Working hours and days skip Sundays and holidays. The pickup deadline is provisional until Sambhu decides it.',
       'Ops nudges': 'Reminders to Ops, Accounts and CREs. Units are in each name: hours and days count working days only (Sundays and holidays skipped); office hours count office time only. Messages go out during office hours; anything due at night goes the next morning.'
     };
     var DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -87,6 +88,10 @@
       if (r.kind === 'holidays') {
         return '<textarea id="' + id + '" rows="3" placeholder="e.g. 02-Oct-2026, 20-Oct-2026">' + esc(v) + '</textarea>' +
           '<div class="hol-add"><input type="date" id="' + id + 'd"><button type="button" data-for="' + id + '">Add date</button></div>';
+      }
+      if (r.kind === 'yesno') {
+        var yes = String(v).toLowerCase() === 'yes';
+        return '<select id="' + id + '"><option value="No"' + (yes ? '' : ' selected') + '>No</option><option value="Yes"' + (yes ? ' selected' : '') + '>Yes</option></select>';
       }
       if (r.kind === 'staff') {
         return '<select id="' + id + '"><option value="">\u2013 none (all admins) \u2013</option>' + data.approvers.map(function (a) {
@@ -112,7 +117,7 @@
         if (!rows.length) return '';
         return '<div class="card" style="margin-bottom:18px;"><h2>' + esc(g) + '</h2><div class="subtitle">' + esc(GROUP_NOTES[g] || '') + '</div>' +
           rows.map(function (x) {
-            return '<div class="field" id="row' + x.i + '"><div><div class="lab">' + esc(x.r.label.replace(/^Standby( approval)?: /, '').replace(/ \(staff code\)$/, '')) + '</div>' +
+            return '<div class="field" id="row' + x.i + '"><div><div class="lab">' + esc(x.r.label.replace(/^Standby( approval)?: /, '').replace(/^Rentals: /, '').replace(/ \(staff code\)$/, '')) + '</div>' +
               '<div class="help">' + esc(x.r.help) + (x.r.max ? ' (' + x.r.min + ' to ' + Number(x.r.max).toLocaleString('en-IN') + ')' : '') + '</div>' +
               (x.r.saved ? '' : '<div class="unsaved">Not in the sheet yet \u2013 using the default. Save to add it.</div>') +
               '</div><div>' + inputFor(x.r, x.i) + '</div></div>';

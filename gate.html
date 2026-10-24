@@ -52,6 +52,17 @@
     .toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: #1F3864; color: #fff; padding: 12px 18px; border-radius: 8px; font-size: 14px; font-weight: 600; z-index: 6000; display: none; max-width: 92vw; text-align: center; box-shadow: 0 4px 16px rgba(0,0,0,0.25); }
     .toast.show { display: block; }
     .toast.bad { background: #B00020; }
+    /* Rentals (Oct 2026) */
+    .rental-sec { display: none; }
+    .rental-sec.show { display: block; }
+    .card.rent { border-left-color: #6b4c9a; }
+    .rtag { display: inline-block; font-size: 11px; font-weight: 800; padding: 2px 8px; border-radius: 10px; background: #efe9f8; color: #6b4c9a; margin-left: 6px; vertical-align: middle; }
+    .ids { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px; color: #333; margin-top: 6px; word-break: break-word; }
+    .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .chips label { display: inline-flex; align-items: center; padding: 8px 10px; border-radius: 16px; font-size: 14px; font-weight: 700; border: 1px solid #d5dbe0; background: #1F3864; color: #fff; cursor: pointer; }
+    .chips label.off { background: #fff; color: #B00020; border-color: #e2a19a; text-decoration: line-through; }
+    .chips input { display: none; }
+    .card input[type=text] { width: 100%; padding: 11px; font-size: 16px; border: 1px solid #ccc; border-radius: 6px; margin-top: 8px; }
   </style>
 </head>
 <body>
@@ -75,6 +86,15 @@
 
     <h2>Left today<span class="count" id="leftCount">0</span></h2>
     <div id="left"><div class="empty">Loading...</div></div>
+
+    <div class="rental-sec" id="rentalSec">
+      <h2>Rental trips – to let out<span class="count" id="rOutCount">0</span></h2>
+      <div id="rOut"></div>
+      <h2>Rental pickups – coming in<span class="count" id="rInCount">0</span></h2>
+      <div id="rIn"></div>
+      <h2>Rentals through the gate today<span class="count" id="rTodayCount">0</span></h2>
+      <div id="rToday"></div>
+    </div>
   </div>
   <div class="toast" id="toast"></div>
 
@@ -171,7 +191,80 @@
     });
   }
 
+  // ---- Rentals (Oct 2026): trips out with a rental gate pass, and pickups coming back ----
+  var RDATA = null;
+  function rMatches(t, q) {
+    if (!q) return true;
+    var hay = (t.vehicleNo + ' ' + t.gatePassNo + ' ' + t.customer + ' ' + t.tripId + ' ' + t.rentalId + ' ' + t.items.join(' ')).toLowerCase().replace(/[\s-]/g, '');
+    return hay.indexOf(q.toLowerCase().replace(/[\s-]/g, '')) !== -1;
+  }
+  function rOutCard(t) {
+    return '<div class="card rent" data-rtrip="' + esc(t.tripId) + '"><div class="veh">' + esc(t.vehicleNo) + '<span class="rtag">RENTAL</span></div>' +
+      '<div class="gp">Gate pass ' + esc(t.gatePassNo) + ' · ' + esc(t.tripId) + '</div><div class="inst">' + esc(t.customer) + '</div>' +
+      '<div class="meta">' + (t.site ? esc(t.site) + '<br>' : '') + '<b>' + esc(t.counts) + '</b>' + (t.gatePassUrl ? ' · <a class="pdf" href="' + esc(t.gatePassUrl) + '" target="_blank">View gate pass</a>' : '') + '</div>' +
+      '<div class="ids">' + esc(t.items.join(', ')) + '</div>' +
+      '<div class="acts step1"><button type="button" class="btn go">Vehicle left – mark out</button></div>' +
+      '<div class="step2" style="display:none;"><div class="confirm">Vehicle ' + esc(t.vehicleNo) + ' with rental gate pass ' + esc(t.gatePassNo) + ' has left, with the items on the gate pass?</div>' +
+      '<div class="acts"><button type="button" class="btn yes">Yes, it has left</button><button type="button" class="btn no">Cancel</button></div></div><div class="err"></div></div>';
+  }
+  function rInCard(t) {
+    return '<div class="card rent" data-rtrip="' + esc(t.tripId) + '"><div class="veh">' + esc(t.vehicleNo) + '<span class="rtag">RENTAL PICKUP</span></div>' +
+      '<div class="gp">' + esc(t.tripId) + ' · ' + esc(t.rentalId) + '</div><div class="inst">' + esc(t.customer) + '</div>' +
+      '<div class="meta"><b>' + esc(t.counts) + '</b> expected. Tap any item that is NOT on the vehicle.</div>' +
+      '<div class="chips">' + t.items.map(function (x) { return '<label><input type="checkbox" value="' + esc(x) + '" checked>' + esc(x) + '</label>'; }).join('') + '</div>' +
+      '<input type="text" class="rnote" placeholder="If something is missing: what happened? (e.g. left at site)">' +
+      '<div class="acts"><button type="button" class="btn in">Arrived – mark in</button></div><div class="err"></div></div>';
+  }
+  function rTodayCard(t) {
+    return '<div class="card done"><div class="veh" style="font-size:19px;">' + esc(t.vehicleNo) + '<span class="rtag">' + (t.direction === 'Out' ? 'OUT' : 'IN') + '</span></div>' +
+      '<div class="gp">' + esc(t.tripId) + ' · ' + esc(t.rentalId) + '</div><div class="inst">' + esc(t.customer) + '</div><div class="meta">' + esc(t.counts) + ' · ' + esc(t.gateAt) + (t.gateNote ? '<br>' + esc(t.gateNote) : '') + '</div></div>';
+  }
+  function renderRentals() {
+    var sec = document.getElementById('rentalSec');
+    if (!RDATA || !RDATA.live) { sec.classList.remove('show'); return; }
+    sec.classList.add('show');
+    var q = document.getElementById('q').value.trim();
+    var o = RDATA.out.filter(function (t) { return rMatches(t, q); }), i = RDATA.expected.filter(function (t) { return rMatches(t, q); });
+    document.getElementById('rOutCount').textContent = RDATA.out.length;
+    document.getElementById('rInCount').textContent = RDATA.expected.length;
+    document.getElementById('rTodayCount').textContent = RDATA.today.length;
+    document.getElementById('rOut').innerHTML = o.length ? o.map(rOutCard).join('') : '<div class="empty">No rental trips waiting to leave.</div>';
+    document.getElementById('rIn').innerHTML = i.length ? i.map(rInCard).join('') : '<div class="empty">No rental pickups expected.</div>';
+    document.getElementById('rToday').innerHTML = RDATA.today.length ? RDATA.today.map(rTodayCard).join('') : '<div class="empty">None yet today.</div>';
+    Array.prototype.forEach.call(document.querySelectorAll('#rOut .card'), function (el) {
+      var id = el.getAttribute('data-rtrip'), s1 = el.querySelector('.step1'), s2 = el.querySelector('.step2'), err = el.querySelector('.err');
+      el.querySelector('.go').addEventListener('click', function () { s1.style.display = 'none'; s2.style.display = 'block'; });
+      el.querySelector('.no').addEventListener('click', function () { s2.style.display = 'none'; s1.style.display = 'flex'; });
+      el.querySelector('.yes').addEventListener('click', function () {
+        var b = this; b.disabled = true; b.textContent = 'Saving...'; err.className = 'err';
+        authRun().withSuccessHandler(function () { toast('Rental trip ' + id + ' marked out.'); load(); })
+          .withFailureHandler(function (e) { b.disabled = false; b.textContent = 'Yes, it has left'; err.textContent = String(e && e.message || e).replace(/^(Error:\s*)+/, ''); err.className = 'err show'; })
+          .markRentalTripOut({ tripId: id });
+      });
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('#rIn .card'), function (el) {
+      var id = el.getAttribute('data-rtrip'), err = el.querySelector('.err');
+      Array.prototype.forEach.call(el.querySelectorAll('.chips label'), function (l) {
+        l.addEventListener('click', function (e) { e.preventDefault(); var c = l.querySelector('input'); c.checked = !c.checked; l.classList.toggle('off', !c.checked); });
+      });
+      el.querySelector('.in').addEventListener('click', function () {
+        var b = this;
+        var missing = Array.prototype.filter.call(el.querySelectorAll('.chips input'), function (c) { return !c.checked; }).map(function (c) { return c.value; });
+        b.disabled = true; b.textContent = 'Saving...'; err.className = 'err';
+        authRun().withSuccessHandler(function (r) { toast(r.received + ' item(s) in' + (r.missing.length ? ', ' + r.missing.length + ' missing' : '') + '.'); load(); })
+          .withFailureHandler(function (e) { b.disabled = false; b.textContent = 'Arrived – mark in'; err.textContent = String(e && e.message || e).replace(/^(Error:\s*)+/, ''); err.className = 'err show'; })
+          .markRentalTripIn({ tripId: id, missing: missing, note: el.querySelector('.rnote').value });
+      });
+    });
+  }
+  function loadRentals() {
+    authRun().withSuccessHandler(function (d) { RDATA = d; renderRentals(); })
+      .withFailureHandler(function () { RDATA = null; renderRentals(); })
+      .getRentalGateQueue();
+  }
+
   function load() {
+    loadRentals();
     authRun()
       .withSuccessHandler(function (d) { DATA = d || { live: false, waiting: [], leftToday: [] }; render(); })
       .withFailureHandler(function (e) {
@@ -180,7 +273,7 @@
       .getGateQueue();
   }
 
-  document.getElementById('q').addEventListener('input', render);
+  document.getElementById('q').addEventListener('input', function () { render(); renderRentals(); });
   document.getElementById('refreshBtn').addEventListener('click', load);
   window.ICF_RELOAD = load;
   // Refresh every 2 minutes while the page is open, so a new gate pass shows without tapping.

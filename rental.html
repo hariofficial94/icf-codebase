@@ -1,0 +1,974 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <!--
+    ICF Rentals page (?page=rental) -- Oct 2026. One page for everyone on a
+    rental: the CRE logs it once the advance is paid, Accounts verifies it,
+    Ananthu (Admin) acknowledges or schedules it and enters the component
+    configuration, Manoj (Ops) tags items and loads trips, Accounts issues the
+    rental gate pass, Ananthu marks installations, the CRE records off-hires,
+    Ananthu records suction and plans pickups, Manoj inspects what comes back,
+    Accounts settles. Sanju marks rental trips out/in on the Gate page.
+    Each person sees only their own tiles and buttons -- the server decides
+    (getRentalHome_ / getRentalOrder_ "can"). Server side: Rental.gs,
+    RentalFleet.gs.
+  -->
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; background: #f4f6f8; color: #222; padding: 16px 12px 60px; -webkit-text-size-adjust: 100%; }
+    .wrap { max-width: 860px; margin: 0 auto; }
+    .top { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+    .top h1 { font-size: 22px; color: #1F3864; margin: 0; }
+    .top .sub { font-size: 12.5px; color: #666; margin-top: 2px; }
+    .top .btns { display: flex; gap: 8px; flex-wrap: wrap; }
+    button { font-family: inherit; }
+    .btn-ghost { padding: 9px 14px; font-size: 13px; font-weight: 600; background: #fff; color: #2E74B5; border: 1px solid #d5dbe0; border-radius: 6px; cursor: pointer; }
+    .btn-new { padding: 9px 14px; font-size: 13px; font-weight: 700; background: #2c7a3f; color: #fff; border: none; border-radius: 6px; cursor: pointer; }
+    .btn-alerts { display: none; padding: 9px 12px; font-size: 13px; font-weight: 700; background: #fdecee; color: #B00020; border: 1px solid #f0a9a3; border-radius: 6px; cursor: pointer; }
+    .btn-alerts.show { display: inline-block; }
+    .notlive { display: none; background: #fff4e5; border: 1px solid #f0c98a; color: #7a5300; border-radius: 8px; padding: 10px 12px; font-size: 13.5px; margin-bottom: 12px; }
+    .notlive.show { display: block; }
+    .search { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+    .search input[type=text] { flex: 1; min-width: 200px; padding: 12px; font-size: 16px; border: 1px solid #ccc; border-radius: 6px; }
+    .search button { padding: 0 16px; font-size: 15px; font-weight: 600; background: #1F3864; color: #fff; border: none; border-radius: 6px; cursor: pointer; min-height: 44px; }
+    .search .chk { display: flex; align-items: center; gap: 6px; font-size: 13px; color: #555; }
+
+    .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin-bottom: 12px; }
+    .tile { background: #fff; border-radius: 10px; box-shadow: 0 1px 6px rgba(0,0,0,0.07); padding: 11px 12px; cursor: pointer; border: 2px solid transparent; user-select: none; }
+    .tile .v { font-size: 24px; font-weight: 800; color: #1F3864; line-height: 1.1; }
+    .tile .l { font-size: 12px; font-weight: 700; color: #666; margin-top: 3px; }
+    .tile.active { border-color: #1F3864; background: #f3f6fb; }
+    .tile.alert { box-shadow: 0 0 0 2px #B00020 inset, 0 1px 6px rgba(0,0,0,0.07); }
+    .tile.alert .v { color: #B00020; }
+    .tile.quiet .v { color: #8a94a3; }
+    @media (max-width: 420px) { .tiles { grid-template-columns: 1fr 1fr; } }
+    .tab-note { font-size: 12.5px; color: #666; margin: 0 2px 10px; }
+
+    .card { background: #fff; border-radius: 10px; box-shadow: 0 1px 6px rgba(0,0,0,0.07); padding: 14px; margin-bottom: 10px; border-left: 4px solid #2E74B5; cursor: pointer; }
+    .card.bad { border-left-color: #B00020; }
+    .card.warn { border-left-color: #E0A800; }
+    .card.ok { border-left-color: #2c7a3f; }
+    .card.plain { cursor: default; }
+    .card .row1 { display: flex; justify-content: space-between; gap: 8px; align-items: flex-start; }
+    .card .inst { font-size: 15.5px; font-weight: 700; color: #1F3864; }
+    .card .id { font-size: 12.5px; color: #666; margin-top: 2px; }
+    .card .meta { font-size: 13px; color: #444; margin-top: 6px; line-height: 1.45; }
+    .card .stage { font-size: 13px; font-weight: 700; color: #2E74B5; margin-top: 6px; }
+    .card .acts { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+    .badge { flex: 0 0 auto; font-size: 11px; font-weight: 800; padding: 3px 8px; border-radius: 10px; background: #eef1f4; color: #1F3864; white-space: nowrap; }
+    .badge.bad { background: #B00020; color: #fff; }
+    .badge.warn { background: #fff1dc; color: #9a5b00; }
+    .badge.ok { background: #e7f4ea; color: #2c7a3f; }
+    .itemid { font-size: 22px; font-weight: 800; color: #1F3864; letter-spacing: 0.02em; }
+    .btn { padding: 12px 14px; font-size: 15px; font-weight: 700; border-radius: 8px; border: none; cursor: pointer; background: #1F3864; color: #fff; }
+    .btn.green { background: #2c7a3f; }
+    .btn.red { background: #B00020; }
+    .btn.light { background: #eef1f4; color: #1F3864; }
+    .btn.block { display: block; width: 100%; margin-top: 12px; }
+    .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+    .empty { text-align: center; color: #888; font-size: 14px; padding: 30px 10px; background: #fff; border-radius: 10px; }
+
+    /* Rental sheet (full-screen on phones) */
+    .sheet { display: none; position: fixed; inset: 0; z-index: 900; background: #f4f6f8; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+    .sheet.show { display: block; }
+    .sheet-box { max-width: 860px; margin: 0 auto; padding: 12px 12px 80px; }
+    .sheet-head { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 10px; background: #f4f6f8; padding: 6px 0 10px; }
+    .sheet-head .t { font-size: 15px; font-weight: 700; color: #1F3864; }
+    .panel { background: #fff; border-radius: 10px; box-shadow: 0 1px 6px rgba(0,0,0,0.07); padding: 14px; margin-bottom: 12px; }
+    .panel.act { border-left: 4px solid #2c7a3f; }
+    .panel.act.warn { border-left-color: #E0A800; }
+    .panel h2 { font-size: 15px; color: #1F3864; margin: 0 0 10px; }
+    .panel h3 { font-size: 13.5px; color: #1F3864; margin: 14px 0 6px; }
+    .kv { display: grid; grid-template-columns: 150px 1fr; gap: 6px 10px; font-size: 14px; }
+    .kv .k { color: #777; }
+    .kv .v { color: #222; word-break: break-word; }
+    a { color: #2E74B5; font-weight: 600; }
+    .status-line { font-size: 14px; padding: 10px 12px; border-radius: 8px; background: #eef1f4; color: #1F3864; font-weight: 700; margin-bottom: 12px; line-height: 1.4; }
+    .status-line.warn { background: #fff4e5; color: #7a5300; }
+    .status-line.ok { background: #e7f4ea; color: #2c5a1e; }
+    .status-line.bad { background: #fdecee; color: #B00020; }
+    label { display: block; font-size: 13px; font-weight: 700; color: #333; margin: 12px 0 5px; }
+    input[type=text], input[type=number], input[type=date], input[type=email], input[type=tel], select, textarea { width: 100%; padding: 11px; font-size: 16px; border: 1px solid #ccc; border-radius: 6px; background: #fff; font-family: inherit; }
+    textarea { min-height: 64px; }
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
+    .grid3 { display: grid; grid-template-columns: 2fr 2fr 1fr auto; gap: 8px; align-items: end; }
+    @media (max-width: 560px) { .grid2 { grid-template-columns: 1fr; } .kv { grid-template-columns: 110px 1fr; } .grid3 { grid-template-columns: 1fr 1fr; } }
+    .hint { font-size: 12.5px; color: #666; margin-top: 5px; line-height: 1.4; }
+    .warnbox { background: #fff4e5; border: 1px solid #f0c98a; color: #7a5300; border-radius: 8px; padding: 10px 12px; font-size: 14px; line-height: 1.45; margin-bottom: 10px; }
+    .okbox { background: #e7f4ea; border: 1px solid #b7dcc0; color: #2c5a1e; border-radius: 8px; padding: 10px 12px; font-size: 14px; line-height: 1.45; margin: 10px 0; }
+    .err { display: none; margin-top: 10px; padding: 10px 12px; font-size: 13.5px; color: #B00020; background: #fdecee; border-radius: 6px; }
+    .err.show { display: block; }
+    .tick { display: flex; gap: 8px; align-items: flex-start; font-weight: 600; font-size: 14px; margin-top: 12px; }
+    .tick input { width: 20px; height: 20px; flex: 0 0 auto; margin-top: 1px; }
+    details.more { margin-top: 2px; }
+    details.more > summary { font-size: 14px; font-weight: 700; color: #2E74B5; cursor: pointer; padding: 6px 0; }
+    table.t { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+    table.t th { text-align: left; color: #666; font-weight: 700; font-size: 12px; padding: 6px; border-bottom: 1px solid #e3e7eb; }
+    table.t td { padding: 7px 6px; border-bottom: 1px solid #f0f2f4; vertical-align: top; }
+    table.t td.n, table.t th.n { text-align: right; white-space: nowrap; }
+    .scroll { overflow-x: auto; }
+    .need { display: flex; justify-content: space-between; gap: 10px; padding: 8px 0; border-bottom: 1px dashed #eee; font-size: 14px; align-items: center; }
+    .need:last-child { border-bottom: none; }
+    .need b { color: #1F3864; }
+    .picker { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+    .picker label { margin: 0; display: inline-flex; align-items: center; gap: 5px; padding: 7px 10px; border: 1px solid #d5dbe0; border-radius: 16px; font-size: 13.5px; font-weight: 700; color: #1F3864; background: #fff; cursor: pointer; }
+    .picker label.on { background: #1F3864; color: #fff; border-color: #1F3864; }
+    .picker input { display: none; }
+    .picker-tools { font-size: 12.5px; margin-top: 6px; }
+    .picker-tools a { cursor: pointer; margin-right: 12px; }
+    .ids { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px; color: #333; word-break: break-word; }
+    .newids { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 20px; font-weight: 800; color: #1F3864; background: #e7f4ea; border-radius: 8px; padding: 12px; margin-top: 10px; text-align: center; }
+    .hist { font-size: 13px; color: #444; line-height: 1.5; padding: 4px 0; border-bottom: 1px solid #f2f4f6; }
+    .money { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin-bottom: 8px; }
+    .money div { background: #f6f8fa; border-radius: 8px; padding: 9px 10px; }
+    .money .k { font-size: 11.5px; color: #666; font-weight: 700; }
+    .money .v { font-size: 17px; font-weight: 800; color: #1F3864; margin-top: 2px; }
+    .money .v.bad { color: #B00020; }
+    .money .v.est { color: #6b4c9a; }
+    .line { border: 1px solid #e3e7eb; border-radius: 8px; padding: 10px; margin-top: 8px; }
+    .line .top2 { display: flex; justify-content: space-between; gap: 8px; font-size: 14px; }
+    .line .sub2 { font-size: 12.5px; color: #666; margin-top: 3px; }
+    .inline { display: flex; gap: 8px; flex-wrap: wrap; align-items: end; margin-top: 8px; }
+    .inline > * { flex: 1 1 120px; }
+    .inline > button { flex: 0 0 auto; }
+    .photo-prev { margin-top: 8px; max-width: 100%; max-height: 240px; border-radius: 6px; display: none; }
+
+    /* Pop-up: needs your attention */
+    .modal { display: none; position: fixed; inset: 0; z-index: 4000; background: rgba(20,30,45,0.45); align-items: flex-start; justify-content: center; padding: 8vh 12px 12px; overflow-y: auto; }
+    .modal.show { display: flex; }
+    .modal-box { width: 100%; max-width: 560px; background: #fff; border-radius: 10px; box-shadow: 0 8px 30px rgba(0,0,0,0.25); overflow: hidden; }
+    .modal-head { background: #1F3864; color: #fff; padding: 14px 18px; font-size: 16px; font-weight: 700; }
+    .modal-body { padding: 8px 18px 4px; max-height: 60vh; overflow-y: auto; }
+    .modal-foot { padding: 12px 18px 16px; text-align: right; }
+    .al { display: flex; gap: 10px; align-items: flex-start; padding: 10px 0; border-bottom: 1px solid #eef0f2; font-size: 14px; line-height: 1.4; }
+    .al:last-child { border-bottom: none; }
+    .al .dot { flex: 0 0 10px; height: 10px; border-radius: 5px; margin-top: 5px; background: #E0A800; }
+    .al.bad .dot { background: #B00020; }
+    .al .txt { flex: 1; }
+    .al a { white-space: nowrap; cursor: pointer; }
+    .toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: #1F3864; color: #fff; padding: 12px 18px; border-radius: 8px; font-size: 14px; font-weight: 600; z-index: 6000; display: none; max-width: 92vw; text-align: center; box-shadow: 0 4px 16px rgba(0,0,0,0.25); }
+    .toast.show { display: block; }
+    .toast.bad { background: #B00020; }
+  </style>
+</head>
+<body>
+  <script>window.ICF_PAGE = 'rental';</script>
+  <?!= include('auth'); ?>
+
+  <div class="wrap">
+    <div class="top">
+      <div>
+        <h1>Rentals</h1>
+        <div class="sub" id="topSub">Rental toilets – from paid order to return.</div>
+      </div>
+      <div class="btns">
+        <button type="button" class="btn-alerts" id="alertsBtn"></button>
+        <button type="button" class="btn-new" id="newBtn" style="display:none;">+ New rental</button>
+        <button type="button" class="btn-ghost refresh-btn" id="refreshBtn">&#8635; Refresh</button>
+      </div>
+    </div>
+    <div class="notlive" id="notLive">Rentals aren’t switched on yet – the admin still has to run “Rentals: set up and go live” on the ICF Admin menu. Until then, keep handling rentals as before.</div>
+
+    <div class="search">
+      <input type="text" id="q" placeholder="Find a rental: RNT no., customer, phone, UTR or an item ID like T-0012" autocomplete="off">
+      <label class="chk"><input type="checkbox" id="qClosed"> include closed</label>
+      <button type="button" id="qBtn">Find</button>
+    </div>
+
+    <div class="tiles" id="tiles"></div>
+    <div class="tab-note" id="tabNote"></div>
+    <div id="list"><div class="empty">Loading...</div></div>
+  </div>
+
+  <div class="sheet" id="sheet">
+    <div class="sheet-box">
+      <div class="sheet-head">
+        <button type="button" class="btn-ghost" id="sheetBack">&larr; Back</button>
+        <div class="t" id="sheetTitle"></div>
+      </div>
+      <div id="sheetBody"></div>
+    </div>
+  </div>
+
+  <div class="modal" id="alertModal">
+    <div class="modal-box">
+      <div class="modal-head">Needs your attention</div>
+      <div class="modal-body" id="alertBody"></div>
+      <div class="modal-foot"><button type="button" class="btn" id="alertClose">OK</button></div>
+    </div>
+  </div>
+  <div class="toast" id="toast"></div>
+
+<script>
+(function () {
+  var HOME = null, TILE = null, DETAIL = null, SEARCH = null, OVERVIEW = null;
+  var seenAlerts = {};
+
+  // ---------------- small helpers ----------------
+  function $(id) { return document.getElementById(id); }
+  function esc(t) { return String(t == null ? '' : t).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+  function rupees(n) { n = Math.round(Number(n) || 0); return (n < 0 ? '-' : '') + '₹' + Math.abs(n).toLocaleString('en-IN'); }
+  function toast(msg, bad) { var t = $('toast'); t.textContent = msg; t.className = 'toast show' + (bad ? ' bad' : ''); clearTimeout(toast._t); toast._t = setTimeout(function () { t.className = 'toast'; }, 4000); }
+  function msgOf(e) { return String((e && e.message) || e || 'Something went wrong.').replace(/^(Error:\s*)+/, ''); }
+  function showErr(id, e) { var el = $(id); if (!el) { toast(msgOf(e), true); return; } el.textContent = msgOf(e); el.className = 'err show'; }
+  function hideErr(id) { var el = $(id); if (el) el.className = 'err'; }
+  function val(id) { var el = $(id); return el ? String(el.value || '').trim() : ''; }
+  function role() { return HOME ? HOME.role : ''; }
+  function isCoord() { return HOME && HOME.coordinator; }
+  function addDays(ymd, n) { var p = ymd.split('-'); var d = new Date(Date.UTC(+p[0], +p[1] - 1, +p[2] + n)); return d.toISOString().slice(0, 10); }
+  function daysText(n) { if (n === null || n === undefined) return ''; if (n === 0) return 'today'; if (n > 0) return 'in ' + n + ' day' + (n === 1 ? '' : 's'); return (-n) + ' day' + (n === -1 ? '' : 's') + ' ago'; }
+
+  /** Calls the server; disables the button meanwhile; shows the error under the form. */
+  function run(fn, args, btn, errId, done) {
+    var label = btn ? btn.textContent : '';
+    if (btn) { btn.disabled = true; btn.textContent = 'Saving...'; }
+    hideErr(errId);
+    var call = authRun()
+      .withSuccessHandler(function (res) { if (btn) { btn.disabled = false; btn.textContent = label; } done(res); })
+      .withFailureHandler(function (e) { if (btn) { btn.disabled = false; btn.textContent = label; } showErr(errId, e); });
+    call[fn].apply(call, args);
+  }
+
+  /** Shrinks a photo to 1600 px JPEG before upload; PDFs go as they are. */
+  function prepareFile(file, done) {
+    var reader = new FileReader();
+    reader.onerror = function () { done('Could not read that file. Try again.'); };
+    reader.onload = function () {
+      var dataUrl = String(reader.result || '');
+      var raw = { data: dataUrl.split(',')[1] || '', mimeType: file.type || 'image/jpeg', name: file.name || 'file' };
+      if (!/^image\//.test(file.type || '')) { if (file.size > 8 * 1024 * 1024) return done('That file is over 8 MB.'); return done(null, raw); }
+      var img = new Image();
+      img.onload = function () {
+        try {
+          var max = 1600, w = img.naturalWidth, h = img.naturalHeight, s = Math.min(1, max / Math.max(w, h));
+          var c = document.createElement('canvas'); c.width = Math.round(w * s); c.height = Math.round(h * s);
+          c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+          var out = c.toDataURL('image/jpeg', 0.78);
+          done(null, { data: out.split(',')[1], mimeType: 'image/jpeg', name: 'photo.jpg', preview: out });
+        } catch (e) { if (file.size > 8 * 1024 * 1024) return done('That photo is too large.'); done(null, raw); }
+      };
+      img.onerror = function () { if (file.size > 8 * 1024 * 1024) return done('That photo is too large.'); done(null, raw); };
+      img.src = dataUrl;
+    };
+    reader.readAsDataURL(file);
+  }
+  /** Wires a file input; returns a getter for the prepared file (or null). */
+  function fileField(inputId, previewId, errId) {
+    var state = { file: null };
+    var el = $(inputId);
+    if (!el) return function () { return null; };
+    el.addEventListener('change', function () {
+      state.file = null; hideErr(errId);
+      var f = el.files && el.files[0];
+      if (!f) return;
+      prepareFile(f, function (err, out) {
+        if (err) { showErr(errId, err); return; }
+        state.file = out;
+        var p = previewId && $(previewId);
+        if (p && out.preview) { p.src = out.preview; p.style.display = 'block'; }
+      });
+    });
+    return function () { return state.file; };
+  }
+
+  /** Chip-style multi-select of item IDs. */
+  function picker(id, items, allOn) {
+    if (!items.length) return '<div class="hint">None.</div>';
+    return '<div class="picker" id="' + id + '">' + items.map(function (it) {
+      return '<label class="' + (allOn ? 'on' : '') + '" title="' + esc(it.type) + '"><input type="checkbox" value="' + esc(it.itemId) + '"' + (allOn ? ' checked' : '') + '>' + esc(it.itemId) + '</label>';
+    }).join('') + '</div><div class="picker-tools"><a data-pick="' + id + '" data-all="1">Select all</a><a data-pick="' + id + '" data-all="0">Clear</a> <span id="' + id + 'N"></span></div>';
+  }
+  function bindPickers(root) {
+    Array.prototype.forEach.call(root.querySelectorAll('.picker'), function (p) {
+      var count = function () { var n = p.querySelectorAll('input:checked').length; var c = $(p.id + 'N'); if (c) c.textContent = n + ' selected'; };
+      Array.prototype.forEach.call(p.querySelectorAll('label'), function (l) {
+        l.addEventListener('click', function (e) { e.preventDefault(); var i = l.querySelector('input'); i.checked = !i.checked; l.classList.toggle('on', i.checked); count(); });
+      });
+      count();
+    });
+    Array.prototype.forEach.call(root.querySelectorAll('[data-pick]'), function (a) {
+      a.addEventListener('click', function () {
+        var p = $(a.getAttribute('data-pick')), on = a.getAttribute('data-all') === '1';
+        Array.prototype.forEach.call(p.querySelectorAll('label'), function (l) { l.querySelector('input').checked = on; l.classList.toggle('on', on); });
+        var c = $(p.id + 'N'); if (c) c.textContent = (on ? p.querySelectorAll('label').length : 0) + ' selected';
+      });
+    });
+  }
+  function picked(id) { var p = $(id); return p ? Array.prototype.map.call(p.querySelectorAll('input:checked'), function (i) { return i.value; }) : []; }
+
+  // ---------------- home: tiles and lists ----------------
+  var TILES = [
+    { key: 'sentBack', label: 'Sent back to you', kind: 'order', alert: true, note: 'Accounts sent these back. Open one, correct it and save – it goes back to Accounts.' },
+    { key: 'mine', label: 'Open rentals', kind: 'order', note: 'Your open rentals. Record off-hires and extensions here, and mark payments the customer has made.' },
+    { key: 'toVerify', label: 'Advances to verify', kind: 'order', alert: true, note: 'Check the advance in the bank against the UTR, then verify – or send it back to the CRE.' },
+    { key: 'paymentsToVerify', label: 'Payments to verify', kind: 'payment', alert: true, note: 'The CRE says the customer paid. Check the bank, then verify.' },
+    { key: 'gatePasses', label: 'Gate passes to issue', kind: 'trip', alert: true, note: 'Ops has loaded these trips. Issue and print the rental gate pass – it lists every item ID.' },
+    { key: 'toSettle', label: 'To settle', kind: 'order', note: 'Everything is back. Bill any overrun, record the balance and close.' },
+    { key: 'toAck', label: 'To acknowledge', kind: 'order', alert: true, note: 'Verified rentals. Acknowledge – or, for one needed far ahead, set a reminder date.' },
+    { key: 'scheduled', label: 'Scheduled', kind: 'order', quiet: true, note: 'Rentals you set a reminder for. They come back to “To acknowledge” on that date, with no nudges until then.' },
+    { key: 'toConfigure', label: 'To configure', kind: 'order', alert: true, note: 'Enter how many toilets, septic tanks, water tanks and stands go out.' },
+    { key: 'toPrepare', label: 'To prepare', kind: 'order', note: 'Tag or allocate the items, then load a trip and request the gate pass. Soonest first.' },
+    { key: 'requested', label: 'Loaded – at the gate', kind: 'trip', quiet: true, note: 'Trips waiting for the gate pass or for the gate to mark them out.' },
+    { key: 'toInstall', label: 'To install', kind: 'order', note: 'Items have left the factory. Mark them installed with the site photo – rent starts from that date.' },
+    { key: 'onHire', label: 'On hire', kind: 'order', quiet: true, note: 'Rentals with items installed at site.' },
+    { key: 'pickups', label: 'Off-hired – to pick up', kind: 'order', note: 'Record the suction and plan the pickup.' },
+    { key: 'toInspect', label: 'To inspect', kind: 'inspect', note: 'Back at the factory. Mark each item OK, or damaged with what is wrong.' },
+    { key: 'repair', label: 'Under repair', kind: 'repair', quiet: true, note: 'Damaged items. Mark them repaired when they can go out again.' },
+    { key: 'inProgress', label: 'All open', kind: 'order', quiet: true, note: 'Every acknowledged rental that isn’t closed yet.' }
+  ];
+
+  function load() {
+    authRun()
+      .withSuccessHandler(function (h) { HOME = h; render(); maybeAlerts(false); if (TILE === 'overview') loadOverview(); })
+      .withFailureHandler(function (e) { $('list').innerHTML = '<div class="empty">Could not load: ' + esc(msgOf(e)) + '</div>'; })
+      .getRentalHome();
+  }
+
+  function render() {
+    if (!HOME) return;
+    $('notLive').classList.toggle('show', !HOME.live);
+    $('newBtn').style.display = HOME.live && (role() === 'CRE' || role() === 'Admin') ? '' : 'none';
+    var subs = { CRE: 'Log a rental once the advance is paid; record off-hires and extensions.', Accounts: 'Verify advances and payments, issue rental gate passes, settle.',
+      Ops: 'Tag and load items, inspect what comes back.', Director: 'Acknowledge, configure, install, pick up – and the overview.', Admin: 'Everything on rentals.' };
+    $('topSub').textContent = subs[role()] || '';
+    var q = HOME.queues || {};
+    var tiles = TILES.filter(function (t) { return q[t.key] !== undefined; });
+    if (isCoord()) tiles.push({ key: 'overview', label: 'Overview', kind: 'overview', note: 'Fleet by status, money and shortages.' });
+    if (!TILE || !tiles.some(function (t) { return t.key === TILE; })) {
+      var first = tiles.filter(function (t) { return t.kind !== 'overview' && (q[t.key] || []).length && !t.quiet; })[0] || tiles[0];
+      TILE = first ? first.key : null;
+    }
+    $('tiles').innerHTML = tiles.map(function (t) {
+      var n = t.kind === 'overview' ? '' : (q[t.key] || []).length;
+      var cls = 'tile' + (TILE === t.key && !SEARCH ? ' active' : '') + (t.alert && n ? ' alert' : '') + ((t.quiet || !n) && t.kind !== 'overview' ? ' quiet' : '');
+      return '<div class="' + cls + '" data-tile="' + t.key + '"><div class="v">' + (t.kind === 'overview' ? '&#9638;' : n) + '</div><div class="l">' + esc(t.label) + '</div></div>';
+    }).join('');
+    Array.prototype.forEach.call(document.querySelectorAll('[data-tile]'), function (el) {
+      el.addEventListener('click', function () { SEARCH = null; TILE = el.getAttribute('data-tile'); render(); if (TILE === 'overview') loadOverview(); });
+    });
+    if (SEARCH) { renderList(SEARCH.items, 'order', 'Search results for “' + SEARCH.q + '”.'); return; }
+    var def = tiles.filter(function (t) { return t.key === TILE; })[0];
+    if (!HOME.live) { $('list').innerHTML = ''; $('tabNote').textContent = ''; return; }
+    if (!def) { $('list').innerHTML = '<div class="empty">Nothing here for your role.</div>'; return; }
+    if (def.kind === 'overview') { $('tabNote').textContent = def.note; if (OVERVIEW) renderOverview(); else $('list').innerHTML = '<div class="empty">Loading...</div>'; return; }
+    renderList(q[def.key] || [], def.kind, def.note);
+  }
+
+  function orderCard(c) {
+    var lvl = c.stageKey === 'sentback' ? 'bad' : (c.daysToStart !== null && c.daysToStart <= 1 && ['prepare', 'configure', 'ack'].indexOf(c.stageKey) !== -1) ? 'bad' : (c.stageKey === 'scheduled' ? 'warn' : '');
+    return '<div class="card ' + lvl + '" data-open="' + esc(c.rentalId) + '">' +
+      '<div class="row1"><div><div class="inst">' + esc(c.customer) + '</div><div class="id">' + esc(c.rentalId) + (c.site ? ' · ' + esc(c.site) : '') + ' · CRE ' + esc(c.creName) + '</div></div>' +
+      '<span class="badge">' + esc(c.billingMode) + '</span></div>' +
+      '<div class="meta">' + c.toilets + ' toilet' + (c.toilets === 1 ? '' : 's') + ' requested · needed ' + esc(c.plannedStart) + (c.daysToStart !== null && c.status !== 'Closed' ? ' (' + daysText(c.daysToStart) + ')' : '') + ' to ' + esc(c.plannedEnd) +
+        (c.needTotal ? '<br>Configured ' + c.needTotal + ' items · ' + c.haveTotal + ' allocated or sent' : '') + '</div>' +
+      '<div class="stage">' + esc(c.stage) + '</div>' +
+      (c.sentBackNote ? '<div class="meta" style="color:#B00020;font-weight:600;">Sent back: ' + esc(c.sentBackNote) + '</div>' : '') + '</div>';
+  }
+  function tripCard(t) {
+    var acc = (role() === 'Accounts' || role() === 'Admin') && t.status === 'Gate pass requested';
+    return '<div class="card' + (acc ? ' warn' : '') + '" data-open="' + esc(t.rentalId) + '">' +
+      '<div class="row1"><div><div class="inst">' + esc(t.tripId) + ' · ' + esc(t.vehicleNo) + '</div><div class="id">' + esc(t.rentalId) + ' · ' + esc(t.customer || '') + '</div></div><span class="badge">' + esc(t.status) + '</span></div>' +
+      '<div class="meta">' + esc(t.counts) + '<br>' + esc(t.transport) + (t.vendor ? ' – ' + esc(t.vendor) : '') + ' · loaded by ' + esc(String(t.createdBy).replace(/\s*\([^)]*\)$/, '')) + ', ' + esc(t.createdAt) + '</div>' +
+      (acc ? '<div class="acts"><button type="button" class="btn green" data-gp="' + esc(t.tripId) + '">Issue gate pass</button></div><div class="err" id="gpErr' + esc(t.tripId) + '"></div>' : '') +
+      (t.gatePassUrl ? '<div class="meta"><a href="' + esc(t.gatePassUrl) + '" target="_blank">Gate pass ' + esc(t.gatePassNo) + '</a></div>' : '') + '</div>';
+  }
+  function paymentCard(p) {
+    return '<div class="card warn" data-open="' + esc(p.rentalId) + '"><div class="row1"><div><div class="inst">' + rupees(p.received) + ' · ' + esc(p.kind) + '</div><div class="id">' + esc(p.rentalId) + ' · ' + esc(p.customer) + '</div></div><span class="badge warn">To verify</span></div>' +
+      '<div class="meta">UTR <b>' + esc(p.utr) + '</b> · reported ' + esc(p.saysPaidAt) + (p.note ? '<br>' + esc(p.note) : '') + '</div>' +
+      '<div class="acts"><button type="button" class="btn green" data-vpay="' + esc(p.lineId) + '">It’s in the bank – verify</button></div><div class="err" id="vpErr' + esc(p.lineId) + '"></div></div>';
+  }
+  function inspectCard(it) {
+    return '<div class="card plain" id="ins' + esc(it.itemId) + '"><div class="row1"><div><div class="itemid">' + esc(it.itemId) + '</div><div class="id">' + esc(it.type) + ' · back from ' + esc(it.rentalId) + '</div></div></div>' +
+      '<div class="acts"><button type="button" class="btn green" data-insp="' + esc(it.itemId) + '" data-ok="1">OK – available</button><button type="button" class="btn light" data-dmg="' + esc(it.itemId) + '">Damaged…</button></div>' +
+      '<div style="display:none;" id="dmg' + esc(it.itemId) + '"><label>What is damaged?</label><input type="text" id="dmgNote' + esc(it.itemId) + '" placeholder="e.g. cracked door panel">' +
+      '<button type="button" class="btn red block" data-insp="' + esc(it.itemId) + '" data-ok="0">Save – send to repair</button></div><div class="err" id="insErr' + esc(it.itemId) + '"></div></div>';
+  }
+  function repairCard(it) {
+    return '<div class="card plain"><div class="row1"><div><div class="itemid">' + esc(it.itemId) + '</div><div class="id">' + esc(it.type) + '</div></div><span class="badge warn">Under repair</span></div>' +
+      '<div class="meta">' + esc(it.note) + '</div><div class="acts"><button type="button" class="btn green" data-rep="' + esc(it.itemId) + '">Repaired – available</button></div><div class="err" id="repErr' + esc(it.itemId) + '"></div></div>';
+  }
+
+  function renderList(items, kind, note) {
+    $('tabNote').textContent = note || '';
+    if (!items.length) { $('list').innerHTML = '<div class="empty">Nothing here right now.</div>'; return; }
+    var fn = { order: orderCard, trip: tripCard, payment: paymentCard, inspect: inspectCard, repair: repairCard }[kind] || orderCard;
+    $('list').innerHTML = items.map(fn).join('');
+    var list = $('list');
+    Array.prototype.forEach.call(list.querySelectorAll('[data-open]'), function (el) {
+      el.addEventListener('click', function (e) { if (e.target.closest('button,a,input')) return; openRental(el.getAttribute('data-open')); });
+    });
+    Array.prototype.forEach.call(list.querySelectorAll('[data-gp]'), function (b) {
+      b.addEventListener('click', function () { issueGatePass(b.getAttribute('data-gp'), b, 'gpErr' + b.getAttribute('data-gp')); });
+    });
+    Array.prototype.forEach.call(list.querySelectorAll('[data-vpay]'), function (b) {
+      b.addEventListener('click', function () {
+        var id = b.getAttribute('data-vpay');
+        run('verifyRentalPayment', [{ lineId: id }], b, 'vpErr' + id, function () { toast('Payment verified.'); load(); });
+      });
+    });
+    Array.prototype.forEach.call(list.querySelectorAll('[data-dmg]'), function (b) {
+      b.addEventListener('click', function () { $('dmg' + b.getAttribute('data-dmg')).style.display = 'block'; });
+    });
+    Array.prototype.forEach.call(list.querySelectorAll('[data-insp]'), function (b) {
+      b.addEventListener('click', function () {
+        var id = b.getAttribute('data-insp'), okv = b.getAttribute('data-ok') === '1';
+        run('inspectRentalItems', [{ results: [{ itemId: id, ok: okv, note: okv ? '' : val('dmgNote' + id) }] }], b, 'insErr' + id, function () {
+          toast(id + (okv ? ' is available again.' : ' sent to repair.')); load();
+        });
+      });
+    });
+    Array.prototype.forEach.call(list.querySelectorAll('[data-rep]'), function (b) {
+      b.addEventListener('click', function () {
+        var id = b.getAttribute('data-rep');
+        run('repairRentalItem', [{ itemId: id }], b, 'repErr' + id, function () { toast(id + ' is available again.'); load(); });
+      });
+    });
+  }
+
+  function issueGatePass(tripId, btn, errId) {
+    // Open the window first (inside the click), so the browser doesn't block it as a pop-up.
+    var w = window.open('', '_blank');
+    run('issueRentalGatePass', [{ tripId: tripId }], btn, errId, function (r) {
+      toast('Gate pass ' + r.gatePassNo + ' issued.');
+      if (r.url && w) w.location.href = r.url; else if (w) w.close();
+      load(); if (DETAIL) openRental(DETAIL.card.rentalId);
+    });
+  }
+
+  // ---------------- pop-up alerts ----------------
+  function maybeAlerts(force) {
+    var al = (HOME && HOME.alerts) || [];
+    var btn = $('alertsBtn');
+    btn.textContent = '⚠ ' + al.length;
+    btn.classList.toggle('show', al.length > 0);
+    // Keyed without the numbers, so "5 of 13 allocated" -> "9 of 13" doesn't count as new.
+    var keyOf = function (a) { return (a.rentalId || '') + '|' + a.who + '|' + String(a.text).replace(/[\d,.]+/g, '#'); };
+    var fresh = al.filter(function (a) { return !seenAlerts[keyOf(a)]; });
+    if (!al.length) return;
+    if (!force && (!fresh.length || $('sheet').classList.contains('show'))) return;
+    al.forEach(function (a) { seenAlerts[keyOf(a)] = true; });
+    $('alertBody').innerHTML = al.map(function (a) {
+      return '<div class="al ' + (a.level === 'bad' ? 'bad' : '') + '"><span class="dot"></span><span class="txt">' + esc(a.text) + '</span>' +
+        (a.rentalId ? '<a data-al="' + esc(a.rentalId) + '">Open</a>' : '') + '</div>';
+    }).join('');
+    Array.prototype.forEach.call($('alertBody').querySelectorAll('[data-al]'), function (a) {
+      a.addEventListener('click', function () { $('alertModal').classList.remove('show'); openRental(a.getAttribute('data-al')); });
+    });
+    $('alertModal').classList.add('show');
+  }
+  $('alertClose').addEventListener('click', function () { $('alertModal').classList.remove('show'); });
+  $('alertsBtn').addEventListener('click', function () { maybeAlerts(true); });
+
+  // ---------------- overview (Directors / Admin) ----------------
+  function loadOverview() {
+    authRun().withSuccessHandler(function (o) { OVERVIEW = o; if (TILE === 'overview' && !SEARCH) renderOverview(); })
+      .withFailureHandler(function (e) { $('list').innerHTML = '<div class="empty">Could not load: ' + esc(msgOf(e)) + '</div>'; })
+      .getRentalOverview();
+  }
+  function renderOverview() {
+    var o = OVERVIEW;
+    var cols = [['Available', ['Available']], ['Allocated', ['Allocated']], ['Out', ['Loaded', 'In Transit', 'Deployed', 'Off-hired', 'Returning']],
+      ['Inspection', ['Inspection']], ['Repair', ['Under Repair']], ['Lost / scrapped', ['Lost', 'Scrapped']]];
+    var fleet = '<div class="scroll"><table class="t"><tr><th>Item</th>' + cols.map(function (c) { return '<th class="n">' + c[0] + '</th>'; }).join('') + '<th class="n">Tagged</th><th class="n">Untagged in yard</th></tr>' +
+      o.fleet.map(function (f) {
+        return '<tr><td><b>' + esc(f.category) + '</b> <span class="hint">(' + esc(f.prefix) + '-)</span></td>' + cols.map(function (c) {
+          return '<td class="n">' + c[1].reduce(function (s, k) { return s + (f.by[k] || 0); }, 0) + '</td>';
+        }).join('') + '<td class="n">' + f.total + '</td><td class="n">' + f.untagged + '</td></tr>';
+      }).join('') + '</table></div><div class="hint">Untagged counts come from the “Rental Item Types” tab – update them after the yard count; tagging lowers them automatically.</div>';
+    var m = o.money;
+    var money = '<div class="money"><div><div class="k">Balance due (verified rentals)</div><div class="v' + (m.balance > 0 ? ' bad' : '') + '">' + rupees(m.balance) + '</div></div>' +
+      '<div><div class="k">Overdue payments</div><div class="v' + (m.overdue > 0 ? ' bad' : '') + '">' + rupees(m.overdue) + '</div></div>' +
+      '<div><div class="k">Overrun not billed (est.)</div><div class="v est">' + rupees(m.overrunUnbilled) + '</div></div>' +
+      '<div><div class="k">Vendor + transport cost</div><div class="v">' + rupees(m.vendorCost) + '</div></div></div>';
+    var short = o.shortages.length ? '<div class="warnbox"><b>Production needed:</b><br>' + o.shortages.map(function (x) {
+      return esc(x.rentalId + ' – ' + x.customer + ': ' + x.type + ' short by ' + x.short + ' (need ' + x.needed + ', yard has ' + x.available + ')');
+    }).join('<br>') + '</div>' : '';
+    var rows = '<div class="scroll"><table class="t"><tr><th>Rental</th><th>Stage</th><th class="n">Balance</th><th class="n">Cost</th></tr>' + o.rentals.map(function (c) {
+      return '<tr data-open="' + esc(c.rentalId) + '" style="cursor:pointer;"><td><b>' + esc(c.rentalId) + '</b><br><span class="hint">' + esc(c.customer) + '</span></td><td>' + esc(c.stage) + '</td><td class="n">' + (c.status === 'Logged' ? '<span class="hint">advance not verified</span>' : rupees(c.balance)) +
+        (c.overrunUnbilled ? '<br><span class="hint">+ overrun ~' + rupees(c.overrunUnbilled) + '</span>' : '') + '</td><td class="n">' + rupees(c.cost) + '</td></tr>';
+    }).join('') + '</table></div><div class="hint">' + o.closedCount + ' closed rental(s) not shown – search with “include closed”.</div>';
+    var wo = '<details class="more"><summary>Write off an item (lost or scrapped)</summary><div class="inline"><input type="text" id="woId" placeholder="Item ID e.g. T-0012">' +
+      '<select id="woSt"><option value="Lost">Lost</option><option value="Scrapped">Scrapped</option></select></div><label>Reason</label><input type="text" id="woReason">' +
+      '<button type="button" class="btn red block" id="woBtn">Write off</button><div class="err" id="woErr"></div></details>';
+    $('list').innerHTML = short + '<div class="panel"><h2>Fleet</h2>' + fleet + '</div><div class="panel"><h2>Money on open rentals</h2>' + money + '</div><div class="panel"><h2>Open rentals</h2>' + rows + '</div><div class="panel">' + wo + '</div>';
+    Array.prototype.forEach.call($('list').querySelectorAll('[data-open]'), function (el) { el.addEventListener('click', function () { openRental(el.getAttribute('data-open')); }); });
+    $('woBtn').addEventListener('click', function () {
+      run('writeOffRentalItem', [{ itemId: val('woId'), status: val('woSt'), reason: val('woReason') }], this, 'woErr', function (r) { toast(r.itemId + ' written off as ' + r.status.toLowerCase() + '.'); loadOverview(); });
+    });
+  }
+
+  // ---------------- one rental ----------------
+  function openRental(id) {
+    $('sheetTitle').textContent = id;
+    $('sheetBody').innerHTML = '<div class="empty">Loading...</div>';
+    $('sheet').classList.add('show');
+    authRun()
+      .withSuccessHandler(function (d) { DETAIL = d; renderDetail(); })
+      .withFailureHandler(function (e) { $('sheetBody').innerHTML = '<div class="empty">' + esc(msgOf(e)) + '</div>'; })
+      .getRentalOrder({ rentalId: id });
+  }
+  function refreshDetail(msg) { if (msg) toast(msg); if (DETAIL) openRental(DETAIL.card.rentalId); load(); }
+  $('sheetBack').addEventListener('click', function () { $('sheet').classList.remove('show'); DETAIL = null; });
+
+  function itemsWith(status) { return DETAIL.items.filter(function (i) { return i.status === status; }); }
+
+  function renderDetail() {
+    var d = DETAIL, c = d.card, o = d.order, can = d.can;
+    $('sheetTitle').textContent = c.rentalId + ' · ' + c.customer;
+    var lvl = { sentback: 'bad', settle: 'ok', closed: 'ok', cancelled: 'bad', scheduled: 'warn' }[c.stageKey] || '';
+    var h = '<div class="status-line ' + lvl + '">' + esc(c.stage) + '</div>';
+
+    // ---- actions first ----
+    if (can.edit) h += '<div class="panel act' + (c.sentBackNote ? ' warn' : '') + '"><h2>Correct the intake</h2>' + (c.sentBackNote ? '<div class="warnbox">Sent back: ' + esc(c.sentBackNote) + '</div>' : '<div class="hint">Accounts hasn’t verified this yet, so you can still change it.</div>') +
+      '<button type="button" class="btn block" id="editBtn">Edit this rental</button></div>';
+    if (can.verify) h += verifyPanel();
+    if (can.acknowledge) h += ackPanel();
+    if (can.configure) h += configPanel();
+    if (can.prepare) h += preparePanel();
+    var tripsToIssue = d.trips.filter(function (t) { return t.status === 'Gate pass requested'; });
+    if ((role() === 'Accounts' || role() === 'Admin') && tripsToIssue.length) {
+      h += '<div class="panel act"><h2>Gate pass to issue</h2>' + tripsToIssue.map(function (t) {
+        return '<div class="line"><div class="top2"><b>' + esc(t.tripId) + ' · ' + esc(t.vehicleNo) + '</b><span>' + esc(t.counts) + '</span></div><div class="ids">' + esc(t.items.join(', ')) + '</div>' +
+          '<button type="button" class="btn green block" data-gp="' + esc(t.tripId) + '">Issue and print gate pass</button><div class="err" id="gpErrD' + esc(t.tripId) + '"></div></div>';
+      }).join('') + '</div>';
+    }
+    if (can.install && itemsWith('In Transit').length) h += installPanel();
+    if (can.offhire && itemsWith('Deployed').length) h += offhirePanel();
+    if (can.suction) h += suctionPanel();
+    if (can.pickup && itemsWith('Off-hired').length) h += pickupPanel();
+    if (d.money) h += moneyPanel();
+    if (can.close) h += closePanel();
+    if (can.extend) h += extendPanel();
+    if (can.vendorJob) h += jobPanel();
+
+    // ---- the record ----
+    h += infoPanels();
+    if (can.cancel) h += '<div class="panel"><details class="more"><summary>Cancel this rental</summary><div class="hint">Only before anything has a gate pass. Allocated items go back to the yard. Refunds are handled outside this page.</div>' +
+      '<label>Reason</label><input type="text" id="cxReason"><button type="button" class="btn red block" id="cxBtn">Cancel rental</button><div class="err" id="cxErr"></div></details></div>';
+    $('sheetBody').innerHTML = h;
+    bindDetail();
+  }
+
+  function verifyPanel() {
+    var d = DETAIL, adv = d.payments.filter(function (p) { return p.kind === 'Advance'; })[0] || {}, dep = d.payments.filter(function (p) { return p.kind === 'Deposit'; })[0];
+    return '<div class="panel act"><h2>Verify the advance</h2><div class="kv">' +
+      '<div class="k">Advance</div><div class="v"><b>' + rupees(adv.received) + '</b> · UTR <b>' + esc(adv.utr) + '</b></div>' +
+      (dep ? '<div class="k">Deposit</div><div class="v"><b>' + rupees(dep.received) + '</b> · UTR <b>' + esc(dep.utr) + '</b></div>' : '') +
+      '<div class="k">Order value</div><div class="v">' + rupees(d.money.orderValue) + ' (' + esc(d.money.mode) + ')</div>' +
+      (d.order.agreementUrl ? '<div class="k">Agreement / PO</div><div class="v"><a href="' + esc(d.order.agreementUrl) + '" target="_blank">Open</a></div>' : '') + '</div>' +
+      '<label class="tick"><input type="checkbox" id="vfChk"> The advance' + (dep ? ' and deposit are' : ' is') + ' in the bank against this UTR.</label>' +
+      '<button type="button" class="btn green block" id="vfBtn">Verify</button>' +
+      '<details class="more"><summary>Something doesn’t match – send it back to the CRE</summary><label>What doesn’t match?</label><input type="text" id="sbReason"><button type="button" class="btn red block" id="sbBtn">Send back</button></details>' +
+      '<div class="err" id="vfErr"></div></div>';
+  }
+
+  function ackPanel() {
+    var c = DETAIL.card, far = c.daysToStart !== null && c.daysToStart >= DETAIL.settings.deferDays;
+    var def = c.daysToStart !== null ? addDays(HOME.today, Math.max(1, c.daysToStart - 7)) : addDays(HOME.today, 7);
+    return '<div class="panel act' + (far ? ' warn' : '') + '"><h2>Acknowledge</h2>' +
+      (far ? '<div class="warnbox">Needed on <b>' + esc(c.plannedStart) + '</b> – <b>' + c.daysToStart + ' days away</b>. You can acknowledge now, or set a reminder date: it waits in “Scheduled” with no nudges and comes back to you on that date.</div>' : '') +
+      '<button type="button" class="btn green block" id="ackBtn">Acknowledge now</button>' +
+      (far ? '<label>Or remind me on</label><div class="inline"><input type="date" id="remDate" min="' + addDays(HOME.today, 1) + '" value="' + def + '"><button type="button" class="btn" id="remBtn">Remind me then</button></div><input type="text" id="remNote" placeholder="Note (optional), e.g. waiting for the site visit" style="margin-top:8px;">' : '') +
+      '<div class="err" id="ackErr"></div></div>';
+  }
+
+  function typeOptions(cat, sel) {
+    var types = HOME.types.filter(function (t) { return t.category === cat; });
+    if (!types.length) types = [{ type: cat }];
+    return types.map(function (t) { return '<option' + (t.type === sel ? ' selected' : '') + '>' + esc(t.type) + '</option>'; }).join('');
+  }
+  function configRow(i, l) {
+    l = l || { category: 'Toilet', type: 'Toilet', quantity: '' };
+    return '<div class="grid3" data-cfg="' + i + '" style="margin-top:8px;"><select data-cat>' + HOME.categories.map(function (c) { return '<option' + (c === l.category ? ' selected' : '') + '>' + esc(c) + '</option>'; }).join('') + '</select>' +
+      '<select data-type>' + typeOptions(l.category, l.type) + '</select><input type="number" min="1" step="1" data-qty value="' + esc(l.quantity) + '" placeholder="Qty">' +
+      '<button type="button" class="btn light" data-cfgdel>&times;</button></div>';
+  }
+  function configPanel() {
+    var need = DETAIL.card.need;
+    var open = !need.length;
+    var inner = '<div class="hint">CRE’s request: <b>' + DETAIL.card.toilets + ' toilet(s)</b>' + (DETAIL.card.requirement ? ' – ' + esc(DETAIL.card.requirement) : '') + '. Several toilets can share a septic tank – enter what will actually go out.</div>' +
+      '<div id="cfgRows">' + (need.length ? need : [{ category: 'Toilet', type: 'Toilet', quantity: DETAIL.card.toilets }, { category: 'Septic tank', type: 'Septic tank', quantity: '' }, { category: 'Water tank', type: 'Water tank', quantity: '' }, { category: 'Stand', type: 'Stand', quantity: '' }])
+        .map(function (l, i) { return configRow(i, l); }).join('') + '</div>' +
+      '<button type="button" class="btn light" id="cfgAdd" style="margin-top:8px;">+ Add a line</button><button type="button" class="btn green block" id="cfgBtn">Save configuration</button><div class="err" id="cfgErr"></div>';
+    return open ? '<div class="panel act"><h2>Component configuration</h2>' + inner + '</div>' : '<div class="panel"><details class="more"><summary>Change the configuration</summary>' + inner + '</details></div>';
+  }
+
+  function preparePanel() {
+    var d = DETAIL, alloc = itemsWith('Allocated');
+    var needs = d.card.need.map(function (n, i) {
+      var left = Math.max(0, n.quantity - n.have);
+      return '<div class="need"><div><b>' + esc(n.type) + '</b><br><span class="hint">' + n.have + ' of ' + n.quantity + ' allocated or sent</span></div>' +
+        (left ? '<div style="display:flex;gap:6px;align-items:center;"><input type="number" min="1" max="' + left + '" value="' + left + '" id="tagN' + i + '" style="width:80px;">' +
+          '<button type="button" class="btn" data-tag="' + i + '">Tag new</button></div>' : '<span class="badge ok">Done</span>') + '</div>';
+    }).join('');
+    return '<div class="panel act"><h2>Prepare and load</h2>' +
+      '<div class="hint">“Tag new” gives untagged items from the yard their IDs – stencil them before loading. Items already tagged and free in the yard: type their IDs below.</div>' + needs +
+      '<div id="newIds"></div><div class="err" id="tagErr"></div>' +
+      '<label>Add tagged items from the yard</label><div class="inline"><input type="text" id="allocIds" placeholder="e.g. T-0012 T-0013 S-0004"><button type="button" class="btn" id="allocBtn">Allocate</button></div><div class="err" id="allocErr"></div>' +
+      '<h3>Allocated – ready to load (' + alloc.length + ')</h3>' + picker('pkLoad', alloc, true) +
+      (alloc.length ? '<div class="grid2"><div><label>Vehicle no.</label><input type="text" id="trVeh" placeholder="KL07 AB 1234"></div><div><label>Vehicle</label><select id="trMode"><option value="Own">Our own</option><option value="Hired">Hired</option></select></div>' +
+        '<div><label>Transporter (hired)</label><input type="text" id="trVendor"></div><div><label>Transport cost ₹ (if known)</label><input type="number" id="trCost" min="0"></div></div>' +
+        '<button type="button" class="btn green block" id="trBtn">Load these and request the gate pass</button>' +
+        '<details class="more"><summary>Release selected items back to the yard</summary><button type="button" class="btn light block" id="relBtn">Release selected</button></details>' : '') +
+      '<div class="err" id="trErr"></div>' + loadedTrips() + '</div>';
+  }
+  function loadedTrips() {
+    var t = DETAIL.trips.filter(function (x) { return x.direction === 'Out' && (x.status === 'Gate pass requested' || x.status === 'Gate pass issued'); });
+    if (!t.length) return '';
+    return '<h3>Loaded – at the gate</h3>' + t.map(function (x) {
+      return '<div class="line"><div class="top2"><b>' + esc(x.tripId) + ' · ' + esc(x.vehicleNo) + '</b><span class="badge">' + esc(x.status) + '</span></div><div class="ids">' + esc(x.items.join(', ')) + '</div>' +
+        (x.status === 'Gate pass requested' ? '<button type="button" class="btn light" data-cxtrip="' + esc(x.tripId) + '" style="margin-top:8px;">Unload – cancel this trip</button>' : '') + '</div>';
+    }).join('') + '<div class="err" id="cxtErr"></div>';
+  }
+
+  function installPanel() {
+    var tr = itemsWith('In Transit');
+    return '<div class="panel act"><h2>Mark installed – rent starts</h2><div class="hint">Select the items the plumber has installed. One installation can cover items from several trips.</div>' +
+      picker('pkInst', tr, true) +
+      '<div class="grid2"><div><label>Installed on</label><input type="date" id="inDate" value="' + HOME.today + '" max="' + HOME.today + '"></div>' +
+      '<div><label>Planned end</label><input type="date" id="inEnd" value="' + esc(DETAIL.order.plannedEndYmd) + '"></div></div>' +
+      '<label>Site photo (from the plumber)</label><input type="file" id="inPhoto" accept="image/*,application/pdf"><img class="photo-prev" id="inPrev" alt="">' +
+      '<label>Note (optional)</label><input type="text" id="inNote">' +
+      '<button type="button" class="btn green block" id="inBtn">Mark installed</button><div class="err" id="inErr"></div></div>';
+  }
+  function offhirePanel() {
+    var dep = itemsWith('Deployed');
+    return '<div class="panel act warn"><h2>Off-hire – rent stops</h2><div class="hint">Record it on the day the customer asks. Select the items they are done with.</div>' +
+      picker('pkOff', dep, true) +
+      '<label>Customer asked for the off-hire on</label><input type="date" id="ofDate" value="' + HOME.today + '" max="' + HOME.today + '">' +
+      '<label>Note (optional)</label><input type="text" id="ofNote">' +
+      '<button type="button" class="btn block" id="ofBtn">Record off-hire</button><div class="err" id="ofErr"></div></div>';
+  }
+  function suctionPanel() {
+    var pending = DETAIL.offhires.filter(function (r) {
+      return !r.suctionOn && r.items.some(function (x) { var it = DETAIL.items.filter(function (i) { return i.itemId === x; })[0]; return it && (it.status === 'Off-hired'); });
+    });
+    if (!pending.length) return '';
+    return '<div class="panel act"><h2>Suction</h2>' + pending.map(function (r) {
+      var k = r.offhireId;
+      return '<div class="line"><div class="top2"><b>' + esc(k) + '</b><span>off-hired ' + esc(r.offhireOn) + '</span></div><div class="ids">' + esc(r.items.join(', ')) + '</div>' +
+        '<div class="inline"><input type="date" id="suD' + k + '" value="' + HOME.today + '" max="' + HOME.today + '"><input type="text" id="suV' + k + '" placeholder="Done by (vendor)"><input type="number" id="suC' + k + '" placeholder="Cost ₹" min="0">' +
+        '<button type="button" class="btn" data-suc="' + esc(k) + '">Record</button></div><div class="err" id="suErr' + k + '"></div></div>';
+    }).join('') + '</div>';
+  }
+  function pickupPanel() {
+    var off = itemsWith('Off-hired');
+    return '<div class="panel act"><h2>Plan the pickup</h2>' + picker('pkPick', off, true) +
+      '<div class="grid2"><div><label>Vehicle no.</label><input type="text" id="puVeh"></div><div><label>Vehicle</label><select id="puMode"><option value="Own">Our own</option><option value="Hired">Hired</option></select></div>' +
+      '<div><label>Transporter (hired)</label><input type="text" id="puVendor"></div><div><label>Transport cost ₹ (if known)</label><input type="number" id="puCost" min="0"></div></div>' +
+      '<label class="tick"><input type="checkbox" id="puNoSuc"> No suction needed for these items (e.g. tanks and stands only)</label>' +
+      '<button type="button" class="btn green block" id="puBtn">Plan pickup – the gate will mark it in</button><div class="err" id="puErr"></div></div>';
+  }
+
+  function moneyPanel() {
+    var d = DETAIL, m = d.money, can = d.can;
+    var tiles = '<div class="money"><div><div class="k">' + (m.mode === 'Per event' ? 'Event value' : 'Rent so far (est.)') + '</div><div class="v' + (m.mode === 'Per event' ? '' : ' est') + '">' + rupees(m.base) + '</div></div>' +
+      '<div><div class="k">Charges added</div><div class="v">' + rupees(m.charges) + '</div></div>' +
+      '<div><div class="k">Received</div><div class="v">' + rupees(m.received) + '</div></div>' +
+      '<div><div class="k">Balance</div><div class="v' + (m.balance > 0 ? ' bad' : '') + '">' + rupees(m.balance) + '</div></div>' +
+      (m.overrunEstimate ? '<div><div class="k">Overrun so far (est.)</div><div class="v est">' + rupees(m.overrunEstimate) + '</div></div>' : '') +
+      (m.deposit ? '<div><div class="k">Deposit held</div><div class="v">' + rupees(m.deposit) + '</div></div>' : '') + '</div>';
+    var terms = '<div class="hint">' + esc(m.mode) + (m.rate ? ' · ' + rupees(m.rate) + ' per item ' + esc(m.mode.replace('Per ', '')) : '') + ' · agreed value ' + rupees(m.orderValue) +
+      ' · overrun ' + (m.overrunRate ? rupees(m.overrunRate) + ' per item per day' : 'rate not set') + (m.rentDays ? ' · ' + m.rentDays + ' item-days on hire' : '') + (m.overrunDays ? ', ' + m.overrunDays + ' past the planned end' : '') + '. Estimates are worked out from the installation and off-hire dates.</div>';
+    var unverified = d.card.status === 'Logged' || d.card.status === 'Cancelled';
+    var lines = d.payments.map(function (p) {
+      var cls = p.status === 'Verified' ? 'ok' : p.status === 'Waived' ? '' : p.overdue ? 'bad' : 'warn';
+      var act = '';
+      if (unverified) act = '';
+      else if (p.status === 'Due' && can.customerPaid) act += '<details class="more"><summary>Customer paid this</summary><div class="inline"><input type="number" id="cpA' + p.lineId + '" value="' + p.amount + '" min="1"><input type="text" id="cpU' + p.lineId + '" placeholder="UTR"><button type="button" class="btn" data-cp="' + p.lineId + '">Save</button></div></details>';
+      if (!unverified && p.status === 'Due' && can.payments && (role() === 'Accounts' || role() === 'Admin')) act += '<details class="more"><summary>Record payment received</summary><div class="inline"><input type="number" id="rpA' + p.lineId + '" value="' + p.amount + '" min="1"><input type="text" id="rpU' + p.lineId + '" placeholder="UTR"><button type="button" class="btn" data-rp="' + p.lineId + '">Record</button></div></details>';
+      if (p.status === 'Paid – to verify' && (role() === 'Accounts' || role() === 'Admin') && d.card.status !== 'Logged') act += '<div class="inline"><input type="number" id="vpA' + p.lineId + '" value="' + p.received + '"><button type="button" class="btn green" data-vp="' + p.lineId + '">In the bank – verify</button></div>';
+      if (!unverified && p.status === 'Due' && can.waive && p.kind !== 'Advance') act += '<details class="more"><summary>Waive</summary><div class="inline"><input type="text" id="wvR' + p.lineId + '" placeholder="Reason"><button type="button" class="btn red" data-wv="' + p.lineId + '">Waive</button></div></details>';
+      return '<div class="line"><div class="top2"><b>' + esc(p.kind) + ' · ' + rupees(p.status === 'Verified' ? p.received : p.amount) + '</b><span class="badge ' + cls + '">' + esc(p.overdue ? 'Overdue' : p.status) + '</span></div>' +
+        '<div class="sub2">' + (p.dueDate ? 'Due ' + esc(p.dueDate) : p.trigger ? 'Due ' + esc(p.trigger.toLowerCase()) + (p.effectiveDue ? ' – ' + esc(p.effectiveDue) : '') : '') +
+        (p.utr ? ' · UTR ' + esc(p.utr) : '') + (p.verifiedBy ? ' · verified by ' + esc(String(p.verifiedBy).replace(/\s*\([^)]*\)$/, '')) : '') + (p.note ? ' · ' + esc(p.note) : '') + '</div>' + act +
+        '<div class="err" id="plErr' + p.lineId + '"></div></div>';
+    }).join('');
+    var add = '';
+    if (!unverified && d.card.status !== 'Closed' && (role() === 'Accounts' || role() === 'Admin' || role() === 'Director')) {
+      add = '<details class="more"' + (m.overrunUnbilled ? ' open' : '') + '><summary>Add a charge' + (m.overrunUnbilled ? ' – overrun of about ' + rupees(m.overrunUnbilled) + ' not billed yet' : '') + '</summary>' +
+        '<div class="grid2"><div><label>For</label><select id="chKind">' + HOME.chargeKinds.map(function (k) { return '<option' + (m.overrunUnbilled && k === 'Overrun' ? ' selected' : '') + '>' + esc(k) + '</option>'; }).join('') + '</select></div>' +
+        '<div><label>Amount ₹</label><input type="number" id="chAmt" min="1" value="' + (m.overrunUnbilled || '') + '"></div><div><label>Due date (optional)</label><input type="date" id="chDue"></div>' +
+        '<div><label>Note</label><input type="text" id="chNote" value="' + (m.overrunUnbilled ? esc(m.overrunDays + ' item-days past the planned end') : '') + '"></div></div>' +
+        '<button type="button" class="btn block" id="chBtn">Add charge</button><div class="err" id="chErr"></div></details>' +
+        ((role() === 'Accounts' || role() === 'Admin') && d.card.status !== 'Logged' ? '<details class="more"><summary>Money received with no line for it</summary><div class="inline"><input type="number" id="rxA" placeholder="Amount ₹"><input type="text" id="rxU" placeholder="UTR"><input type="text" id="rxN" placeholder="Note"><button type="button" class="btn" id="rxBtn">Record</button></div><div class="err" id="rxErr"></div></details>' : '');
+    }
+    return '<div class="panel"><h2>Money</h2>' + tiles + terms + lines + add +
+      (d.cost && (d.cost.total || d.jobs.length) ? '<div class="hint" style="margin-top:10px;">Costs so far: vendors ' + rupees(d.cost.jobs) + ' + transport ' + rupees(d.cost.trips) + ' = <b>' + rupees(d.cost.total) + '</b>' +
+        (m.mode === 'Per event' ? ' · margin about ' + rupees(m.due - d.cost.total) : '') + '</div>' : '') + '</div>';
+  }
+
+  function closePanel() {
+    var m = DETAIL.money, ready = DETAIL.card.stageKey === 'settle';
+    var inner = '<div class="hint">' + (ready ? 'Everything is back.' : 'Items are still out – close once everything is back.') + ' Balance ' + rupees(m.balance) + (m.deposit ? ' · deposit held ' + rupees(m.deposit) + ' (refund it outside this page and note it here)' : '') + '.</div>' +
+      '<label>Note</label><input type="text" id="clNote" placeholder="e.g. settled in full; deposit refunded on 30-Oct">' +
+      (role() === 'Admin' ? '<label class="tick"><input type="checkbox" id="clOverride"> Close even with a balance or unbilled overrun (give the reason above)</label>' : '') +
+      '<button type="button" class="btn green block" id="clBtn">Close rental</button><div class="err" id="clErr"></div>';
+    return ready ? '<div class="panel act"><h2>Settle and close</h2>' + inner + '</div>' : '<div class="panel"><details class="more"><summary>Settle and close</summary>' + inner + '</details></div>';
+  }
+  function extendPanel() {
+    var deps = DETAIL.deployments;
+    return '<div class="panel"><details class="more"><summary>Change the end date (extension)</summary>' +
+      '<label>Applies to</label><select id="exDep"><option value="">The whole rental' + (deps.length ? ' and every installation' : '') + '</option>' +
+      deps.map(function (x) { return '<option value="' + esc(x.deploymentId) + '">' + esc(x.deploymentId) + ' only (now ends ' + esc(x.plannedEnd) + ')</option>'; }).join('') + '</select>' +
+      '<label>New planned end</label><input type="date" id="exDate" value="' + esc(DETAIL.order.plannedEndYmd) + '"><label>Note</label><input type="text" id="exNote" placeholder="e.g. customer extended by 3 days at the same rate">' +
+      '<button type="button" class="btn block" id="exBtn">Save new end date</button><div class="err" id="exErr"></div></details></div>';
+  }
+  function jobPanel() {
+    return '<div class="panel"><details class="more"><summary>Add a vendor job (plumbing, cleaning…)</summary><div class="grid2">' +
+      '<div><label>Job</label><select id="jbKind">' + HOME.jobKinds.map(function (k) { return '<option>' + esc(k) + '</option>'; }).join('') + '</select></div>' +
+      '<div><label>Vendor</label><input type="text" id="jbVendor"></div><div><label>Date</label><input type="date" id="jbDate" value="' + HOME.today + '"></div>' +
+      '<div><label>Cost ₹</label><input type="number" id="jbCost" min="0"></div><div><label>For (installation / trip, optional)</label><input type="text" id="jbRef" placeholder="e.g. DEP-0003"></div><div><label>Note</label><input type="text" id="jbNote"></div></div>' +
+      '<button type="button" class="btn block" id="jbBtn">Add job</button><div class="err" id="jbErr"></div></details></div>';
+  }
+
+  function infoPanels() {
+    var d = DETAIL, c = d.card, o = d.order;
+    var h = '<div class="panel"><h2>Customer and site</h2><div class="kv">' +
+      '<div class="k">Customer</div><div class="v">' + esc(c.customer) + (o.gstin ? ' · GSTIN ' + esc(o.gstin) : '') + '</div>' +
+      '<div class="k">Phone / email</div><div class="v">' + esc(o.customerPhone) + (o.customerEmail ? ' · ' + esc(o.customerEmail) : '') + '</div>' +
+      (o.billingAddress ? '<div class="k">Billing address</div><div class="v">' + esc(o.billingAddress) + '</div>' : '') +
+      '<div class="k">Site</div><div class="v">' + esc(o.siteAddress) + (c.site ? ', ' + esc(c.site) : '') + (o.sitePincode ? ' ' + esc(o.sitePincode) : '') + '</div>' +
+      '<div class="k">Site contact</div><div class="v">' + esc(o.siteContact) + ' · ' + esc(o.siteContactPhone) + '</div>' +
+      '<div class="k">Needed</div><div class="v">' + esc(c.plannedStart) + ' to ' + esc(c.plannedEnd) + '</div>' +
+      '<div class="k">Requested</div><div class="v">' + c.toilets + ' toilet(s)' + (c.requirement ? ' – ' + esc(c.requirement) : '') + '</div>' +
+      '<div class="k">CRE</div><div class="v">' + esc(c.creName) + ', logged ' + esc(c.loggedAt) + '</div>' +
+      (o.agreementUrl ? '<div class="k">Agreement / PO</div><div class="v"><a href="' + esc(o.agreementUrl) + '" target="_blank">Open</a></div>' : '') +
+      (o.remarks ? '<div class="k">Remarks</div><div class="v">' + esc(o.remarks) + '</div>' : '') + '</div></div>';
+    if (c.need.length) h += '<div class="panel"><h2>Configuration</h2>' + c.need.map(function (n) {
+      return '<div class="need"><span><b>' + n.quantity + ' × ' + esc(n.type) + '</b></span><span class="hint">' + n.have + ' allocated or sent</span></div>';
+    }).join('') + (o.configuredBy ? '<div class="hint">By ' + esc(String(o.configuredBy).replace(/\s*\([^)]*\)$/, '')) + '</div>' : '') + '</div>';
+    if (d.items.length) {
+      var groups = {};
+      d.items.forEach(function (i) { (groups[i.status] = groups[i.status] || []).push(i.itemId); });
+      h += '<div class="panel"><h2>Items (' + d.items.length + ')</h2>' + Object.keys(groups).map(function (s) {
+        return '<div class="need"><span><b>' + esc(s) + '</b> (' + groups[s].length + ')</span><span class="ids" style="text-align:right;">' + esc(groups[s].join(', ')) + '</span></div>';
+      }).join('') + '</div>';
+    }
+    if (d.trips.length) h += '<div class="panel"><h2>Trips</h2><div class="scroll"><table class="t"><tr><th>Trip</th><th>Vehicle</th><th>Items</th><th>Status</th></tr>' + d.trips.map(function (t) {
+      return '<tr><td><b>' + esc(t.tripId) + '</b><br><span class="hint">' + (t.direction === 'Out' ? 'to site' : 'pickup') + '</span></td><td>' + esc(t.vehicleNo) + '<br><span class="hint">' + esc(t.transport) + (t.vendor ? ' – ' + esc(t.vendor) : '') + '</span></td><td>' + esc(t.counts) +
+        '</td><td>' + esc(t.status) + (t.gateAt ? '<br><span class="hint">' + esc(t.gateAt) + '</span>' : '') + (t.gatePassUrl ? '<br><a href="' + esc(t.gatePassUrl) + '" target="_blank">' + esc(t.gatePassNo) + '</a>' : '') + (t.gateNote ? '<br><span class="hint">' + esc(t.gateNote) + '</span>' : '') + '</td></tr>';
+    }).join('') + '</table></div></div>';
+    if (d.deployments.length) h += '<div class="panel"><h2>Installations</h2>' + d.deployments.map(function (x) {
+      return '<div class="line"><div class="top2"><b>' + esc(x.deploymentId) + ' · installed ' + esc(x.installedOn) + '</b><span>ends ' + esc(x.plannedEnd || c.plannedEnd) + '</span></div><div class="ids">' + esc(x.items.join(', ')) + '</div>' +
+        '<div class="sub2">' + (x.photoUrl ? '<a href="' + esc(x.photoUrl) + '" target="_blank">Site photo</a> · ' : '') + 'by ' + esc(String(x.markedBy).replace(/\s*\([^)]*\)$/, '')) + (x.note ? ' · ' + esc(x.note) : '') + '</div></div>';
+    }).join('') + '</div>';
+    if (d.offhires.length) h += '<div class="panel"><h2>Off-hires</h2>' + d.offhires.map(function (x) {
+      return '<div class="line"><div class="top2"><b>' + esc(x.offhireId) + ' · from ' + esc(x.offhireOn) + '</b><span>' + (x.suctionOn ? 'suction ' + esc(x.suctionOn) : 'no suction yet') + '</span></div><div class="ids">' + esc(x.items.join(', ')) + '</div>' +
+        '<div class="sub2">by ' + esc(String(x.recordedBy).replace(/\s*\([^)]*\)$/, '')) + (x.suctionVendor ? ' · suction by ' + esc(x.suctionVendor) : '') + (x.note ? ' · ' + esc(x.note) : '') + '</div></div>';
+    }).join('') + '</div>';
+    if (d.jobs.length) h += '<div class="panel"><h2>Vendor jobs</h2><div class="scroll"><table class="t"><tr><th>Job</th><th>Vendor</th><th>Date</th><th class="n">Cost</th></tr>' + d.jobs.map(function (j) {
+      return '<tr><td>' + esc(j.kind) + (j.ref ? '<br><span class="hint">' + esc(j.ref) + '</span>' : '') + '</td><td>' + esc(j.vendor) + (j.note ? '<br><span class="hint">' + esc(j.note) + '</span>' : '') + '</td><td>' + esc(j.date) + '</td><td class="n">' + (j.cost !== '' ? rupees(j.cost) : '') + '</td></tr>';
+    }).join('') + '</table></div></div>';
+    h += '<div class="panel"><details class="more"' + (d.order.history.length <= 4 ? ' open' : '') + '><summary>History (' + d.order.history.length + ')</summary>' +
+      d.order.history.map(function (x) { return '<div class="hist">' + esc(x) + '</div>'; }).join('') + '</details></div>';
+    return h;
+  }
+
+  function bindDetail() {
+    var d = DETAIL, id = d.card.rentalId, root = $('sheetBody');
+    bindPickers(root);
+    var on = function (elId, fn) { var el = $(elId); if (el) el.addEventListener('click', fn); };
+    on('editBtn', function () { openIntake(d); });
+    on('vfBtn', function () { run('verifyRental', [{ rentalId: id, checked: $('vfChk').checked }], this, 'vfErr', function (r) { refreshDetail('Verified.' + (r.farAhead ? ' Needed far ahead – Ananthu can schedule it.' : '')); }); });
+    on('sbBtn', function () { run('sendBackRental', [{ rentalId: id, reason: val('sbReason') }], this, 'vfErr', function () { refreshDetail('Sent back to the CRE.'); }); });
+    on('ackBtn', function () { run('acknowledgeRental', [{ rentalId: id }], this, 'ackErr', function () { refreshDetail('Acknowledged.'); }); });
+    on('remBtn', function () { run('deferRental', [{ rentalId: id, remindOn: val('remDate'), note: val('remNote') }], this, 'ackErr', function (r) { refreshDetail('Scheduled – back on ' + r.remindOn + '.'); }); });
+    // configuration
+    var cfgWire = function () {
+      Array.prototype.forEach.call(root.querySelectorAll('[data-cfg]'), function (row) {
+        row.querySelector('[data-cat]').onchange = function () { row.querySelector('[data-type]').innerHTML = typeOptions(this.value); };
+        row.querySelector('[data-cfgdel]').onclick = function () { row.parentNode.removeChild(row); };
+      });
+    };
+    cfgWire();
+    on('cfgAdd', function () { var box = $('cfgRows'); box.insertAdjacentHTML('beforeend', configRow(box.children.length + 1)); cfgWire(); });
+    on('cfgBtn', function () {
+      var lines = Array.prototype.map.call(root.querySelectorAll('[data-cfg]'), function (row) {
+        return { category: row.querySelector('[data-cat]').value, type: row.querySelector('[data-type]').value, quantity: row.querySelector('[data-qty]').value };
+      }).filter(function (l) { return String(l.quantity).trim() !== '' && Number(l.quantity) > 0; });
+      run('setRentalConfig', [{ rentalId: id, lines: lines }], this, 'cfgErr', function (r) {
+        refreshDetail(r.shortages && r.shortages.length ? 'Saved. Short of items – Sambhu has been told production is needed.' : 'Configuration saved.');
+      });
+    });
+    // prepare
+    Array.prototype.forEach.call(root.querySelectorAll('[data-tag]'), function (b) {
+      b.addEventListener('click', function () {
+        var n = d.card.need[Number(b.getAttribute('data-tag'))];
+        run('tagRentalItems', [{ rentalId: id, category: n.category, type: n.type, count: val('tagN' + b.getAttribute('data-tag')) }], b, 'tagErr', function (r) {
+          toast('Stencil these IDs: ' + r.first + (r.last !== r.first ? ' to ' + r.last : ''));
+          var keep = r.ids;
+          openRental(id); load();
+          setTimeout(function () { var el = $('newIds'); if (el) el.innerHTML = '<div class="newids">Stencil now: ' + esc(keep.join(', ')) + '</div>'; }, 1200);
+        });
+      });
+    });
+    on('allocBtn', function () { run('allocateRentalItems', [{ rentalId: id, itemIds: val('allocIds') }], this, 'allocErr', function (r) { refreshDetail(r.count + ' item(s) allocated.'); }); });
+    on('trBtn', function () {
+      run('createRentalTrip', [{ rentalId: id, itemIds: picked('pkLoad'), vehicleNo: val('trVeh'), transport: val('trMode'), vendor: val('trVendor'), cost: val('trCost') }], this, 'trErr', function (r) {
+        refreshDetail(r.tripId + ' loaded – gate pass requested from Accounts.');
+      });
+    });
+    on('relBtn', function () { run('releaseRentalItems', [{ rentalId: id, itemIds: picked('pkLoad') }], this, 'trErr', function (r) { refreshDetail(r.count + ' item(s) released to the yard.'); }); });
+    Array.prototype.forEach.call(root.querySelectorAll('[data-cxtrip]'), function (b) {
+      b.addEventListener('click', function () { run('cancelRentalTrip', [{ tripId: b.getAttribute('data-cxtrip') }], b, 'cxtErr', function () { refreshDetail('Trip cancelled – items back to allocated.'); }); });
+    });
+    Array.prototype.forEach.call(root.querySelectorAll('[data-gp]'), function (b) {
+      b.addEventListener('click', function () { issueGatePass(b.getAttribute('data-gp'), b, 'gpErrD' + b.getAttribute('data-gp')); });
+    });
+    // install
+    var photo = fileField('inPhoto', 'inPrev', 'inErr');
+    on('inBtn', function () {
+      run('markRentalInstalled', [{ rentalId: id, itemIds: picked('pkInst'), installedOn: val('inDate'), plannedEnd: val('inEnd'), photo: photo(), note: val('inNote') }], this, 'inErr', function (r) {
+        refreshDetail(r.deploymentId + ': ' + r.count + ' item(s) installed – rent starts ' + r.installedOn + '.');
+      });
+    });
+    on('ofBtn', function () { run('recordRentalOffHire', [{ rentalId: id, itemIds: picked('pkOff'), offhireOn: val('ofDate'), note: val('ofNote') }], this, 'ofErr', function (r) { refreshDetail(r.count + ' item(s) off-hired from ' + r.offhireOn + '. Ananthu has been told.'); }); });
+    Array.prototype.forEach.call(root.querySelectorAll('[data-suc]'), function (b) {
+      b.addEventListener('click', function () {
+        var k = b.getAttribute('data-suc');
+        run('recordRentalSuction', [{ offhireId: k, doneOn: val('suD' + k), vendor: val('suV' + k), cost: val('suC' + k) }], b, 'suErr' + k, function () { refreshDetail('Suction recorded.'); });
+      });
+    });
+    on('puBtn', function () {
+      run('planRentalReturn', [{ rentalId: id, itemIds: picked('pkPick'), vehicleNo: val('puVeh'), transport: val('puMode'), vendor: val('puVendor'), cost: val('puCost'), noSuction: $('puNoSuc').checked }], this, 'puErr', function (r) {
+        refreshDetail(r.tripId + ' planned – the gate marks it in when it arrives.');
+      });
+    });
+    // money
+    Array.prototype.forEach.call(root.querySelectorAll('[data-cp]'), function (b) {
+      b.addEventListener('click', function () { var k = b.getAttribute('data-cp'); run('rentalCustomerPaid', [{ rentalId: id, lineId: k, amount: val('cpA' + k), utr: val('cpU' + k) }], b, 'plErr' + k, function () { refreshDetail('Saved – Accounts will verify it.'); }); });
+    });
+    Array.prototype.forEach.call(root.querySelectorAll('[data-rp]'), function (b) {
+      b.addEventListener('click', function () { var k = b.getAttribute('data-rp'); run('recordRentalPayment', [{ rentalId: id, lineId: k, amount: val('rpA' + k), utr: val('rpU' + k) }], b, 'plErr' + k, function () { refreshDetail('Payment recorded.'); }); });
+    });
+    Array.prototype.forEach.call(root.querySelectorAll('[data-vp]'), function (b) {
+      b.addEventListener('click', function () { var k = b.getAttribute('data-vp'); run('verifyRentalPayment', [{ lineId: k, amount: val('vpA' + k) }], b, 'plErr' + k, function () { refreshDetail('Payment verified.'); }); });
+    });
+    Array.prototype.forEach.call(root.querySelectorAll('[data-wv]'), function (b) {
+      b.addEventListener('click', function () { var k = b.getAttribute('data-wv'); run('waiveRentalLine', [{ lineId: k, reason: val('wvR' + k) }], b, 'plErr' + k, function () { refreshDetail('Waived.'); }); });
+    });
+    on('chBtn', function () { run('addRentalCharge', [{ rentalId: id, kind: val('chKind'), amount: val('chAmt'), dueDate: val('chDue'), note: val('chNote') }], this, 'chErr', function () { refreshDetail('Charge added.'); }); });
+    on('rxBtn', function () { run('recordRentalPayment', [{ rentalId: id, amount: val('rxA'), utr: val('rxU'), note: val('rxN') }], this, 'rxErr', function () { refreshDetail('Payment recorded.'); }); });
+    on('clBtn', function () { run('closeRental', [{ rentalId: id, note: val('clNote'), override: !!($('clOverride') && $('clOverride').checked) }], this, 'clErr', function () { refreshDetail('Rental closed.'); }); });
+    on('exBtn', function () { run('extendRental', [{ rentalId: id, deploymentId: val('exDep'), plannedEnd: val('exDate'), note: val('exNote') }], this, 'exErr', function (r) { refreshDetail('New end date ' + r.plannedEnd + '.'); }); });
+    on('jbBtn', function () { run('addRentalVendorJob', [{ rentalId: id, kind: val('jbKind'), vendor: val('jbVendor'), date: val('jbDate'), cost: val('jbCost'), ref: val('jbRef'), note: val('jbNote') }], this, 'jbErr', function () { refreshDetail('Job added.'); }); });
+    on('cxBtn', function () { run('cancelRental', [{ rentalId: id, reason: val('cxReason') }], this, 'cxErr', function () { refreshDetail('Rental cancelled.'); }); });
+  }
+
+  // ---------------- intake (new or edit) ----------------
+  function schedRow(i, l) {
+    l = l || {};
+    return '<div class="grid3" data-sch style="margin-top:8px;"><input type="number" min="1" data-amt placeholder="Amount ₹" value="' + esc(l.amount || '') + '">' +
+      '<input type="date" data-date value="' + esc(l.dueDate || '') + '"><select data-trig><option value="">– or when –</option>' +
+      HOME.triggers.map(function (t) { return '<option' + (t === l.trigger ? ' selected' : '') + '>' + esc(t) + '</option>'; }).join('') + '</select><button type="button" class="btn light" data-schdel>&times;</button></div>';
+  }
+  function openIntake(d) {
+    var e = !!d, o = d ? d.order : {}, c = d ? d.card : {}, m = d && d.money ? d.money : {};
+    var adv = d ? (d.payments.filter(function (p) { return p.kind === 'Advance'; })[0] || {}) : {};
+    var dep = d ? (d.payments.filter(function (p) { return p.kind === 'Deposit'; })[0] || {}) : {};
+    var sched = d ? d.payments.filter(function (p) { return p.kind === 'Instalment' && p.status === 'Due'; }) : [];
+    var sv = function (x) { return esc(x == null ? '' : x); };
+    $('sheetTitle').textContent = e ? 'Edit ' + c.rentalId : 'New rental';
+    var h = '<div class="warnbox">Log a rental <b>only once the advance is paid</b>. Accounts verifies it against the UTR.</div>' +
+      '<div class="panel"><h2>Customer</h2><div class="grid2">' +
+      '<div><label>Customer / company *</label><input type="text" id="fCust" value="' + sv(c.customer) + '"></div>' +
+      '<div><label>Phone *</label><input type="tel" id="fPhone" value="' + sv(o.customerPhone) + '"></div>' +
+      '<div><label>Email</label><input type="email" id="fEmail" value="' + sv(o.customerEmail) + '"></div>' +
+      '<div><label>GSTIN</label><input type="text" id="fGst" value="' + sv(o.gstin) + '"></div></div>' +
+      '<label>Billing address</label><textarea id="fBill">' + sv(o.billingAddress) + '</textarea></div>' +
+      '<div class="panel"><h2>Site</h2><label>Site address *</label><textarea id="fSite">' + sv(o.siteAddress) + '</textarea><div class="grid2">' +
+      '<div><label>Pincode</label><input type="text" id="fPin" inputmode="numeric" maxlength="6" value="' + sv(o.sitePincode) + '"><div class="hint" id="fPinHint"></div></div>' +
+      '<div><label>District</label><input type="text" id="fDist" value="' + sv(o.siteDistrict) + '"></div>' +
+      '<div><label>State</label><input type="text" id="fState" value="' + sv(o.siteState) + '"></div><div></div>' +
+      '<div><label>Site contact name *</label><input type="text" id="fSc" value="' + sv(o.siteContact) + '"></div>' +
+      '<div><label>Site contact phone *</label><input type="tel" id="fScp" value="' + sv(o.siteContactPhone) + '"></div></div></div>' +
+      '<div class="panel"><h2>Requirement and terms</h2><div class="grid2">' +
+      '<div><label>Toilets requested *</label><input type="number" min="1" id="fToilets" value="' + sv(c.toilets) + '"></div>' +
+      '<div><label>Billing *</label><select id="fMode">' + HOME.modes.map(function (x) { return '<option' + (x === (m.mode || c.billingMode) ? ' selected' : '') + '>' + esc(x) + '</option>'; }).join('') + '</select></div>' +
+      '<div id="fRateBox"><label id="fRateLab">Rate per toilet ₹</label><input type="number" min="0" id="fRate" value="' + sv(m.rate || '') + '"></div>' +
+      '<div><label>Agreed order value ₹ *</label><input type="number" min="1" id="fValue" value="' + sv(m.orderValue || '') + '"><div class="hint" id="fValHint"></div></div>' +
+      '<div><label>Overrun rate ₹ per item per day</label><input type="number" min="0" id="fOver" value="' + sv(m.overrunRate || '') + '"><div class="hint">Charged for days past the planned end.</div></div><div></div>' +
+      '<div><label>Installation needed on *</label><input type="date" id="fStart" value="' + sv(o.plannedStartYmd) + '"></div>' +
+      '<div><label>Planned end *</label><input type="date" id="fEnd" value="' + sv(o.plannedEndYmd) + '"></div></div>' +
+      '<label>Requirement details</label><textarea id="fReq" placeholder="e.g. 20 toilets for a 3-day festival, water tank with each, power available on site">' + sv(c.requirement) + '</textarea></div>' +
+      '<div class="panel"><h2>Payment</h2><div class="grid2">' +
+      '<div><label>Advance received ₹ *</label><input type="number" min="1" id="fAdv" value="' + sv(adv.received || '') + '"><div class="hint" id="fAdvHint"></div></div>' +
+      '<div><label>Advance UTR / bank reference *</label><input type="text" id="fUtr" value="' + sv(adv.utr) + '"></div>' +
+      (HOME.settings.depositOn ? '<div><label>Security deposit ₹</label><input type="number" min="0" id="fDep" value="' + sv(dep.received || '') + '"></div><div><label>Deposit UTR</label><input type="text" id="fDepUtr" value="' + sv(dep.utr) + '"></div>' : '') +
+      '</div><h3>Rest of the payment, as agreed with the customer</h3><div class="hint">Add each instalment with its date – or when it falls due (on installation, on off-hire, before pickup). Reminders follow this list.</div>' +
+      '<div id="fSched">' + (sched.length ? sched.map(function (p, i) { return schedRow(i, { amount: p.amount, dueDate: p.dueDateYmd, trigger: p.trigger }); }).join('') : schedRow(0)) + '</div>' +
+      '<button type="button" class="btn light" id="fSchAdd" style="margin-top:8px;">+ Add an instalment</button></div>' +
+      '<div class="panel"><label style="margin-top:0;">Agreement / customer PO (optional)</label><input type="file" id="fFile" accept="application/pdf,image/*">' + (o.agreementUrl ? '<div class="hint"><a href="' + esc(o.agreementUrl) + '" target="_blank">Current file</a> – choose a new one only to replace it.</div>' : '') +
+      '<label>Remarks</label><input type="text" id="fRemarks" value="' + sv(o.remarks) + '">' +
+      (e ? '<label>What did you change?</label><input type="text" id="fChange" placeholder="e.g. corrected the UTR">' : '') +
+      '<button type="button" class="btn green block" id="fSave">' + (e ? 'Save and send to Accounts' : 'Log rental – send to Accounts') + '</button><div class="err" id="fErr"></div></div>';
+    $('sheetBody').innerHTML = h;
+    $('sheet').classList.add('show');
+    var file = fileField('fFile', null, 'fErr');
+    var mode = function () {
+      var x = val('fMode'), t = x !== 'Per event';
+      $('fRateBox').style.visibility = t ? 'visible' : 'hidden';
+      $('fRateLab').textContent = 'Rate per toilet ' + x.replace('Per ', 'per ') + ' ₹ *';
+    };
+    var hints = function () {
+      var v = Number(val('fValue')) || 0, a = Number(val('fAdv')) || 0;
+      $('fAdvHint').textContent = v && a ? Math.round(a / v * 100) + '% of the order value' : '';
+    };
+    $('fMode').addEventListener('change', mode); mode();
+    ['fValue', 'fAdv'].forEach(function (k) { $(k).addEventListener('input', hints); }); hints();
+    var schWire = function () { Array.prototype.forEach.call(document.querySelectorAll('[data-schdel]'), function (b) { b.onclick = function () { var r = b.closest('[data-sch]'); r.parentNode.removeChild(r); }; }); };
+    schWire();
+    $('fSchAdd').addEventListener('click', function () { $('fSched').insertAdjacentHTML('beforeend', schedRow(0)); schWire(); });
+    var pinT = null;
+    $('fPin').addEventListener('input', function () {
+      clearTimeout(pinT);
+      var p = val('fPin');
+      if (!/^\d{6}$/.test(p)) return;
+      pinT = setTimeout(function () {
+        authRun().withSuccessHandler(function (r) {
+          if (r && r.success) { $('fDist').value = r.district; $('fState').value = r.state; $('fPinHint').textContent = 'Filled from the pincode – correct it if wrong.'; }
+          else $('fPinHint').textContent = (r && r.message) || 'Pincode not found – type the district and state.';
+        }).withFailureHandler(function () { $('fPinHint').textContent = 'Could not look up the pincode – type the district and state.'; }).lookupPincode(p);
+      }, 400);
+    });
+    $('fSave').addEventListener('click', function () {
+      var f = {
+        customer: val('fCust'), customerPhone: val('fPhone'), customerEmail: val('fEmail'), gstin: val('fGst'), billingAddress: val('fBill'),
+        siteAddress: val('fSite'), sitePincode: val('fPin'), siteDistrict: val('fDist'), siteState: val('fState'), siteContact: val('fSc'), siteContactPhone: val('fScp'),
+        toilets: val('fToilets'), requirement: val('fReq'), billingMode: val('fMode'), rate: val('fRate'), orderValue: val('fValue'), overrunRate: val('fOver'),
+        plannedStart: val('fStart'), plannedEnd: val('fEnd'), advanceAmount: val('fAdv'), advanceUtr: val('fUtr'),
+        depositAmount: val('fDep'), depositUtr: val('fDepUtr'), remarks: val('fRemarks'), agreement: file(),
+        schedule: Array.prototype.map.call(document.querySelectorAll('[data-sch]'), function (r) {
+          return { amount: r.querySelector('[data-amt]').value, dueDate: r.querySelector('[data-date]').value, trigger: r.querySelector('[data-trig]').value };
+        })
+      };
+      if (e) { f.rentalId = c.rentalId; f.changeNote = val('fChange'); }
+      run(e ? 'updateRental' : 'submitRental', [f], this, 'fErr', function (r) {
+        toast(e ? 'Saved – back with Accounts.' : r.rentalId + ' logged – Accounts will verify the advance.');
+        openRental(r.rentalId); load();
+      });
+    });
+  }
+
+  // ---------------- search, buttons, start-up ----------------
+  function find() {
+    var q = val('q');
+    if (!q) { SEARCH = null; render(); return; }
+    authRun().withSuccessHandler(function (items) { SEARCH = { q: q, items: items }; render(); })
+      .withFailureHandler(function (e) { $('list').innerHTML = '<div class="empty">' + esc(msgOf(e)) + '</div>'; })
+      .findRentals({ q: q, includeClosed: $('qClosed').checked });
+  }
+  $('qBtn').addEventListener('click', find);
+  $('q').addEventListener('keydown', function (e) { if (e.key === 'Enter') find(); });
+  $('refreshBtn').addEventListener('click', function () { OVERVIEW = null; load(); });
+  $('newBtn').addEventListener('click', function () { DETAIL = null; openIntake(null); });
+  window.ICF_RELOAD = load; // tiles and lists only -- an open rental is left as it is
+  window.ICF_CLEAR = function () { HOME = null; DETAIL = null; OVERVIEW = null; SEARCH = null; seenAlerts = {}; $('list').innerHTML = ''; $('tiles').innerHTML = ''; $('sheet').classList.remove('show'); };
+  load();
+})();
+</script>
+</body>
+</html>
