@@ -458,7 +458,26 @@
   </style>
 </head>
 <body>
-  <script>window.ICF_PAGE = 'cre'; // signs in as the CRE page -- same role check and same data as the classic page</script>
+  <script>
+    window.ICF_PAGE = 'cre'; // signs in as the CRE page -- same role check and same data as the classic page
+    // Beta only: any script error shows as a red strip at the bottom, so a problem can be reported with a screenshot.
+    (function () {
+      function show(msg) {
+        try {
+          var bar = document.getElementById('betaErr');
+          if (!bar) {
+            bar = document.createElement('div'); bar.id = 'betaErr';
+            bar.style.cssText = 'position:fixed;left:0;right:0;bottom:0;z-index:9999;background:#3a1416;color:#ffb4b4;border-top:2px solid #f26b6b;font:12.5px/1.5 monospace;padding:8px 14px;max-height:40vh;overflow:auto;white-space:pre-wrap;';
+            (document.body || document.documentElement).appendChild(bar);
+          }
+          bar.textContent += (bar.textContent ? '\n' : 'Beta page error (screenshot this for Claude):\n') + msg;
+        } catch (e) {}
+      }
+      window.addEventListener('error', function (e) { show((e.message || 'Error') + (e.lineno ? '  @ line ' + e.lineno + ':' + e.colno : '')); });
+      window.addEventListener('unhandledrejection', function (e) { show('Promise: ' + (e.reason && e.reason.message || e.reason)); });
+      window.ICF_BETA_ERR = show;
+    })();
+  </script>
   <?!= include('auth'); ?>
   <?!= include('docs_panel'); ?>
 
@@ -875,8 +894,8 @@
     // =====================================================================
     // Signed-in person -> top bar
     // =====================================================================
-    document.addEventListener('icf-signed-in', function (e) {
-      var s = e.detail || {};
+    document.addEventListener('icf-signed-in', function (e) { applyStaff(e.detail || {}); });
+    function applyStaff(s) {
       $('tbName').textContent = s.name || '';
       $('tbRole').textContent = s.role || '';
       $('menuName').textContent = s.name || '';
@@ -888,7 +907,7 @@
       if (appr && appr.parentNode !== $('topAdmin')) { $('topAdmin').appendChild(gate); $('topAdmin').appendChild(appr); }
       if (nav && nav.parentNode !== $('menuAdminNav')) $('menuAdminNav').appendChild(nav);
       $('menuAdmin').style.display = s.role === 'Admin' ? 'block' : 'none';
-    });
+    }
 
     // User menu
     var userMenu = $('userMenu');
@@ -898,8 +917,13 @@
       if (!$('topSearch').contains(e.target)) $('findPop').classList.remove('show');
       if (!$('filterPop').contains(e.target) && !$('filterBtn').contains(e.target)) $('filterPop').classList.remove('show');
     });
-    $('menuPin').addEventListener('click', function () { userMenu.classList.remove('show'); $('authBarChangePin').click(); });
-    $('menuSignOut').addEventListener('click', function () { userMenu.classList.remove('show'); $('authBarSignOut').click(); });
+    function authClick(id) {
+      userMenu.classList.remove('show');
+      var b = $(id);
+      if (b) b.click(); else if (window.ICF_BETA_ERR) window.ICF_BETA_ERR('The shared sign-in code (auth) is missing from this page, so ' + id + ' cannot run.');
+    }
+    $('menuPin').addEventListener('click', function () { authClick('authBarChangePin'); });
+    $('menuSignOut').addEventListener('click', function () { authClick('authBarSignOut'); });
 
     // =====================================================================
     // Views
@@ -2066,7 +2090,11 @@
     }
     $('refreshAll').addEventListener('click', loadAll);
     renderGlance();
+    if (typeof window.authRun !== 'function' && window.ICF_BETA_ERR) window.ICF_BETA_ERR('authRun is not defined: the shared sign-in code (auth) did not load on this page.');
     loadAll(); // queued until sign-in, then sent
+    // Sign-in may have finished before this code ran (a session already open in this tab):
+    // the "signed in" event has then come and gone, so pick up who it is now.
+    if (window.ICF_STAFF) applyStaff(window.ICF_STAFF);
 
     // ICF_RELOAD: auth.html calls this every minute while the tab is on screen,
     // when you come back to the tab, and after a new sign-in. Only lists and
