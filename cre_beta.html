@@ -312,11 +312,12 @@
     /* Kanban */
     .kanban { display: flex; gap: 14px; overflow-x: auto; padding-bottom: 10px; align-items: flex-start; }
     .kcol { flex: 0 0 272px; display: flex; flex-direction: column; max-height: calc(100vh - var(--top-h) - 120px); background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--radius); }
-    .kcol-head { display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--border); }
+    .kcol-head { display: flex; align-items: center; gap: 8px; padding: 12px 14px 4px; }
     .kcol-head .dot { width: 8px; height: 8px; border-radius: 50%; }
     .kcol-head h4 { margin: 0; font-size: 13px; font-weight: 600; flex: 1 1 auto; }
     .kcol-head .ksum { font-size: 11.5px; color: var(--text-3); font-variant-numeric: tabular-nums; }
     .kcol-body { overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 8px; overscroll-behavior: contain; }
+    .khint { padding: 8px 14px 9px; font-size: 11.5px; line-height: 1.4; color: var(--text-3); border-bottom: 1px solid var(--border); }
     .kcol-empty { font-size: 12px; color: var(--text-3); text-align: center; padding: 14px 0; }
     .kcard { width: 100%; text-align: left; padding: 11px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 7px; cursor: pointer; }
     .kcard:hover { border-color: var(--hover-bd); background: var(--hover-card); }
@@ -947,13 +948,14 @@
     function orderState(o) {
       var s = o.status, d = o.deliveryStatus;
       if (s === 'Cancelled') return { label: 'Cancelled', tone: 'grey' };
+      if (o.waitingAtGate) return { label: 'Gate pass issued \u00b7 at the gate', tone: 'blue' };
       if (isDispatched(s)) {
         if (d === 'Delivered') return { label: 'Delivered', tone: 'teal' };
         if (d === 'Returned') return { label: 'Returned', tone: 'grey' };
         if (d === 'In Transit') return { label: 'In transit', tone: 'blue' };
         return { label: s === 'Posted' ? 'Posted · update delivery' : 'Dispatched · update delivery', tone: 'amber' };
       }
-      if (s === 'Ready - Payment Pending') return { label: 'Collect payment to dispatch', tone: 'red' };
+      if (s === 'Ready - Payment Pending') return { label: 'Ready \u00b7 balance due before dispatch', tone: 'red' };
       if (s === 'On Standby') return { label: 'On standby', tone: 'grey', pause: true };
       if (s === 'On Hold - Site Not Ready') return { label: 'On hold · site not ready', tone: 'grey', pause: true };
       if (s === 'On Hold - Balance Due') return { label: 'On hold · balance due', tone: 'amber' };
@@ -1221,13 +1223,22 @@
     // Kanban: one column per stage, in the order an order moves through. Read-only --
     // stages are moved by Accounts, Ops and the gate; click a card to work on it.
     var KANBAN = [
-      { key: 'acc',   label: 'With Accounts',   tone: 'amber', test: function (o) { return o.status === 'Logged' || o.status === 'On Hold - Balance Due'; } },
-      { key: 'ops',   label: 'With Ops',        tone: 'blue',  test: function (o) { return o.status === 'Sent to Ops' || o.status === 'Vehicle Confirmed' || o.status === 'On Hold - Site Not Ready'; } },
-      { key: 'pay',   label: 'Collect payment', tone: 'red',   test: function (o) { return o.status === 'Ready - Payment Pending'; } },
-      { key: 'stand', label: 'On standby',      tone: 'grey',  test: function (o) { return o.status === 'On Standby'; } },
-      { key: 'disp',  label: 'Dispatched',      tone: 'blue',  test: function (o) { return isDispatched(o.status) && o.deliveryStatus !== 'Delivered' && o.deliveryStatus !== 'Returned'; } },
-      { key: 'done',  label: 'Delivered',       tone: 'teal',  test: function (o) { return isDispatched(o.status) && (o.deliveryStatus === 'Delivered' || o.deliveryStatus === 'Returned'); } },
-      { key: 'cx',    label: 'Cancelled',       tone: 'grey',  test: function (o) { return o.status === 'Cancelled'; } }
+      { key: 'acc',   label: 'With Accounts', tone: 'amber', hint: 'Waiting for Accounts to verify the payment',
+        test: function (o) { return o.status === 'Logged' || o.status === 'On Hold - Balance Due'; } },
+      { key: 'ops',   label: 'With Ops', tone: 'blue', hint: 'Verified; Ops is preparing it',
+        test: function (o) { return o.status === 'Sent to Ops' || o.status === 'Vehicle Confirmed' || o.status === 'On Hold - Site Not Ready'; } },
+      { key: 'pay',   label: 'Ready \u00b7 balance due', tone: 'red', hint: 'Goods ready, but the customer must pay the balance before dispatch \u2013 call them',
+        test: function (o) { return o.status === 'Ready - Payment Pending'; } },
+      { key: 'gate',  label: 'At the gate', tone: 'blue', hint: 'Gate pass issued; the vehicle hasn\u2019t left yet',
+        test: function (o) { return !!o.waitingAtGate; } },
+      { key: 'disp',  label: 'Dispatched', tone: 'amber', hint: 'Left the factory; update delivery when the customer confirms',
+        test: function (o) { return isDispatched(o.status) && o.deliveryStatus !== 'Delivered' && o.deliveryStatus !== 'Returned'; } },
+      { key: 'done',  label: 'Delivered', tone: 'teal', hint: 'Delivered or returned \u2013 closed',
+        test: function (o) { return isDispatched(o.status) && (o.deliveryStatus === 'Delivered' || o.deliveryStatus === 'Returned'); } },
+      { key: 'stand', label: 'On standby', tone: 'grey', hint: 'Paused at the customer\u2019s end (site, payment or location)',
+        test: function (o) { return o.status === 'On Standby'; } },
+      { key: 'cx',    label: 'Cancelled', tone: 'grey', hint: 'Cancelled by the admin',
+        test: function (o) { return o.status === 'Cancelled'; } }
     ];
     var TONE_VAR = { red: 'var(--red)', amber: 'var(--amber)', blue: 'var(--blue)', teal: 'var(--teal)', grey: 'var(--grey)' };
     function renderKanban(rows) {
@@ -1242,6 +1253,7 @@
         var value = col.items.reduce(function (s, o) { return s + o.total; }, 0);
         return '<div class="kcol"><div class="kcol-head"><span class="dot" style="background:' + TONE_VAR[col.c.tone] + ';"></span><h4>' + esc(col.c.label) + '</h4>' +
           '<span class="count">' + col.items.length + '</span></div>' +
+          (col.c.hint ? '<div class="khint">' + esc(col.c.hint) + '</div>' : '') +
           '<div class="kcol-body">' + (col.items.length ? col.items.map(function (o) {
             var st = orderState(o), closed = isClosed(o);
             var hot = st.tone === 'red' || (o.priority === 'High' && !closed);
@@ -1486,7 +1498,7 @@
       window.ICF_CURRENT_ORDER = order;
       var access = order.access || { canAct: true };
       var canAct = access.canAct !== false;
-      var st = orderState({ status: order.status, deliveryStatus: order.deliveryStatus });
+      var st = orderState({ status: order.status, deliveryStatus: order.deliveryStatus, waitingAtGate: order.waitingAtGate });
       $('drId').textContent = order.trackerId;
       $('drTitle').textContent = order.institution || '–';
       $('drTags').innerHTML = pillHtml(st) + priChip(order.priority) +

@@ -4564,6 +4564,15 @@ function getMyOrders_() {
       dates = col('Date Logged'), st = col('Status'), ds = col('Delivery Status'), tot = col('Total Order Value'),
       adv = col('Advance Received'), pri = col('Priority Level'), terms = col('Payment Terms Type');
   var owners = readOrderOwners_(sheet, n);
+  // Gate pass issued but the vehicle not marked out yet (Oct 2026, for the CRE beta page's
+  // stages) -- same test the order lookup uses (gateWaitingFromValues_ in Gate.gs).
+  // An extra field only: the classic CRE page doesn't read it.
+  var gateWait = null;
+  try {
+    if (typeof gateWaitingFromValues_ === 'function') {
+      gateWait = { type: col('Dispatch Type'), issued: col('Gate Pass Issued Timestamp'), out: col('Gate Out Timestamp') };
+    }
+  } catch (e) { gateWait = null; }
   var scope = creScope_();
   var tz = Session.getScriptTimeZone();
   var todayStr = Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
@@ -4591,7 +4600,8 @@ function getMyOrders_() {
       highPending: String(pri[i][0]) === 'High' && !closed,
       awaitingDelivery: isDispatchedStatus_(status) && dstat !== 'Delivered' && dstat !== 'Returned',
       inTransit: dstat === 'In Transit',
-      payForDispatch: typeof STATUS_READY_PAY !== 'undefined' && status === STATUS_READY_PAY
+      payForDispatch: typeof STATUS_READY_PAY !== 'undefined' && status === STATUS_READY_PAY,
+      waitingAtGate: !!gateWait && gateWaitingFromValues_(status, gateWait.type[i][0], gateWait.issued[i][0], gateWait.out[i][0])
     });
   }
   out.sort(function (a, b) { return b.dateLoggedMs - a.dateLoggedMs; });
