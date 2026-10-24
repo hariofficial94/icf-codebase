@@ -1,0 +1,2093 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <!--
+    CRE page -- new layout, BETA (Oct 2026). Opened with ?page=cre-beta.
+    A separate page: the classic CRE page (index.html + cancel_cre.html) is
+    not touched. It signs in as the CRE page (ICF_PAGE = 'cre') and calls the
+    very same server functions, so it reads and writes the same live data
+    with the same role checks -- nothing on the server was changed for it.
+    Layout: top bar (find any order, alerts, account) / icon rail (Orders,
+    Payments, Requests, New PO) / orders home with a "Needs your action"
+    strip and an "At a glance" panel / order drawer on the right / New PO as
+    its own full page.
+  -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+  <style>
+    :root {
+      --bg: #121314; --bg-2: #171819; --surface: #1c1d1f; --surface-2: #232427; --surface-3: #2a2c2f;
+      --border: #2c2e31; --border-2: #3a3d41;
+      --text: #ededed; --text-2: #a3a6ab; --text-3: #6f7278;
+      --leaf-a: #9bcb4a; --leaf-b: #4fa845; --leaf: #6db851; --on-leaf: #0e1a0b;
+      --leaf-grad: linear-gradient(135deg, var(--leaf-a), var(--leaf-b));
+      --red: #f26b6b;   --red-bg: rgba(242,107,107,0.12);   --red-bd: rgba(242,107,107,0.35);
+      --amber: #f0b44c; --amber-bg: rgba(240,180,76,0.12);  --amber-bd: rgba(240,180,76,0.35);
+      --teal: #3cc9b8;  --teal-bg: rgba(60,201,184,0.12);
+      --blue: #6aa8f7;  --blue-bg: rgba(106,168,247,0.12);
+      --grey: #8b8f96;  --grey-bg: rgba(139,143,150,0.14);
+      --radius: 8px; --rail-w: 60px; --top-h: 56px;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 'Inter', 'Segoe UI', Arial, sans-serif; -webkit-font-smoothing: antialiased; }
+    a { color: var(--leaf-a); }
+    button { font: inherit; color: inherit; }
+    input, select, textarea { font: inherit; }
+    ::-webkit-scrollbar { width: 10px; height: 10px; }
+    ::-webkit-scrollbar-thumb { background: var(--surface-3); border-radius: 6px; border: 2px solid var(--bg); }
+    ::-webkit-scrollbar-track { background: transparent; }
+    .muted { color: var(--text-2); }
+    .faint { color: var(--text-3); }
+    .mono { font-variant-numeric: tabular-nums; letter-spacing: 0.01em; }
+
+    /* ---------- Buttons ---------- */
+    .btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 34px; padding: 0 14px; border-radius: 6px; border: 1px solid var(--border-2);
+           background: var(--surface-2); color: var(--text); font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; transition: background .12s, border-color .12s; }
+    .btn:hover { background: var(--surface-3); border-color: #4a4d52; }
+    .btn:disabled { opacity: 0.55; cursor: not-allowed; }
+    .btn svg { width: 15px; height: 15px; flex: 0 0 auto; }
+    .btn.primary { background: var(--leaf-grad); color: var(--on-leaf); border: 1px solid rgba(155,203,74,0.6); }
+    .btn.primary:hover { filter: brightness(1.08); }
+    .btn.primary:disabled { filter: grayscale(0.6); }
+    .btn.danger { background: var(--red-bg); color: var(--red); border-color: var(--red-bd); }
+    .btn.danger:hover { background: rgba(242,107,107,0.2); }
+    .btn.ghost { background: transparent; border-color: transparent; color: var(--text-2); }
+    .btn.ghost:hover { background: var(--surface-2); color: var(--text); }
+    .btn.sm { height: 28px; padding: 0 10px; font-size: 12px; }
+    .btn.block { width: 100%; }
+    .icon-btn { width: 34px; height: 34px; padding: 0; border-radius: 50%; }
+
+    /* ---------- Form controls ---------- */
+    .field { margin-top: 14px; }
+    .field:first-child { margin-top: 0; }
+    .lbl { display: block; font-size: 12.5px; font-weight: 600; color: var(--text); margin-bottom: 6px; }
+    .lbl .rq { color: var(--red); margin-left: 2px; }
+    .lbl .opt { color: var(--text-3); font-weight: 500; margin-left: 4px; }
+    .inp { width: 100%; height: 36px; padding: 0 11px; background: var(--bg); color: var(--text); border: 1px solid var(--border-2); border-radius: 6px; font-size: 13.5px; }
+    textarea.inp { height: auto; padding: 8px 11px; resize: vertical; }
+    select.inp { appearance: none; -webkit-appearance: none; padding-right: 30px; cursor: pointer;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23a3a6ab' stroke-width='2.5'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+      background-repeat: no-repeat; background-position: right 10px center; }
+    .inp:focus { outline: none; border-color: var(--leaf); box-shadow: 0 0 0 3px rgba(109,184,81,0.18); }
+    .inp::placeholder { color: var(--text-3); }
+    input[type=date].inp, input[type=datetime-local].inp { color-scheme: dark; }
+    .hint { font-size: 11.5px; color: var(--text-3); margin-top: 5px; line-height: 1.45; }
+    .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .check { display: flex; gap: 9px; align-items: flex-start; font-size: 13px; color: var(--text); cursor: pointer; }
+    .check input { margin: 2px 0 0; width: 15px; height: 15px; accent-color: var(--leaf); flex: 0 0 auto; }
+    .err { display: none; margin-top: 10px; padding: 8px 11px; border-radius: 6px; background: var(--red-bg); border: 1px solid var(--red-bd); color: var(--red); font-size: 12.5px; }
+    .err.show { display: block; }
+    .ok-msg { display: none; margin-top: 10px; padding: 8px 11px; border-radius: 6px; background: var(--teal-bg); color: var(--teal); font-size: 12.5px; }
+    .ok-msg.show { display: block; }
+    .note { margin-top: 10px; padding: 9px 11px; border-radius: 6px; background: var(--amber-bg); border: 1px solid var(--amber-bd); color: var(--amber); font-size: 12.5px; }
+    .note.info { background: var(--blue-bg); border-color: rgba(106,168,247,0.3); color: var(--blue); }
+    .note.bad { background: var(--red-bg); border-color: var(--red-bd); color: var(--red); }
+
+    /* ---------- Pills & chips ---------- */
+    .pill { display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 9px; border-radius: 11px; font-size: 11.5px; font-weight: 600; white-space: nowrap; }
+    .pill .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+    .pill svg { width: 12px; height: 12px; }
+    .t-red { color: var(--red); background: var(--red-bg); }
+    .t-amber { color: var(--amber); background: var(--amber-bg); }
+    .t-teal { color: var(--teal); background: var(--teal-bg); }
+    .t-blue { color: var(--blue); background: var(--blue-bg); }
+    .t-grey { color: var(--grey); background: var(--grey-bg); }
+    .chip { display: inline-flex; align-items: center; height: 20px; padding: 0 7px; border-radius: 4px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; border: 1px solid var(--border-2); color: var(--text-2); }
+    .chip.high { color: var(--red); border-color: var(--red-bd); }
+    .chip.medium { color: var(--amber); border-color: var(--amber-bd); }
+    .chip.courier { color: var(--blue); border-color: rgba(106,168,247,0.35); }
+    .chip.cover { color: var(--amber); border-color: var(--amber-bd); text-transform: none; letter-spacing: 0; }
+    .count { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; font-size: 10.5px; font-weight: 700; background: var(--surface-3); color: var(--text-2); }
+    .count.hot { background: var(--red); color: #fff; }
+
+    /* ---------- Top bar ---------- */
+    .topbar { position: fixed; top: 0; left: 0; right: 0; height: var(--top-h); z-index: 50; display: flex; align-items: center; gap: 14px; padding: 0 16px 0 14px; background: var(--bg-2); border-bottom: 1px solid var(--border); }
+    .brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+    .brand-mark { width: 30px; height: 30px; flex: 0 0 auto; }
+    .brand-name { font-weight: 700; font-size: 15px; letter-spacing: -0.01em; white-space: nowrap; }
+    .brand-sep { color: var(--text-3); font-size: 18px; font-weight: 300; }
+    .brand-user { display: flex; align-items: center; gap: 8px; font-weight: 600; white-space: nowrap; min-width: 0; }
+    .brand-user span { overflow: hidden; text-overflow: ellipsis; }
+    .beta { display: inline-flex; align-items: center; height: 20px; padding: 0 7px; border-radius: 10px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.06em; color: var(--leaf-a); border: 1px solid rgba(155,203,74,0.45); }
+    .role-tag { display: inline-flex; align-items: center; height: 20px; padding: 0 7px; border-radius: 4px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.05em; color: var(--text-2); border: 1px solid var(--border-2); text-transform: uppercase; }
+    .top-spacer { flex: 1 1 auto; }
+    .top-search { position: relative; width: 340px; max-width: 34vw; }
+    .top-search .inp { padding-left: 34px; padding-right: 62px; height: 34px; background: var(--surface); border-radius: 17px; }
+    .top-search .s-icon { position: absolute; left: 12px; top: 9px; width: 16px; height: 16px; color: var(--text-3); pointer-events: none; }
+    .top-search .kbd { position: absolute; right: 10px; top: 8px; font-size: 11px; color: var(--text-3); border: 1px solid var(--border-2); border-radius: 4px; padding: 0 5px; line-height: 17px; pointer-events: none; }
+    .search-pop { display: none; position: absolute; top: 40px; right: 0; width: 460px; max-width: calc(100vw - 24px); max-height: 70vh; overflow-y: auto; background: var(--surface); border: 1px solid var(--border-2); border-radius: 10px; box-shadow: 0 16px 40px rgba(0,0,0,0.5); z-index: 60; }
+    .search-pop.show { display: block; }
+    .sp-head { padding: 10px 14px; font-size: 12px; color: var(--text-2); border-bottom: 1px solid var(--border); }
+    .sp-row { padding: 10px 14px; border-bottom: 1px solid var(--border); cursor: pointer; }
+    .sp-row:last-child { border-bottom: none; }
+    .sp-row:hover, .sp-row.kb { background: var(--surface-2); }
+    .sp-top { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; font-weight: 600; }
+    .sp-sub { font-size: 11.5px; color: var(--text-2); margin-top: 2px; }
+    .sp-why { font-size: 10px; font-weight: 700; color: var(--leaf-a); border: 1px solid rgba(155,203,74,0.35); border-radius: 8px; padding: 0 6px; margin-left: 6px; }
+    .sp-msg { padding: 14px; font-size: 12.5px; color: var(--text-2); }
+    .bell { position: relative; }
+    .bell .count { position: absolute; top: -3px; right: -4px; }
+    .avatar { width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--border-2); background: var(--surface-2); color: var(--text); font-weight: 700; font-size: 13px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+    .avatar:hover { border-color: var(--leaf); }
+    .menu { display: none; position: absolute; top: 48px; right: 12px; width: 260px; background: var(--surface); border: 1px solid var(--border-2); border-radius: 10px; box-shadow: 0 16px 40px rgba(0,0,0,0.5); z-index: 60; padding: 6px; }
+    .menu.show { display: block; }
+    .menu-head { padding: 10px 10px 12px; border-bottom: 1px solid var(--border); margin-bottom: 6px; }
+    .menu-head b { display: block; font-size: 14px; }
+    .menu-head span { font-size: 12px; color: var(--text-2); }
+    .menu-item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border-radius: 6px; background: none; border: none; text-align: left; font-size: 13px; color: var(--text); cursor: pointer; text-decoration: none; }
+    .menu-item:hover { background: var(--surface-2); }
+    .menu-item svg { width: 15px; height: 15px; color: var(--text-2); }
+    .menu-sep { height: 1px; background: var(--border); margin: 6px 0; }
+    .menu-label { font-size: 10.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-3); padding: 6px 10px 4px; }
+    /* Admin extras moved in from the shared sign-in bar */
+    #authNav { display: flex; flex-direction: column; gap: 2px; margin: 0; }
+    #authNav a, #authNav span { display: block; padding: 7px 10px; border-radius: 6px; font-size: 13px; text-decoration: none; color: var(--text); background: none; font-weight: 500; }
+    #authNav a:hover { background: var(--surface-2); }
+    #authNav span { display: none; } /* "CRE page" is the current page in auth.html's list -- the classic link above covers it */
+    .top-admin { display: flex; gap: 8px; align-items: center; }
+    .top-admin .auth-appr, .top-admin .auth-gate { height: 28px; font-size: 11.5px; border-radius: 14px; }
+    .top-admin .auth-appr { background: var(--surface-2); color: var(--text-2); border: 1px solid var(--border-2); }
+    .top-admin .auth-appr.waiting { background: var(--amber-bg); color: var(--amber); border-color: var(--amber-bd); }
+    .top-admin .auth-appr.overdue { background: var(--red-bg); color: var(--red); border-color: var(--red-bd); }
+    .top-admin .auth-appr .n b { color: var(--bg); }
+    .top-admin .auth-gate { background: var(--red-bg); color: var(--red); border-color: var(--red-bd); }
+
+    /* Shared sign-in bar from auth.html: replaced by the top bar on this page */
+    #authBar { display: none !important; }
+
+    /* ---------- Rail ---------- */
+    .rail { position: fixed; top: var(--top-h); left: 0; bottom: 0; width: var(--rail-w); z-index: 40; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 12px 0; background: var(--bg-2); border-right: 1px solid var(--border); }
+    .rail-btn { position: relative; width: 42px; height: 42px; border-radius: 8px; border: none; background: none; color: var(--text-2); cursor: pointer; display: flex; align-items: center; justify-content: center; }
+    .rail-btn svg { width: 20px; height: 20px; }
+    .rail-btn:hover { background: var(--surface); color: var(--text); }
+    .rail-btn.active { background: var(--surface-2); color: var(--leaf-a); }
+    .rail-btn.active::before { content: ''; position: absolute; left: -9px; top: 10px; bottom: 10px; width: 3px; border-radius: 0 3px 3px 0; background: var(--leaf-grad); }
+    .rail-btn .count { position: absolute; top: 2px; right: 0; }
+    .rail-btn .draft-dot { position: absolute; top: 8px; right: 8px; width: 7px; height: 7px; border-radius: 50%; background: var(--amber); display: none; }
+    .rail-btn.drafting .draft-dot { display: block; }
+    .rail-tip { position: absolute; left: 52px; white-space: nowrap; background: var(--surface-3); color: var(--text); font-size: 12px; font-weight: 600; padding: 4px 9px; border-radius: 5px; pointer-events: none; opacity: 0; transform: translateX(-4px); transition: opacity .12s, transform .12s; }
+    .rail-btn:hover .rail-tip { opacity: 1; transform: none; }
+    .rail-grow { flex: 1 1 auto; }
+
+    /* ---------- Main ---------- */
+    .main { padding: calc(var(--top-h) + 30px) 32px 48px calc(var(--rail-w) + 40px); min-height: 100%; }
+    .view { display: none; max-width: 1360px; margin: 0 auto; }
+    .view.show { display: block; }
+    .page-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 22px; flex-wrap: wrap; }
+    .page-title { font-size: 28px; font-weight: 600; letter-spacing: -0.02em; margin: 0; }
+    .page-sub { color: var(--text-2); font-size: 13px; margin-top: 4px; }
+    .layout { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 32px; align-items: start; }
+    .panel-title { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 4px; }
+    .panel-title h3 { margin: 0; font-size: 15px; font-weight: 600; }
+    .panel-sub { font-size: 12.5px; color: var(--text-2); margin-bottom: 14px; }
+    .card-box { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+    .empty { padding: 28px 16px; text-align: center; color: var(--text-3); font-size: 13px; }
+    .loading { color: var(--text-3); font-size: 13px; padding: 16px 0; }
+
+    /* ---------- Needs your action ---------- */
+    .action-wrap { margin-bottom: 26px; }
+    .action-wrap.hidden { display: none; }
+    .action-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+    .action-head h3 { margin: 0; font-size: 15px; font-weight: 600; }
+    .action-list { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+    .act-row { display: grid; grid-template-columns: 4px minmax(0, 1fr) auto; align-items: center; gap: 14px; padding: 11px 14px 11px 0; border-top: 1px solid var(--border); cursor: pointer; }
+    .act-row:first-child { border-top: none; }
+    .act-row:hover { background: var(--surface-2); }
+    .act-bar { align-self: stretch; border-radius: 0 3px 3px 0; margin: -11px 0; }
+    .act-row.red .act-bar { background: var(--red); }
+    .act-row.amber .act-bar { background: var(--amber); }
+    .act-row.blue .act-bar { background: var(--blue); }
+    .act-main { min-width: 0; }
+    .act-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .act-name { font-weight: 600; font-size: 13.5px; }
+    .act-sub { font-size: 12px; color: var(--text-2); margin-top: 2px; }
+    .act-row.red .act-why { color: var(--red); font-weight: 600; }
+    .act-row.amber .act-why { color: var(--amber); font-weight: 600; }
+    .act-row.blue .act-why { color: var(--blue); font-weight: 600; }
+    .act-more { display: block; width: 100%; padding: 9px; border: none; border-top: 1px solid var(--border); background: none; color: var(--text-2); font-size: 12.5px; font-weight: 600; cursor: pointer; }
+    .act-more:hover { background: var(--surface-2); color: var(--text); }
+    @keyframes rowPulse { 0%, 100% { background: transparent; } 50% { background: rgba(242,107,107,0.14); } }
+    .act-row.pulse { animation: rowPulse 0.9s ease-in-out 4; }
+
+    /* ---------- Toolbar ---------- */
+    .toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+    .tb-search { position: relative; flex: 1 1 260px; max-width: 380px; }
+    .tb-search .inp { padding-left: 34px; height: 34px; }
+    .tb-search svg { position: absolute; left: 11px; top: 9px; width: 16px; height: 16px; color: var(--text-3); pointer-events: none; }
+    .tb-select { height: 34px; width: auto; min-width: 0; font-weight: 600; font-size: 13px; background-color: var(--surface); }
+    .tb-grow { flex: 1 1 auto; }
+    .seg { display: inline-flex; border: 1px solid var(--border-2); border-radius: 6px; overflow: hidden; }
+    .seg button { height: 32px; width: 36px; border: none; background: var(--surface); color: var(--text-3); cursor: pointer; display: flex; align-items: center; justify-content: center; }
+    .seg button svg { width: 16px; height: 16px; }
+    .seg button.on { background: var(--surface-3); color: var(--text); }
+    .seg.text button { width: auto; padding: 0 12px; font-size: 12.5px; font-weight: 600; }
+    .filter-pop-wrap { position: relative; }
+    .filter-pop { display: none; position: absolute; top: 40px; left: 0; width: 300px; padding: 14px; background: var(--surface); border: 1px solid var(--border-2); border-radius: 10px; box-shadow: 0 16px 40px rgba(0,0,0,0.5); z-index: 30; }
+    .filter-pop.show { display: block; }
+    .active-filters { display: flex; flex-wrap: wrap; gap: 6px; margin: -6px 0 14px; }
+    .active-filters:empty { display: none; }
+    .af { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 6px 0 10px; border-radius: 13px; background: var(--surface-2); border: 1px solid var(--border-2); font-size: 12px; color: var(--text); }
+    .af button { width: 18px; height: 18px; border-radius: 50%; border: none; background: none; color: var(--text-2); cursor: pointer; font-size: 14px; line-height: 1; }
+    .af button:hover { background: var(--surface-3); color: var(--text); }
+    .result-line { font-size: 12.5px; color: var(--text-2); margin-bottom: 12px; }
+    .result-line b { color: var(--text); font-weight: 600; }
+
+    /* ---------- Order cards ---------- */
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 16px; }
+    .ocard { position: relative; display: flex; flex-direction: column; min-height: 168px; padding: 18px 18px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); cursor: pointer; transition: border-color .12s, background .12s; text-align: left; width: 100%; }
+    .ocard:hover { border-color: #45484d; background: #202123; }
+    .ocard:focus-visible { outline: 2px solid var(--leaf); outline-offset: 2px; }
+    .ocard.closed { opacity: 0.62; }
+    .ocard.closed:hover { opacity: 0.9; }
+    .oc-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .oc-id { font-size: 12px; color: var(--text-2); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .oc-name { margin-top: 8px; font-size: 15px; font-weight: 600; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .oc-meta { margin-top: 4px; font-size: 12.5px; color: var(--text-3); }
+    .oc-foot { margin-top: auto; padding-top: 16px; display: flex; align-items: flex-end; justify-content: space-between; gap: 10px; }
+    .oc-amt { text-align: right; font-variant-numeric: tabular-nums; }
+    .oc-amt .v { font-size: 13.5px; font-weight: 600; }
+    .oc-amt .b { font-size: 11.5px; color: var(--amber); font-weight: 600; }
+    .oc-flag { position: absolute; top: 0; left: 18px; right: 18px; height: 2px; border-radius: 0 0 2px 2px; }
+    .ocard.f-red .oc-flag { background: var(--red); }
+    .ocard.f-amber .oc-flag { background: var(--amber); }
+
+    /* ---------- Order list (table) ---------- */
+    .tbl-wrap { overflow-x: auto; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+    .tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .tbl th { text-align: left; font-size: 11.5px; font-weight: 600; color: var(--text-3); padding: 10px 14px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+    .tbl td { padding: 11px 14px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    .tbl tbody tr { cursor: pointer; }
+    .tbl tbody tr:hover { background: var(--surface-2); }
+    .tbl tbody tr:last-child td { border-bottom: none; }
+    .tbl tr.closed td { color: var(--text-2); }
+    .tbl .num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .tbl .nowrap { white-space: nowrap; }
+
+    /* ---------- At a glance (right panel) ---------- */
+    .side { position: sticky; top: calc(var(--top-h) + 24px); }
+    .side-block { margin-bottom: 28px; }
+    .side-block h3 { margin: 0; font-size: 15px; font-weight: 600; }
+    .side-block .panel-sub { margin-bottom: 6px; }
+    .stat-row { display: flex; align-items: center; gap: 11px; width: 100%; padding: 11px 4px; border: none; border-bottom: 1px solid var(--border); background: none; text-align: left; cursor: pointer; border-radius: 0; }
+    .stat-row:hover { background: var(--surface); }
+    .stat-row.on { background: var(--surface); box-shadow: inset 2px 0 0 var(--leaf); }
+    .ring { width: 16px; height: 16px; flex: 0 0 auto; }
+    .ring circle { fill: none; stroke-width: 2.4; }
+    .ring .bg { stroke: var(--surface-3); }
+    .stat-label { flex: 1 1 auto; font-size: 13.5px; color: var(--text); }
+    .stat-val { font-weight: 600; font-variant-numeric: tabular-nums; }
+    .stat-row.alert .stat-val { color: var(--red); }
+
+    /* ---------- Drawer ---------- */
+    .scrim { position: fixed; inset: 0; z-index: 70; background: rgba(0,0,0,0.5); opacity: 0; pointer-events: none; transition: opacity .18s; }
+    .scrim.show { opacity: 1; pointer-events: auto; }
+    .drawer { position: fixed; top: 0; right: 0; bottom: 0; z-index: 80; width: min(580px, 100vw); background: var(--bg-2); border-left: 1px solid var(--border-2); box-shadow: -20px 0 50px rgba(0,0,0,0.45); transform: translateX(100%); transition: transform .2s ease; display: flex; flex-direction: column; }
+    .drawer.show { transform: none; }
+    .dr-head { padding: 18px 22px 16px; border-bottom: 1px solid var(--border); display: flex; gap: 12px; align-items: flex-start; }
+    .dr-head-main { flex: 1 1 auto; min-width: 0; }
+    .dr-id { font-size: 12px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+    .dr-title { font-size: 19px; font-weight: 600; margin: 3px 0 8px; line-height: 1.3; }
+    .dr-tags { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+    .dr-body { flex: 1 1 auto; overflow-y: auto; padding: 18px 22px 28px; }
+    .dr-sec { margin-top: 22px; }
+    .dr-sec:first-child { margin-top: 0; }
+    .dr-sec-title { font-size: 11px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; color: var(--text-3); margin-bottom: 9px; }
+    .act-card { padding: 16px; border-radius: var(--radius); background: var(--surface); border: 1px solid var(--border-2); }
+    .act-card.red { border-color: var(--red-bd); box-shadow: inset 3px 0 0 var(--red); }
+    .act-card.amber { box-shadow: inset 3px 0 0 var(--amber); }
+    .act-card.blue { box-shadow: inset 3px 0 0 var(--blue); }
+    .act-card.teal { box-shadow: inset 3px 0 0 var(--teal); }
+    .act-card.grey { box-shadow: inset 3px 0 0 var(--grey); }
+    .act-card h4 { margin: 0 0 6px; font-size: 14px; font-weight: 600; }
+    .act-card .msg { font-size: 13px; color: var(--text-2); }
+    .act-card .msg b { color: var(--text); }
+    .act-card .sub-h { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); font-size: 12.5px; font-weight: 600; }
+    .act-actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+    .kv { display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: 0; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; background: var(--surface); }
+    .kv div { padding: 8px 12px; border-top: 1px solid var(--border); font-size: 13px; }
+    .kv div:nth-child(-n+2) { border-top: none; }
+    .kv .k { color: var(--text-3); }
+    .kv .v { color: var(--text); word-break: break-word; }
+    .prod-list { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+    .prod { display: flex; justify-content: space-between; gap: 12px; padding: 8px 12px; border-top: 1px solid var(--border); font-size: 13px; }
+    .prod:first-child { border-top: none; }
+    .tl { position: relative; padding-left: 18px; }
+    .tl::before { content: ''; position: absolute; left: 4px; top: 6px; bottom: 6px; width: 1px; background: var(--border-2); }
+    .tl-item { position: relative; display: flex; justify-content: space-between; gap: 12px; padding: 5px 0; font-size: 13px; }
+    .tl-item::before { content: ''; position: absolute; left: -18px; top: 11px; width: 9px; height: 9px; border-radius: 50%; background: var(--bg-2); border: 2px solid var(--leaf); }
+    .tl-item.plain::before { border-color: var(--border-2); }
+    .tl-item .tl-l { color: var(--text-2); }
+    .tl-item .tl-v { text-align: right; font-weight: 500; }
+    .dr-foot-link { display: inline-block; margin-top: 8px; font-size: 12.5px; }
+
+    /* docs_panel.html, restyled for the dark theme */
+    .docs-box { margin-top: 0 !important; border: 1px solid var(--border) !important; background: var(--surface) !important; border-radius: var(--radius) !important; padding: 4px 12px 10px !important; }
+    .docs-box .docs-title { display: none; }
+    .docs-row { border-top: 1px solid var(--border) !important; padding: 9px 0 !important; }
+    .docs-row:first-of-type { border-top: none !important; }
+    .docs-row .docs-name { color: var(--text) !important; }
+    .docs-row .docs-state.ok { background: var(--teal-bg) !important; color: var(--teal) !important; }
+    .docs-row .docs-state.miss { background: var(--red-bg) !important; color: var(--red) !important; }
+    .docs-row .docs-state.opt { background: var(--grey-bg) !important; color: var(--grey) !important; }
+    .docs-row a.docs-open { background: var(--surface-3) !important; color: var(--text) !important; border: 1px solid var(--border-2); border-radius: 6px !important; }
+    .docs-row a.docs-open:hover { border-color: var(--leaf) !important; }
+    .docs-up input[type=file] { color: var(--text-2); }
+    .docs-up button { background: var(--leaf-grad) !important; color: var(--on-leaf) !important; border-radius: 6px !important; }
+    .docs-up button:disabled { filter: grayscale(0.7); }
+    .docs-hint { color: var(--text-3) !important; }
+    .docs-msg.err { color: var(--red) !important; }
+    .docs-msg.ok { color: var(--teal) !important; }
+    input[type=file]::file-selector-button { font: inherit; font-size: 12px; font-weight: 600; margin-right: 10px; padding: 6px 12px; border-radius: 6px; border: 1px solid var(--border-2); background: var(--surface-2); color: var(--text); cursor: pointer; }
+
+    /* ---------- Payments & Requests ---------- */
+    .tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
+    .tab { position: relative; height: 38px; padding: 0 14px; border: none; background: none; color: var(--text-2); font-size: 13.5px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; }
+    .tab:hover { color: var(--text); }
+    .tab.on { color: var(--text); }
+    .tab.on::after { content: ''; position: absolute; left: 10px; right: 10px; bottom: -1px; height: 2px; background: var(--leaf-grad); border-radius: 2px; }
+    .pay-list, .req-list { display: flex; flex-direction: column; gap: 10px; }
+    .pay-list { max-width: 980px; }
+    #view-payments .tabs { max-width: 980px; }
+    .pay { padding: 14px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+    .pay.urgent { border-color: var(--red-bd); box-shadow: inset 3px 0 0 var(--red); }
+    .pay-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+    .pay-name { font-weight: 600; font-size: 14px; cursor: pointer; }
+    .pay-name:hover { color: var(--leaf-a); }
+    .pay-id { font-size: 12px; color: var(--text-3); margin-top: 1px; }
+    .pay-bal { text-align: right; white-space: nowrap; }
+    .pay-bal .v { font-size: 16px; font-weight: 600; color: var(--amber); font-variant-numeric: tabular-nums; }
+    .pay-bal .t { font-size: 11.5px; color: var(--text-3); }
+    .pay-age { font-size: 12.5px; color: var(--text-2); margin-top: 8px; }
+    .pay.urgent .pay-age { color: var(--red); font-weight: 600; }
+    .pay-tags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+    .pay-form { display: none; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+    .pay-form.show { display: grid; grid-template-columns: 170px minmax(0, 1fr) auto; gap: 8px; align-items: center; }
+    .pay-acts { display: flex; gap: 8px; margin-top: 12px; }
+    .req-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; align-items: start; }
+    .req { padding: 13px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+    .req-open { cursor: pointer; }
+    .req-open:hover .req-name { color: var(--leaf-a); }
+    .req-name { font-weight: 600; font-size: 13.5px; }
+    .req-sub { font-size: 12px; color: var(--text-2); margin-top: 2px; }
+    .req-ack { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
+
+    /* ---------- New PO page ---------- */
+    .po-layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 28px; align-items: start; max-width: 1120px; }
+    .po-sec { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px 22px; margin-bottom: 16px; }
+    .po-sec-head { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
+    .po-num { width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11.5px; font-weight: 700; background: var(--surface-3); color: var(--text-2); }
+    .po-sec-head h3 { margin: 0; font-size: 14.5px; font-weight: 600; }
+    .po-sec-head .muted { font-size: 12px; margin-left: auto; }
+    .pline { display: grid; grid-template-columns: minmax(0, 1fr) 90px 34px; gap: 8px; margin-top: 8px; }
+    .pline:first-child { margin-top: 0; }
+    .pline .rm { width: 34px; height: 36px; border-radius: 6px; border: 1px solid var(--border-2); background: var(--surface-2); color: var(--text-2); cursor: pointer; font-size: 17px; line-height: 1; }
+    .pline .rm:hover { color: var(--red); border-color: var(--red-bd); }
+    .add-line { margin-top: 10px; height: 34px; padding: 0 14px; border-radius: 6px; border: 1px dashed var(--border-2); background: none; color: var(--leaf-a); font-size: 13px; font-weight: 600; cursor: pointer; }
+    .add-line:hover { border-color: var(--leaf); background: rgba(109,184,81,0.06); }
+    .file-box { padding: 12px; border: 1px dashed var(--border-2); border-radius: 6px; background: var(--bg); }
+    .file-box input { width: 100%; color: var(--text-2); font-size: 12.5px; }
+    .po-side { position: sticky; top: calc(var(--top-h) + 24px); }
+    .sum { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; }
+    .sum h3 { margin: 0 0 12px; font-size: 14.5px; font-weight: 600; }
+    .sum-row { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; font-size: 13px; border-bottom: 1px dashed var(--border); }
+    .sum-row:last-of-type { border-bottom: none; }
+    .sum-row .k { color: var(--text-2); }
+    .sum-row .v { text-align: right; font-weight: 500; font-variant-numeric: tabular-nums; max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .pct-bar { height: 6px; border-radius: 3px; background: var(--surface-3); overflow: hidden; margin: 10px 0 4px; }
+    .pct-bar div { height: 100%; width: 0; background: var(--leaf-grad); transition: width .2s; }
+    .po-done { max-width: 560px; margin: 40px auto; text-align: center; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 34px 30px; }
+    .po-done .tick { width: 54px; height: 54px; margin: 0 auto 14px; border-radius: 50%; background: var(--leaf-grad); color: var(--on-leaf); display: flex; align-items: center; justify-content: center; }
+    .po-done .tid { font-size: 22px; font-weight: 700; margin: 6px 0 10px; font-variant-numeric: tabular-nums; }
+    .po-done .line { font-size: 13.5px; color: var(--text-2); margin-top: 4px; }
+    .po-done .next { margin-top: 14px; font-size: 13px; color: var(--teal); }
+
+    /* ---------- Modal (All refunds) ---------- */
+    .modal { position: fixed; inset: 0; z-index: 90; display: none; align-items: flex-start; justify-content: center; padding: 50px 16px; background: rgba(0,0,0,0.55); overflow-y: auto; }
+    .modal.show { display: flex; }
+    .modal-box { width: 100%; max-width: 980px; background: var(--bg-2); border: 1px solid var(--border-2); border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,0.6); }
+    .modal-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid var(--border); }
+    .modal-head h3 { margin: 0; font-size: 16px; font-weight: 600; }
+    .modal-body { padding: 16px 20px 20px; }
+    .flt { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; margin-bottom: 14px; }
+    .flt > div { display: flex; flex-direction: column; gap: 4px; }
+    .flt label { font-size: 11px; font-weight: 600; color: var(--text-3); }
+    .flt .inp { height: 32px; font-size: 12.5px; min-width: 120px; }
+
+    /* ---------- Sign-in screen from auth.html, restyled ---------- */
+    #authOverlay { background: radial-gradient(1200px 600px at 50% -10%, rgba(109,184,81,0.10), transparent 60%), var(--bg) !important; }
+    #authOverlay .auth-card { background: var(--surface); border: 1px solid var(--border-2); box-shadow: 0 20px 60px rgba(0,0,0,0.5); border-radius: 12px; }
+    #authOverlay .auth-head { background: none; border-bottom: 1px solid var(--border); position: relative; }
+    #authOverlay .auth-head::before { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 3px; background: var(--leaf-grad); }
+    #authOverlay .auth-head .auth-brand { color: var(--leaf-a); opacity: 1; }
+    #authOverlay .auth-head .auth-title { color: var(--text); }
+    #authOverlay .auth-body label { color: var(--text); }
+    #authOverlay .auth-body input { background: var(--bg); color: var(--text); border: 1px solid var(--border-2); border-radius: 6px; }
+    #authOverlay .auth-body input:focus { border-color: var(--leaf); box-shadow: 0 0 0 3px rgba(109,184,81,0.18); }
+    #authOverlay .auth-body button.auth-primary { background: var(--leaf-grad); color: var(--on-leaf); border-radius: 6px; }
+    #authOverlay .auth-body button.auth-link { color: var(--leaf-a); }
+    #authOverlay .auth-note { color: var(--text-2); }
+    #authOverlay .auth-msg { color: var(--red); }
+    #authOverlay .auth-msg.ok { color: var(--teal); }
+
+    /* ---------- Responsive ---------- */
+    @media (max-width: 1180px) {
+      .layout { grid-template-columns: 1fr; }
+      .side { position: static; order: -1; }
+      .side-block { margin-bottom: 18px; }
+      .glance { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); column-gap: 18px; }
+      .po-layout { grid-template-columns: 1fr; }
+      .po-side { position: static; }
+    }
+    @media (max-width: 900px) { .req-grid { grid-template-columns: 1fr; } .top-search { width: 240px; } .brand-name { display: none; } }
+    @media (max-width: 760px) {
+      :root { --rail-w: 0px; }
+      .rail { top: auto; height: 60px; width: 100%; flex-direction: row; justify-content: space-around; padding: 0 8px; border-right: none; border-top: 1px solid var(--border); }
+      .rail-grow, .rail-tip, .rail-btn.active::before { display: none; }
+      .main { padding: calc(var(--top-h) + 20px) 16px 90px 16px; }
+      .top-search { display: none; }
+      .brand-user .role-tag { display: none; }
+      .page-title { font-size: 23px; }
+      .row2, .pay-form.show { grid-template-columns: 1fr; }
+      .kv { grid-template-columns: 110px minmax(0, 1fr); }
+      .side { order: 0; } /* phones: what needs action comes first, the counters after the list */
+      .search-mobile { display: flex !important; }
+    }
+    .search-mobile { display: none; }
+  </style>
+</head>
+<body>
+  <script>window.ICF_PAGE = 'cre'; // signs in as the CRE page -- same role check and same data as the classic page</script>
+  <?!= include('auth'); ?>
+  <?!= include('docs_panel'); ?>
+
+  <!-- =================== TOP BAR =================== -->
+  <header class="topbar">
+    <div class="brand">
+      <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+        <defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#9bcb4a"/><stop offset="1" stop-color="#4fa845"/></linearGradient></defs>
+        <path d="M5 3h12q9 0 9 8v4H14q-9 0-9-8z" fill="url(#lg)"/>
+        <path d="M5 17h12q9 0 9 8v4H14q-9 0-9-8z" fill="url(#lg)" opacity="0.8"/>
+      </svg>
+      <span class="brand-name">ICF Tracker</span>
+      <span class="brand-sep">/</span>
+      <span class="brand-user"><span id="tbName">CRE</span><span class="role-tag" id="tbRole">CRE</span></span>
+      <span class="beta" title="New layout on trial. Same live data as the classic CRE page.">BETA</span>
+    </div>
+    <div class="top-spacer"></div>
+    <div class="top-admin" id="topAdmin"></div>
+    <div class="top-search" id="topSearch">
+      <svg class="s-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <input class="inp" id="findInput" type="text" autocomplete="off" placeholder="Find any order…" title="Quotation no., phone number or customer name">
+      <span class="kbd">Ctrl K</span>
+      <div class="search-pop" id="findPop"></div>
+    </div>
+    <button class="btn icon-btn search-mobile" id="findMobileBtn" type="button" title="Find any order">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+    </button>
+    <button class="btn icon-btn bell" id="bellBtn" type="button" title="Needs your action">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
+      <span class="count" id="bellCount" style="display:none;">0</span>
+    </button>
+    <button class="avatar" id="avatarBtn" type="button" title="Account">–</button>
+    <div class="menu" id="userMenu">
+      <div class="menu-head"><b id="menuName">–</b><span id="menuRole"></span></div>
+      <button class="menu-item" type="button" id="menuPin">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>Change PIN</button>
+      <a class="menu-item" id="menuClassic" href="<?= ScriptApp.getService().getUrl() ?>" target="_top">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/></svg>Switch to classic CRE page</a>
+      <div id="menuAdmin" style="display:none;"><div class="menu-sep"></div><div class="menu-label">Pages</div><div id="menuAdminNav"></div></div>
+      <div class="menu-sep"></div>
+      <button class="menu-item" type="button" id="menuSignOut">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></svg>Sign out</button>
+    </div>
+  </header>
+
+  <!-- =================== RAIL =================== -->
+  <nav class="rail">
+    <button class="rail-btn active" data-view="orders" type="button">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+      <span class="rail-tip">My orders</span></button>
+    <button class="rail-btn" data-view="payments" type="button">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M8 7h8M8 11h8M13 11c0 3-2 4.5-5 4.5L13 20"/></svg>
+      <span class="count" id="railPayCount" style="display:none;">0</span><span class="rail-tip">Payments</span></button>
+    <button class="rail-btn" data-view="requests" type="button">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M7 4 3 8l4 4"/><path d="M3 8h13"/><path d="m17 20 4-4-4-4"/><path d="M21 16H8"/></svg>
+      <span class="count" id="railReqCount" style="display:none;">0</span><span class="rail-tip">Requests</span></button>
+    <button class="rail-btn" data-view="newpo" type="button" id="railNewPo">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M12 11v6M9 14h6"/></svg>
+      <span class="draft-dot"></span><span class="rail-tip">New PO</span></button>
+    <div class="rail-grow"></div>
+  </nav>
+
+  <main class="main">
+
+    <!-- =================== ORDERS (home) =================== -->
+    <section class="view show" id="view-orders">
+      <div class="page-head">
+        <div>
+          <h1 class="page-title">My Orders</h1>
+          <div class="page-sub" id="ordersSub">Everything you’ve logged, newest first. Click an order to work on it.</div>
+        </div>
+      </div>
+
+      <div class="layout">
+        <div>
+          <div class="action-wrap hidden" id="actionWrap">
+            <div class="action-head"><h3>Needs your action</h3><span class="count hot" id="actionCount">0</span></div>
+            <div class="action-list" id="actionList"></div>
+          </div>
+
+          <div class="toolbar">
+            <div class="tb-search">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+              <input class="inp" id="oSearch" type="text" placeholder="Search my orders">
+            </div>
+            <select class="inp tb-select" id="oStatus" title="Open or closed">
+              <option value="all">All orders</option>
+              <option value="open">Open</option>
+              <option value="closed">Closed</option>
+            </select>
+            <div class="filter-pop-wrap">
+              <button class="btn" id="filterBtn" type="button">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 5h18M6 12h12M10 19h4"/></svg>Filters<span class="count" id="filterCount" style="display:none;">0</span></button>
+              <div class="filter-pop" id="filterPop">
+                <div class="field"><label class="lbl">Stage</label><select class="inp" id="oStage"></select></div>
+                <div class="field"><label class="lbl">Delivery</label><select class="inp" id="oDelivery">
+                  <option value="all">All</option><option value="none">Not dispatched yet</option><option value="Pending">Pending</option>
+                  <option value="In Transit">In Transit</option><option value="Delivered">Delivered</option><option value="Returned">Returned</option></select></div>
+                <div class="field"><label class="lbl">Order type</label><select class="inp" id="oType">
+                  <option value="all">All</option><option value="End Customer">End Customer</option><option value="PO Customer">PO Customer</option></select></div>
+                <div class="field row2">
+                  <div><label class="lbl">Logged from</label><input class="inp" type="date" id="oFrom"></div>
+                  <div><label class="lbl">Logged to</label><input class="inp" type="date" id="oTo"></div>
+                </div>
+                <div class="act-actions" style="justify-content:space-between;">
+                  <button class="btn ghost sm" type="button" id="filterClear">Clear filters</button>
+                  <button class="btn sm" type="button" id="filterDone">Done</button>
+                </div>
+              </div>
+            </div>
+            <select class="inp tb-select" id="oSort" title="Sort">
+              <option value="new">Newest first</option>
+              <option value="old">Oldest first</option>
+              <option value="value">Highest value</option>
+              <option value="balance">Highest balance due</option>
+              <option value="priority">Priority</option>
+            </select>
+            <div class="tb-grow"></div>
+            <div class="seg" id="viewSeg">
+              <button type="button" data-mode="grid" class="on" title="Cards"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg></button>
+              <button type="button" data-mode="list" title="List"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg></button>
+            </div>
+            <button class="btn primary" type="button" data-go="newpo">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 5v14M5 12h14"/></svg>New PO</button>
+          </div>
+          <div class="active-filters" id="activeFilters"></div>
+          <div class="result-line" id="resultLine"></div>
+          <div id="ordersOut"><div class="loading">Loading your orders…</div></div>
+        </div>
+
+        <aside class="side">
+          <div class="side-block">
+            <div class="panel-title"><h3>At a glance</h3><button class="btn ghost sm" type="button" id="refreshAll">&#8635; Refresh</button></div>
+            <div class="panel-sub">Your orders. Click a line to filter the list.</div>
+            <div class="glance" id="glance"></div>
+          </div>
+          <div class="side-block">
+            <div class="panel-title"><h3>Payments</h3><button class="btn ghost sm" type="button" data-go="payments">Open &rarr;</button></div>
+            <div class="panel-sub">Balances you’re collecting.</div>
+            <div id="paySide"></div>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <!-- =================== PAYMENTS =================== -->
+    <section class="view" id="view-payments">
+      <div class="page-head">
+        <div>
+          <h1 class="page-title">Payments</h1>
+          <div class="page-sub">Balances to collect. Red = in transit for 3+ days. Agreed to pay later (e.g. 30-day credit)? Set a follow-up date and it waits in Follow-ups until then.</div>
+        </div>
+        <div style="display:flex; gap:8px; align-items:center;">
+          <div class="seg text" id="termsSeg">
+            <button type="button" data-terms="all" class="on">All</button>
+            <button type="button" data-terms="End Customer">End Customer</button>
+            <button type="button" data-terms="PO Customer">Dealer / Inst.</button>
+          </div>
+          <button class="btn" type="button" id="refreshPay">&#8635; Refresh</button>
+        </div>
+      </div>
+      <div class="tabs">
+        <button class="tab on" type="button" data-ptab="collect">To collect <span class="count" id="tabCollect">0</span></button>
+        <button class="tab" type="button" data-ptab="follow">Follow-ups <span class="count" id="tabFollow">0</span></button>
+      </div>
+      <div class="pay-list" id="payList"><div class="loading">Loading…</div></div>
+    </section>
+
+    <!-- =================== REQUESTS =================== -->
+    <section class="view" id="view-requests">
+      <div class="page-head">
+        <div>
+          <h1 class="page-title">Requests</h1>
+          <div class="page-sub">Things you’ve asked the admin for, and cancellations you’re following up.</div>
+        </div>
+        <button class="btn" type="button" id="refreshReq">&#8635; Refresh</button>
+      </div>
+      <div class="req-grid">
+        <div>
+          <div class="panel-title"><h3>Access to other CREs’ orders <span class="count" id="apprCount" style="display:none;">0</span></h3></div>
+          <div class="panel-sub">Your requests to update another CRE’s order. Approved ones stay here for the 24 hours you have access.</div>
+          <div class="req-list" id="apprList"><div class="loading">Loading…</div></div>
+        </div>
+        <div>
+          <div class="panel-title"><h3>Cancellations &amp; refunds <span class="count" id="cxCount" style="display:none;">0</span></h3>
+            <button class="btn sm" type="button" id="cxAllBtn">All refunds</button></div>
+          <div class="panel-sub">Your cancellation requests and where each refund stands. Once a refund is processed, tell the customer, tick the box and press OK.</div>
+          <div class="req-list" id="cxList"><div class="loading">Loading…</div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- =================== NEW PO =================== -->
+    <section class="view" id="view-newpo">
+      <div class="page-head">
+        <div>
+          <button class="btn ghost sm" type="button" data-go="orders" style="margin:0 0 10px -10px;">&larr; Back to orders</button>
+          <h1 class="page-title">New PO</h1>
+          <div class="page-sub">Fill this at intake, once payment is confirmed by the customer. Advance % is calculated automatically. Leaving this page keeps what you’ve typed.</div>
+        </div>
+      </div>
+
+      <form id="poForm" class="po-layout" autocomplete="off">
+        <div>
+          <div class="po-sec">
+            <div class="po-sec-head"><span class="po-num">1</span><h3>Customer</h3></div>
+            <div class="field"><label class="lbl" for="trackerId">CRM Quotation / Reference No.<span class="rq">*</span></label>
+              <input class="inp" type="text" id="trackerId" placeholder="e.g. ICESPL-123-26-27" required></div>
+            <div class="field"><label class="lbl" for="institution">Institution / Customer Name<span class="rq">*</span></label>
+              <input class="inp" type="text" id="institution" required></div>
+            <div class="field row2">
+              <div><label class="lbl" for="customerPhone">Customer Phone Number</label>
+                <input class="inp" type="tel" id="customerPhone" placeholder="e.g. 9847012345"></div>
+              <div><label class="lbl" for="customerEmail">Customer Email<span class="opt">(optional)</span></label>
+                <input class="inp" type="email" id="customerEmail" placeholder="e.g. purchase@hospital.org"></div>
+            </div>
+            <div class="hint">The phone number lets Accounts and CRE find this order later without the Tracker ID. Order updates to the customer go to this number.</div>
+            <div class="field"><label class="check" for="customerConsent"><input type="checkbox" id="customerConsent">
+              <span>The customer agreed to receive order updates (order confirmed, dispatched, delivered) from ICF on WhatsApp / email.</span></label>
+              <div class="hint" style="margin-left:24px;">Ask the customer. Without this tick, no automatic messages go to them.</div></div>
+          </div>
+
+          <div class="po-sec">
+            <div class="po-sec-head"><span class="po-num">2</span><h3>Delivery location</h3></div>
+            <div class="field"><label class="lbl" for="pincode">Customer Pincode</label>
+              <input class="inp" type="text" id="pincode" inputmode="numeric" maxlength="6" placeholder="e.g. 670001" style="max-width:200px;">
+              <div class="hint" id="pincodeHint">Enter the 6-digit pincode and State/District fill in automatically.</div></div>
+            <div class="field row2">
+              <div><label class="lbl" for="state">State</label><input class="inp" type="text" id="state" placeholder="Auto-fills from pincode"></div>
+              <div><label class="lbl" for="district">District</label><input class="inp" type="text" id="district" placeholder="Auto-fills from pincode"></div>
+            </div>
+            <div class="hint">Correct these if the lookup is wrong, or type them in if the pincode isn’t known.</div>
+          </div>
+
+          <div class="po-sec">
+            <div class="po-sec-head"><span class="po-num">3</span><h3>Products</h3><span class="muted">Every product on this order, with its quantity</span></div>
+            <div id="productLines"></div>
+            <button type="button" class="add-line" id="addProductLine">+ Add product</button>
+            <div class="err" id="productError"></div>
+            <div class="note info" id="dispatchNote" style="display:none;">Courier order: Ops will post this packet – no vehicle, e-way bill or gate pass. Once Accounts verifies payment, Ops posts it and records the receipt; you take delivery follow-up from there.</div>
+          </div>
+
+          <div class="po-sec">
+            <div class="po-sec-head"><span class="po-num">4</span><h3>Payment</h3></div>
+            <div class="field"><label class="lbl" for="paymentTermsType">Payment Terms<span class="rq">*</span></label>
+              <select class="inp" id="paymentTermsType" required>
+                <option value="End Customer">End Customer – full payment required before dispatch</option>
+                <option value="PO Customer">Dealer / Institution with own PO – partial payment allowed</option>
+              </select>
+              <div class="hint">Select “PO Customer” only if the buyer has provided their own separate purchase order. Gate pass generation is blocked later for End Customer orders until fully paid.</div></div>
+            <div class="field row2">
+              <div><label class="lbl" for="totalValue">Total Order Value (₹)<span class="rq">*</span></label>
+                <input class="inp mono" type="number" id="totalValue" min="0" step="0.01" required></div>
+              <div><label class="lbl" for="advanceReceived">Advance Received (₹)<span class="rq">*</span></label>
+                <input class="inp mono" type="number" id="advanceReceived" min="0" step="0.01" required></div>
+            </div>
+            <div id="balAfterBox" class="field" style="display:none;">
+              <label class="check" for="balAfter"><input type="checkbox" id="balAfter">
+                <span>Balance to be paid after delivery <span class="faint">(needs admin approval)</span></span></label>
+              <div id="balAfterReasonBox" class="field" style="display:none; margin-left:24px;">
+                <label class="lbl" for="balAfterReason">Why? (the admin decides)</label>
+                <input class="inp" type="text" id="balAfterReason" placeholder="e.g. Known to Sambhu, pays the balance on installation"></div>
+              <div class="hint" style="margin-left:24px;">Only tick this if it’s agreed with the customer. If approved, the order won’t stop at dispatch for the balance.</div>
+            </div>
+          </div>
+
+          <div class="po-sec">
+            <div class="po-sec-head"><span class="po-num">5</span><h3>Documents</h3></div>
+            <div class="field"><label class="lbl" for="crmPoFile">CRM PO<span class="rq">*</span></label>
+              <div class="file-box"><input type="file" id="crmPoFile" accept="application/pdf,image/*"></div>
+              <div class="hint">The PO from the CRM software (PDF, or a clear photo). Accounts checks the delivery address, products and amounts on it before verifying.</div></div>
+            <div class="field"><label class="lbl" for="customerPoFile">Customer’s PO<span class="rq" id="customerPoReq">*</span><span class="opt" id="customerPoOpt">(optional)</span></label>
+              <div class="file-box"><input type="file" id="customerPoFile" accept="application/pdf,image/*"></div>
+              <div class="hint" id="customerPoHint"></div></div>
+          </div>
+
+          <div class="po-sec">
+            <div class="po-sec-head"><span class="po-num">6</span><h3>Delivery &amp; priority</h3></div>
+            <div class="field row2">
+              <div><label class="lbl" for="requestedDeliveryDate">Customer Requested Delivery Date</label>
+                <input class="inp" type="date" id="requestedDeliveryDate"></div>
+              <div><label class="lbl" for="priorityLevel">Priority Level</label>
+                <select class="inp" id="priorityLevel"><option value="Normal">Normal</option><option value="Medium">Medium</option><option value="High">High</option></select></div>
+            </div>
+            <div class="hint">Ops puts the sticker on: High = red, Medium = yellow.</div>
+          </div>
+        </div>
+
+        <aside class="po-side">
+          <div class="sum">
+            <h3>Summary</h3>
+            <div class="sum-row"><span class="k">CRE</span><span class="v" id="sumCre">–</span></div>
+            <div class="sum-row"><span class="k">Quotation</span><span class="v" id="sumQ">–</span></div>
+            <div class="sum-row"><span class="k">Customer</span><span class="v" id="sumCust">–</span></div>
+            <div class="sum-row"><span class="k">Products</span><span class="v" id="sumProd">–</span></div>
+            <div class="sum-row"><span class="k">Terms</span><span class="v" id="sumTerms">End Customer</span></div>
+            <div class="sum-row"><span class="k">Total</span><span class="v" id="sumTotal">–</span></div>
+            <div class="sum-row"><span class="k">Advance</span><span class="v" id="sumAdv">–</span></div>
+            <div class="sum-row"><span class="k">Balance</span><span class="v" id="sumBal">–</span></div>
+            <div class="pct-bar"><div id="pctFill"></div></div>
+            <div class="hint" id="pctPreview" style="margin-top:0;">Advance % appears once total and advance are in.</div>
+            <div class="sum-row" style="margin-top:6px;"><span class="k">Priority</span><span class="v" id="sumPri"><span class="chip">Normal</span></span></div>
+            <div class="err" id="errorBox"></div>
+            <button class="btn primary block" type="submit" id="submitBtn" style="margin-top:14px; height:40px;">Generate Internal PO</button>
+            <div class="hint" style="text-align:center;">No printout needed. Accounts verifies, then Ops prints.</div>
+          </div>
+        </aside>
+      </form>
+
+      <div class="po-done" id="poDone" style="display:none;">
+        <div class="tick"><svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="3"><path d="m5 12 5 5L20 7"/></svg></div>
+        <div class="muted">Order logged. Tracker ID</div>
+        <div class="tid" id="resultTrackerId"></div>
+        <div class="line" id="resultPct"></div>
+        <div class="line" id="resultDispatch"></div>
+        <div class="next">No printout needed – Accounts verifies the payment, then Ops picks it up and prints the PO.</div>
+        <div class="act-actions" style="justify-content:center; margin-top:22px;">
+          <button class="btn" type="button" id="doneOpen">Open this order</button>
+          <button class="btn" type="button" data-go="orders">Back to orders</button>
+          <button class="btn primary" type="button" id="doneAnother">Log another PO</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- =================== ORDER DRAWER =================== -->
+  <div class="scrim" id="scrim"></div>
+  <aside class="drawer" id="drawer" aria-hidden="true">
+    <div class="dr-head">
+      <div class="dr-head-main">
+        <div class="dr-id" id="drId"></div>
+        <div class="dr-title" id="drTitle">Loading…</div>
+        <div class="dr-tags" id="drTags"></div>
+      </div>
+      <button class="btn icon-btn ghost" type="button" id="drClose" title="Close (Esc)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+    </div>
+    <div class="dr-body" id="drBody"></div>
+  </aside>
+
+  <!-- =================== ALL REFUNDS =================== -->
+  <div class="modal" id="refundsModal">
+    <div class="modal-box">
+      <div class="modal-head"><h3>All refunds</h3><button class="btn icon-btn ghost" type="button" id="refundsClose">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
+      <div class="modal-body">
+        <div class="flt">
+          <div style="flex:1 1 220px;"><label>Search</label><input class="inp" id="rfSearch" placeholder="Customer name or quotation no."></div>
+          <div><label>CRE</label><select class="inp" id="rfCre"><option value="all">All CREs</option></select></div>
+          <div><label>Logged from</label><input class="inp" type="date" id="rfFrom"></div>
+          <div><label>Logged to</label><input class="inp" type="date" id="rfTo"></div>
+          <div><label>Min. refund (₹)</label><input class="inp" type="number" id="rfMin" min="0" placeholder="e.g. 10000"></div>
+          <div><label>Max. refund (₹)</label><input class="inp" type="number" id="rfMax" min="0" placeholder="e.g. 500000"></div>
+          <div><label>Order type</label><select class="inp" id="rfType"><option value="all">All</option><option value="End Customer">End Customer</option><option value="PO Customer">PO Customer</option></select></div>
+          <div><label>Refund status</label><select class="inp" id="rfStatus"><option value="all">All</option><option value="Processing">Processing</option><option value="Processed">Processed</option></select></div>
+          <button class="btn ghost sm" type="button" id="rfClear">Clear filters</button>
+        </div>
+        <div class="result-line" id="rfSummary"></div>
+        <div class="tbl-wrap" id="rfTable"><div class="empty">Loading…</div></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  (function () {
+    'use strict';
+    // =====================================================================
+    // Helpers
+    // =====================================================================
+    function $(id) { return document.getElementById(id); }
+    function each(list, fn) { Array.prototype.forEach.call(list, fn); }
+    function esc(t) { return String(t == null ? '' : t).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+    function inr(n) { return '₹' + Math.round(Number(n) || 0).toLocaleString('en-IN'); }
+    function inr2(n) { return '₹' + Number(n || 0).toLocaleString('en-IN'); }
+    function errText(e) { return String((e && e.message) || e || 'Something went wrong').replace(/^(Error:\s*)+/, ''); }
+    function fmtDay(ms) { return ms ? new Date(ms).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '–'; }
+    function showErr(el, msg) { el.textContent = msg; el.classList.add('show'); }
+    function hideEl(el) { el.classList.remove('show'); }
+    function isDispatched(status) { return status === 'Gate-Verified' || status === 'Posted'; }
+    function isClosed(o) { return o.status === 'Cancelled' || (isDispatched(o.status) && (o.deliveryStatus === 'Delivered' || o.deliveryStatus === 'Returned')); }
+    function tomorrowYmd() { var d = new Date(); d.setDate(d.getDate() + 1); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 10); }
+    function busy(btn, text) { btn.dataset.label = btn.innerHTML; btn.disabled = true; btn.textContent = text; }
+    function unbusy(btn) { btn.disabled = false; if (btn.dataset.label) btn.innerHTML = btn.dataset.label; }
+    var ICON_PAUSE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M9 6v12M15 6v12"/></svg>';
+
+    // One plain-language status for an order, with its colour.
+    function orderState(o) {
+      var s = o.status, d = o.deliveryStatus;
+      if (s === 'Cancelled') return { label: 'Cancelled', tone: 'grey' };
+      if (isDispatched(s)) {
+        if (d === 'Delivered') return { label: 'Delivered', tone: 'teal' };
+        if (d === 'Returned') return { label: 'Returned', tone: 'grey' };
+        if (d === 'In Transit') return { label: 'In transit', tone: 'blue' };
+        return { label: s === 'Posted' ? 'Posted · update delivery' : 'Dispatched · update delivery', tone: 'amber' };
+      }
+      if (s === 'Ready - Payment Pending') return { label: 'Collect payment to dispatch', tone: 'red' };
+      if (s === 'On Standby') return { label: 'On standby', tone: 'grey', pause: true };
+      if (s === 'On Hold - Site Not Ready') return { label: 'On hold · site not ready', tone: 'grey', pause: true };
+      if (s === 'On Hold - Balance Due') return { label: 'On hold · balance due', tone: 'amber' };
+      if (s === 'Logged') return { label: 'With Accounts', tone: 'amber' };
+      if (s === 'Sent to Ops') return { label: 'With Ops', tone: 'blue' };
+      if (s === 'Vehicle Confirmed') return { label: 'Ready · vehicle confirmed', tone: 'blue' };
+      return { label: s || 'Unknown', tone: 'grey' };
+    }
+    function pillHtml(st) {
+      return '<span class="pill t-' + st.tone + '">' + (st.pause ? ICON_PAUSE : '<span class="dot"></span>') + esc(st.label) + '</span>';
+    }
+    function priChip(p) {
+      if (p === 'High') return '<span class="chip high">High</span>';
+      if (p === 'Medium') return '<span class="chip medium">Medium</span>';
+      return '';
+    }
+
+    // =====================================================================
+    // Signed-in person -> top bar
+    // =====================================================================
+    document.addEventListener('icf-signed-in', function (e) {
+      var s = e.detail || {};
+      $('tbName').textContent = s.name || '';
+      $('tbRole').textContent = s.role || '';
+      $('menuName').textContent = s.name || '';
+      $('menuRole').textContent = (s.role || '') + (s.code ? ' · ' + s.code : '');
+      $('avatarBtn').textContent = String(s.name || '?').trim().split(/\s+/).map(function (w) { return w.charAt(0); }).join('').slice(0, 2).toUpperCase();
+      $('sumCre').textContent = s.name || '–';
+      // Admin extras live in the shared sign-in bar (hidden here): move them in.
+      var nav = $('authNav'), appr = $('authAppr'), gate = $('authGate');
+      if (appr && appr.parentNode !== $('topAdmin')) { $('topAdmin').appendChild(gate); $('topAdmin').appendChild(appr); }
+      if (nav && nav.parentNode !== $('menuAdminNav')) $('menuAdminNav').appendChild(nav);
+      $('menuAdmin').style.display = s.role === 'Admin' ? 'block' : 'none';
+    });
+
+    // User menu
+    var userMenu = $('userMenu');
+    $('avatarBtn').addEventListener('click', function (e) { e.stopPropagation(); userMenu.classList.toggle('show'); });
+    document.addEventListener('click', function (e) {
+      if (!userMenu.contains(e.target) && e.target !== $('avatarBtn')) userMenu.classList.remove('show');
+      if (!$('topSearch').contains(e.target)) $('findPop').classList.remove('show');
+      if (!$('filterPop').contains(e.target) && !$('filterBtn').contains(e.target)) $('filterPop').classList.remove('show');
+    });
+    $('menuPin').addEventListener('click', function () { userMenu.classList.remove('show'); $('authBarChangePin').click(); });
+    $('menuSignOut').addEventListener('click', function () { userMenu.classList.remove('show'); $('authBarSignOut').click(); });
+
+    // =====================================================================
+    // Views
+    // =====================================================================
+    var currentView = 'orders';
+    function go(view) {
+      // Leaving the "Order logged" screen: New PO opens on a fresh form next time.
+      if (currentView === 'newpo' && view !== 'newpo' && $('poDone').style.display !== 'none') { $('poDone').style.display = 'none'; $('poForm').style.display = ''; }
+      currentView = view;
+      each(document.querySelectorAll('.view'), function (v) { v.classList.toggle('show', v.id === 'view-' + view); });
+      each(document.querySelectorAll('.rail-btn'), function (b) { b.classList.toggle('active', b.getAttribute('data-view') === view); });
+      window.scrollTo(0, 0);
+      if (view === 'newpo' && $('poDone').style.display === 'none') setTimeout(function () { $('trackerId').focus(); }, 30);
+    }
+    each(document.querySelectorAll('.rail-btn'), function (b) { b.addEventListener('click', function () { go(b.getAttribute('data-view')); }); });
+    document.addEventListener('click', function (e) {
+      var t = e.target.closest ? e.target.closest('[data-go]') : null;
+      if (t) go(t.getAttribute('data-go'));
+    });
+
+    // =====================================================================
+    // At a glance (was the stat strip) -- each line filters the order list
+    // =====================================================================
+    var GLANCE = [
+      { key: 'all', label: 'Total logged', f: 'totalLogged' },
+      { key: 'today', label: 'Logged today', f: 'loggedToday' },
+      { key: 'week', label: 'Logged this week', f: 'loggedThisWeek' },
+      { key: 'week', label: 'Value this week', f: 'valueThisWeek', money: true, filterLabel: 'Logged this week' },
+      { key: 'paydispatch', label: 'Payment needed for dispatch', f: 'payForDispatch', alert: true },
+      { key: 'high', label: 'High-priority pending', f: 'highPriorityPending', alert: true },
+      { key: 'awaiting', label: 'Awaiting delivery update', f: 'awaitingDeliveryUpdate', alert: true },
+      { key: 'transit', label: 'In transit', f: 'inTransit' }
+    ];
+    var PRESET_LABELS = { today: 'Logged today', week: 'Logged this week', paydispatch: 'Payment needed for dispatch', high: 'High-priority pending', awaiting: 'Awaiting delivery update', transit: 'In transit' };
+    var summary = null;
+    function ringSvg(tone, frac) {
+      var c = 2 * Math.PI * 6, len = Math.max(0.08, Math.min(1, frac)) * c;
+      var col = tone === 'red' ? 'var(--red)' : 'var(--leaf)';
+      return '<svg class="ring" viewBox="0 0 16 16"><circle class="bg" cx="8" cy="8" r="6"/><circle cx="8" cy="8" r="6" stroke="' + col + '" stroke-dasharray="' + len.toFixed(1) + ' ' + c.toFixed(1) + '" stroke-linecap="round" transform="rotate(-90 8 8)"/></svg>';
+    }
+    function renderGlance() {
+      var s = summary, total = s ? Number(s.totalLogged) || 0 : 0;
+      $('glance').innerHTML = GLANCE.map(function (g, i) {
+        var raw = s ? s[g.f] || 0 : null;
+        var val = raw === null ? '–' : g.money ? inr(raw) : raw;
+        var alert = g.alert && raw > 0;
+        var frac = g.money || !total ? (raw ? 1 : 0) : raw / total;
+        var on = preset === g.key && preset !== 'all' && (g.f !== 'valueThisWeek');
+        return '<button class="stat-row' + (alert ? ' alert' : '') + (on ? ' on' : '') + '" type="button" data-i="' + i + '">' +
+          ringSvg(alert ? 'red' : 'leaf', frac) + '<span class="stat-label">' + esc(g.label) + '</span><span class="stat-val">' + esc(val) + '</span></button>';
+      }).join('');
+      each($('glance').querySelectorAll('.stat-row'), function (b) {
+        b.addEventListener('click', function () {
+          var g = GLANCE[Number(b.getAttribute('data-i'))];
+          preset = (preset === g.key && g.key !== 'all') ? 'all' : g.key;
+          if (g.key === 'all') resetFilters();
+          go('orders');
+          renderOrders(); renderGlance();
+          if (!myOrdersLoaded) loadMyOrders();
+        });
+      });
+    }
+    function loadCreSummary() {
+      authRun()
+        .withSuccessHandler(function (s) { summary = s || {}; renderGlance(); })
+        .withFailureHandler(function () { summary = null; renderGlance(); })
+        .getCreSummary();
+    }
+
+    // =====================================================================
+    // My orders (was the "My orders" pop-up) -- now the home screen
+    // =====================================================================
+    var myOrders = [], myOrdersLoaded = false, preset = 'all', viewMode = 'grid';
+    try { viewMode = localStorage.getItem('icf_cre_beta_view') || 'grid'; } catch (e) {}
+    var TILE_SETS = {
+      all: function () { return true; },
+      today: function (o) { return o.loggedToday; },
+      week: function (o) { return o.loggedThisWeek; },
+      high: function (o) { return o.highPending; },
+      awaiting: function (o) { return o.awaitingDelivery; },
+      transit: function (o) { return o.inTransit; },
+      paydispatch: function (o) { return o.payForDispatch; }
+    };
+    var ORDER_STAGES = ['Logged', 'On Hold - Balance Due', 'Sent to Ops', 'On Standby', 'On Hold - Site Not Ready', 'Ready - Payment Pending', 'Vehicle Confirmed', 'Gate-Verified', 'Posted', 'Cancelled'];
+    $('oStage').innerHTML = '<option value="all">All</option>' + ORDER_STAGES.map(function (st) { return '<option value="' + esc(st) + '">' + esc(st) + '</option>'; }).join('');
+
+    function resetFilters() {
+      $('oSearch').value = ''; $('oFrom').value = ''; $('oTo').value = '';
+      $('oStage').value = 'all'; $('oDelivery').value = 'all'; $('oType').value = 'all'; $('oStatus').value = 'all';
+      preset = 'all';
+    }
+    function loadMyOrders() {
+      authRun()
+        .withSuccessHandler(function (rows) { myOrders = rows || []; myOrdersLoaded = true; renderOrders(); })
+        .withFailureHandler(function (e) {
+          if (!myOrdersLoaded) $('ordersOut').innerHTML = '<div class="empty">Could not load your orders: ' + esc(errText(e)) + '</div>';
+        })
+        .getMyOrders();
+    }
+
+    function filteredOrders() {
+      var q = $('oSearch').value.trim().toLowerCase(), qDigits = q.replace(/\D/g, '');
+      var from = $('oFrom').value, to = $('oTo').value;
+      var stage = $('oStage').value, del = $('oDelivery').value, type = $('oType').value, open = $('oStatus').value;
+      var fromMs = from ? new Date(from + 'T00:00:00+05:30').getTime() : null;
+      var toMs = to ? new Date(to + 'T23:59:59+05:30').getTime() : null;
+      var rows = myOrders.filter(TILE_SETS[preset] || TILE_SETS.all).filter(function (o) {
+        if (q) {
+          var hit = o.institution.toLowerCase().indexOf(q) !== -1 || o.trackerId.toLowerCase().indexOf(q) !== -1 ||
+            (qDigits.length >= 3 && String(o.phone).replace(/\D/g, '').indexOf(qDigits) !== -1);
+          if (!hit) return false;
+        }
+        if (open === 'open' && isClosed(o)) return false;
+        if (open === 'closed' && !isClosed(o)) return false;
+        if (fromMs && o.dateLoggedMs < fromMs) return false;
+        if (toMs && o.dateLoggedMs > toMs) return false;
+        if (stage !== 'all' && o.status !== stage) return false;
+        if (type !== 'all' && o.paymentTerms !== type) return false;
+        if (del !== 'all') {
+          if (del === 'none') { if (isDispatched(o.status)) return false; }
+          else if (!isDispatched(o.status) || (o.deliveryStatus || 'Pending') !== del) return false;
+        }
+        return true;
+      });
+      var sort = $('oSort').value, PR = { High: 0, Medium: 1, Normal: 2 };
+      rows.sort(function (a, b) {
+        if (sort === 'old') return a.dateLoggedMs - b.dateLoggedMs;
+        if (sort === 'value') return b.total - a.total;
+        if (sort === 'balance') return Math.max(0, b.balance) - Math.max(0, a.balance);
+        if (sort === 'priority') return ((PR[a.priority] == null ? 2 : PR[a.priority]) - (PR[b.priority] == null ? 2 : PR[b.priority])) || (b.dateLoggedMs - a.dateLoggedMs);
+        return b.dateLoggedMs - a.dateLoggedMs;
+      });
+      return rows;
+    }
+
+    function renderActiveFilters() {
+      var chips = [];
+      if (preset !== 'all') chips.push(['preset', PRESET_LABELS[preset] || preset]);
+      if ($('oStage').value !== 'all') chips.push(['oStage', 'Stage: ' + $('oStage').value]);
+      if ($('oDelivery').value !== 'all') chips.push(['oDelivery', 'Delivery: ' + $('oDelivery').selectedOptions[0].text]);
+      if ($('oType').value !== 'all') chips.push(['oType', $('oType').value]);
+      if ($('oFrom').value) chips.push(['oFrom', 'From ' + $('oFrom').value]);
+      if ($('oTo').value) chips.push(['oTo', 'To ' + $('oTo').value]);
+      var n = chips.filter(function (c) { return c[0] !== 'preset'; }).length;
+      $('filterCount').textContent = n; $('filterCount').style.display = n ? 'inline-flex' : 'none';
+      $('activeFilters').innerHTML = chips.map(function (c) {
+        return '<span class="af">' + esc(c[1]) + '<button type="button" data-k="' + c[0] + '" title="Remove">&times;</button></span>';
+      }).join('');
+      each($('activeFilters').querySelectorAll('button'), function (b) {
+        b.addEventListener('click', function () {
+          var k = b.getAttribute('data-k');
+          if (k === 'preset') preset = 'all';
+          else if (k === 'oFrom' || k === 'oTo') $(k).value = '';
+          else $(k).value = 'all';
+          renderOrders(); renderGlance();
+        });
+      });
+    }
+
+    function renderOrders() {
+      renderActiveFilters();
+      if (!myOrdersLoaded) return;
+      var rows = filteredOrders();
+      var value = rows.reduce(function (s, o) { return s + o.total; }, 0);
+      var bal = rows.reduce(function (s, o) { return s + Math.max(0, o.balance); }, 0);
+      $('resultLine').innerHTML = '<b>' + rows.length + '</b> order' + (rows.length === 1 ? '' : 's') +
+        ' &middot; <b>' + inr2(value) + '</b> order value' + (bal > 0 ? ' &middot; <b>' + inr2(bal) + '</b> balance due' : '');
+      if (!rows.length) {
+        $('ordersOut').innerHTML = '<div class="card-box empty">' + (myOrders.length ? 'No orders match these filters.' : 'No orders yet. Log your first one with New PO.') + '</div>';
+        return;
+      }
+      if (viewMode === 'list') {
+        $('ordersOut').innerHTML = '<div class="tbl-wrap"><table class="tbl"><thead><tr>' +
+          '<th>Quotation No.</th><th>Customer</th><th>Phone</th><th>Status</th><th class="num">Value</th><th class="num">Balance</th><th>Logged</th>' +
+          '</tr></thead><tbody>' + rows.map(function (o) {
+            return '<tr data-id="' + esc(o.trackerId) + '"' + (isClosed(o) ? ' class="closed"' : '') + '>' +
+              '<td class="nowrap">' + esc(o.trackerId) + ' ' + priChip(o.priority) + '</td>' +
+              '<td>' + esc(o.institution) + '</td><td class="nowrap">' + esc(o.phone || '–') + '</td>' +
+              '<td>' + pillHtml(orderState(o)) + '</td>' +
+              '<td class="num">' + inr2(o.total) + '</td>' +
+              '<td class="num">' + (o.balance > 0 ? '<span style="color:var(--amber);">' + inr2(o.balance) + '</span>' : '–') + '</td>' +
+              '<td class="nowrap">' + fmtDay(o.dateLoggedMs) + '</td></tr>';
+          }).join('') + '</tbody></table></div>';
+        each($('ordersOut').querySelectorAll('tbody tr'), function (tr) {
+          tr.addEventListener('click', function () { openOrder(tr.getAttribute('data-id')); });
+        });
+        return;
+      }
+      $('ordersOut').innerHTML = '<div class="grid">' + rows.map(function (o) {
+        var st = orderState(o), closed = isClosed(o);
+        var flag = st.tone === 'red' ? ' f-red' : (o.priority === 'High' && !closed ? ' f-red' : '');
+        return '<button type="button" class="ocard' + (closed ? ' closed' : '') + flag + '" data-id="' + esc(o.trackerId) + '">' +
+          '<span class="oc-flag"></span>' +
+          '<div class="oc-top"><span class="oc-id">' + esc(o.trackerId) + '</span>' + priChip(o.priority) + '</div>' +
+          '<div class="oc-name">' + esc(o.institution || '–') + '</div>' +
+          '<div class="oc-meta">' + fmtDay(o.dateLoggedMs) + (o.paymentTerms === 'PO Customer' ? ' · PO Customer' : '') + '</div>' +
+          '<div class="oc-foot">' + pillHtml(st) +
+            '<div class="oc-amt"><div class="v">' + inr2(o.total) + '</div>' +
+            (o.balance > 0 ? '<div class="b">' + inr2(o.balance) + ' due</div>' : '') + '</div></div>' +
+          '</button>';
+      }).join('') + '</div>';
+      each($('ordersOut').querySelectorAll('.ocard'), function (c) {
+        c.addEventListener('click', function () { openOrder(c.getAttribute('data-id')); });
+      });
+    }
+
+    $('oSearch').addEventListener('input', renderOrders);
+    ['oStatus', 'oSort', 'oStage', 'oDelivery', 'oType', 'oFrom', 'oTo'].forEach(function (id) { $(id).addEventListener('change', renderOrders); });
+    $('filterBtn').addEventListener('click', function (e) { e.stopPropagation(); $('filterPop').classList.toggle('show'); });
+    $('filterDone').addEventListener('click', function () { $('filterPop').classList.remove('show'); });
+    $('filterClear').addEventListener('click', function () {
+      $('oFrom').value = ''; $('oTo').value = ''; $('oStage').value = 'all'; $('oDelivery').value = 'all'; $('oType').value = 'all';
+      renderOrders();
+    });
+    function setViewMode(m) {
+      viewMode = m;
+      try { localStorage.setItem('icf_cre_beta_view', m); } catch (e) {}
+      each($('viewSeg').querySelectorAll('button'), function (b) { b.classList.toggle('on', b.getAttribute('data-mode') === m); });
+      renderOrders();
+    }
+    each($('viewSeg').querySelectorAll('button'), function (b) { b.addEventListener('click', function () { setViewMode(b.getAttribute('data-mode')); }); });
+    setViewMode(viewMode);
+
+    // =====================================================================
+    // Needs your action (was the red banner + Needs Action pane)
+    // =====================================================================
+    var actionItems = [], payments = [], approvals = [], cxItems = [];
+    var lastPayIds = null, actionExpanded = false, ACTION_LIMIT = 5;
+    function formatDueLabel(daysUntil) {
+      if (daysUntil === null || daysUntil === undefined) return '';
+      if (daysUntil < 0) return 'Delivery date passed ' + Math.abs(daysUntil) + ' day' + (Math.abs(daysUntil) === 1 ? '' : 's') + ' ago';
+      if (daysUntil === 0) return 'Delivery due today';
+      return 'Delivery due in ' + daysUntil + ' day' + (daysUntil === 1 ? '' : 's');
+    }
+    function buildActionRows() {
+      var rows = [];
+      actionItems.forEach(function (it) {
+        if (it.deliveryStatus === 'Payment needed for dispatch') {
+          rows.push({ tone: 'red', rank: 0, id: it.trackerId, name: it.institution, why: 'Goods ready – customer must pay before dispatch. Call them now.',
+            extra: it.accessNote, priority: it.priority, courier: it.dispatchType === 'Courier', pay: true });
+        } else {
+          var due = formatDueLabel(it.daysUntilDelivery);
+          rows.push({ tone: it.isUrgent ? 'red' : 'amber', rank: it.isUrgent ? 1 : 3, id: it.trackerId, name: it.institution,
+            why: 'Update delivery – ' + (it.deliveryStatus || 'Pending') + (due ? ' · ' + due : ''),
+            extra: it.accessNote, priority: it.priority, courier: it.dispatchType === 'Courier' });
+        }
+      });
+      // Payment follow-ups that have come due (they were set for a date that's now here).
+      payments.forEach(function (it) {
+        if (it.followUpYmd && !it.followUpLater) {
+          rows.push({ tone: 'amber', rank: 2, id: it.trackerId, name: it.institution, why: 'Payment follow-up due – ' + inr(it.balanceDue) + ' to collect' + (it.followUpNote ? ' · ' + it.followUpNote : ''), payRow: true });
+        }
+      });
+      // Access approvals that came back approved: you can act now.
+      approvals.forEach(function (it) {
+        if (it.status === 'Approved') rows.push({ tone: 'blue', rank: 4, id: it.trackerId, name: it.institution, why: (it.statusText || 'Access approved') + (it.label ? ' · ' + it.label : '') });
+      });
+      return rows.sort(function (a, b) { return a.rank - b.rank; });
+    }
+    function renderActions() {
+      var rows = buildActionRows();
+      var n = rows.length;
+      $('bellCount').textContent = n; $('bellCount').style.display = n ? 'inline-flex' : 'none';
+      $('bellCount').className = 'count' + (rows.some(function (r) { return r.tone === 'red'; }) ? ' hot' : '');
+      $('actionCount').textContent = n;
+      $('actionWrap').classList.toggle('hidden', !n);
+      if (!n) { $('actionList').innerHTML = ''; return; }
+      var payIds = rows.filter(function (r) { return r.pay; }).map(function (r) { return r.id; }).join('|');
+      var pulse = lastPayIds !== null && payIds && payIds !== lastPayIds;
+      lastPayIds = payIds;
+      var shown = actionExpanded ? rows : rows.slice(0, ACTION_LIMIT);
+      $('actionList').innerHTML = shown.map(function (r) {
+        return '<div class="act-row ' + r.tone + (pulse && r.pay ? ' pulse' : '') + '" data-id="' + esc(r.id) + '"' + (r.payRow ? ' data-pay="1"' : '') + '>' +
+          '<span class="act-bar"></span>' +
+          '<div class="act-main"><div class="act-top"><span class="act-name">' + esc(r.name) + '</span>' +
+            '<span class="faint" style="font-size:12px;">' + esc(r.id) + '</span>' + priChip(r.priority) +
+            (r.courier ? '<span class="chip courier">Courier</span>' : '') +
+            (r.extra ? '<span class="chip cover">' + esc(r.extra) + '</span>' : '') + '</div>' +
+          '<div class="act-sub act-why">' + esc(r.why) + '</div></div>' +
+          '<button class="btn sm' + (r.tone === 'red' ? ' danger' : '') + '" type="button">Open</button></div>';
+      }).join('') + (rows.length > ACTION_LIMIT ? '<button class="act-more" type="button" id="actionMore">' + (actionExpanded ? 'Show fewer' : 'Show all ' + rows.length) + '</button>' : '');
+      each($('actionList').querySelectorAll('.act-row'), function (el) {
+        el.addEventListener('click', function () {
+          if (el.getAttribute('data-pay')) { go('payments'); setPayTab('collect'); highlightPayment(el.getAttribute('data-id')); }
+          else openOrder(el.getAttribute('data-id'));
+        });
+      });
+      var more = $('actionMore');
+      if (more) more.addEventListener('click', function () { actionExpanded = !actionExpanded; renderActions(); });
+    }
+    function loadActionList() {
+      authRun()
+        .withSuccessHandler(function (items) { actionItems = items || []; renderActions(); })
+        .withFailureHandler(function () { /* keep the last list; the minute reload tries again */ })
+        .getCREActionItems();
+    }
+    $('bellBtn').addEventListener('click', function () {
+      go('orders');
+      var w = $('actionWrap');
+      if (!w.classList.contains('hidden')) w.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+
+    // =====================================================================
+    // Find any order (was "Look Up an Enquiry")
+    // =====================================================================
+    var findInput = $('findInput'), findPop = $('findPop'), findKb = -1;
+    function runFind(q) {
+      q = String(q || '').trim();
+      if (!q) { findPop.innerHTML = '<div class="sp-msg">Type a quotation number, phone number or customer name, then press Enter.</div>'; findPop.classList.add('show'); return; }
+      findPop.innerHTML = '<div class="sp-msg">Searching…</div>'; findPop.classList.add('show');
+      authRun()
+        .withSuccessHandler(function (res) {
+          if (res.order) { findPop.classList.remove('show'); findInput.blur(); showOrderInDrawer(res.order); return; }
+          if (!res.matches || !res.matches.length) {
+            findPop.innerHTML = '<div class="sp-msg">No order matches “' + esc(q) + '”. Try part of the name, the last digits of the phone number, or the quotation number.</div>';
+            return;
+          }
+          findKb = -1;
+          findPop.innerHTML = '<div class="sp-head">' + res.total + ' orders match “' + esc(q) + '”' +
+            (res.total > res.matches.length ? ' – showing the ' + res.matches.length + ' most recent; type more to narrow it down' : '') + '</div>' +
+            res.matches.map(function (m) {
+              var stage = (m.deliveryStatus && isDispatched(m.status)) ? m.status + ' · ' + m.deliveryStatus : m.status;
+              return '<div class="sp-row" data-id="' + esc(m.trackerId) + '">' +
+                '<div class="sp-top"><span>' + esc(m.institution) + '<span class="sp-why">' + esc(m.matchedOn) + '</span></span><span class="mono">' + inr2(m.total) + '</span></div>' +
+                '<div class="sp-sub">' + esc(m.trackerId) + (m.phone ? ' · ' + esc(m.phone) : '') + ' · ' + fmtDay(m.dateLoggedMs) + ' · ' + esc(stage) + (m.cre ? ' · ' + esc(m.cre) : '') + '</div></div>';
+            }).join('');
+          each(findPop.querySelectorAll('.sp-row'), function (r) {
+            r.addEventListener('click', function () { findPop.classList.remove('show'); openOrder(r.getAttribute('data-id')); });
+          });
+        })
+        .withFailureHandler(function (e) { findPop.innerHTML = '<div class="sp-msg" style="color:var(--red);">' + esc(errText(e)) + '</div>'; })
+        .findOrders(q);
+    }
+    findInput.addEventListener('keydown', function (e) {
+      var rows = findPop.querySelectorAll('.sp-row');
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        if (!rows.length) return;
+        e.preventDefault();
+        findKb = (findKb + (e.key === 'ArrowDown' ? 1 : -1) + rows.length) % rows.length;
+        each(rows, function (r, i) { r.classList.toggle('kb', i === findKb); });
+        rows[findKb].scrollIntoView({ block: 'nearest' });
+        return;
+      }
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        if (findKb >= 0 && rows[findKb]) { findPop.classList.remove('show'); openOrder(rows[findKb].getAttribute('data-id')); }
+        else runFind(findInput.value);
+      }
+      if (e.key === 'Escape') { findPop.classList.remove('show'); findInput.blur(); }
+    });
+    findInput.addEventListener('focus', function () { if (findPop.innerHTML) findPop.classList.add('show'); });
+    $('findMobileBtn').addEventListener('click', function () {
+      var q = window.prompt('Find any order – quotation no., phone number or customer name:');
+      if (q) { $('topSearch').style.display = 'block'; findInput.value = q; runFind(q); }
+    });
+    document.addEventListener('keydown', function (e) {
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) { e.preventDefault(); findInput.focus(); findInput.select(); }
+      if (e.key === 'Escape') {
+        if ($('refundsModal').classList.contains('show')) { $('refundsModal').classList.remove('show'); return; }
+        if (drawerOpen) closeDrawer();
+      }
+    });
+
+    // =====================================================================
+    // Order drawer (everything the lookup card used to show)
+    // =====================================================================
+    var drawer = $('drawer'), scrim = $('scrim'), drBody = $('drBody'), drawerOpen = false, drawerId = '';
+    function openDrawerShell(id) {
+      drawerId = id;
+      $('drId').textContent = id || '';
+      $('drTitle').textContent = 'Loading…';
+      $('drTags').innerHTML = '';
+      drBody.innerHTML = '<div class="loading">Loading the order…</div>';
+      drawer.classList.add('show'); scrim.classList.add('show'); drawer.setAttribute('aria-hidden', 'false');
+      drawerOpen = true;
+    }
+    function closeDrawer() {
+      drawer.classList.remove('show'); scrim.classList.remove('show'); drawer.setAttribute('aria-hidden', 'true');
+      drawerOpen = false; drawerId = ''; window.ICF_CURRENT_ORDER = null;
+    }
+    $('drClose').addEventListener('click', closeDrawer);
+    scrim.addEventListener('click', closeDrawer);
+
+    // Opens an order by Tracker ID (same server call as the classic Look Up).
+    function openOrder(id, keepScroll) {
+      var top = keepScroll ? drBody.scrollTop : 0;
+      if (!drawerOpen || drawerId !== id) openDrawerShell(id);
+      authRun()
+        .withSuccessHandler(function (res) {
+          if (res.order) { showOrderInDrawer(res.order); drBody.scrollTop = top; return; }
+          if (res.matches && res.matches.length) {
+            $('drTitle').textContent = 'Choose an order';
+            drBody.innerHTML = '<div class="card-box">' + res.matches.map(function (m) {
+              return '<div class="sp-row" data-id="' + esc(m.trackerId) + '"><div class="sp-top"><span>' + esc(m.institution) + '</span><span class="mono">' + inr2(m.total) + '</span></div>' +
+                '<div class="sp-sub">' + esc(m.trackerId) + ' · ' + esc(m.status) + (m.cre ? ' · ' + esc(m.cre) : '') + '</div></div>';
+            }).join('') + '</div>';
+            each(drBody.querySelectorAll('.sp-row'), function (r) { r.addEventListener('click', function () { drawerId = r.getAttribute('data-id'); openOrder(r.getAttribute('data-id')); }); });
+            return;
+          }
+          $('drTitle').textContent = 'Not found';
+          drBody.innerHTML = '<div class="note bad">Could not open ' + esc(id) + ' – no order matches it.</div>';
+        })
+        .withFailureHandler(function (e) {
+          $('drTitle').textContent = 'Could not open';
+          drBody.innerHTML = '<div class="note bad">' + esc(errText(e)) + '</div>';
+        })
+        .findOrders(id);
+    }
+    function refreshAfterAction() { loadActionList(); loadCreSummary(); loadMyOrders(); loadApprovals(); loadPendingPayments(); }
+
+    function showOrderInDrawer(order) {
+      if (!drawerOpen || drawerId !== order.trackerId) openDrawerShell(order.trackerId);
+      window.ICF_CURRENT_ORDER = order;
+      var access = order.access || { canAct: true };
+      var canAct = access.canAct !== false;
+      var st = orderState({ status: order.status, deliveryStatus: order.deliveryStatus });
+      $('drId').textContent = order.trackerId;
+      $('drTitle').textContent = order.institution || '–';
+      $('drTags').innerHTML = pillHtml(st) + priChip(order.priority) +
+        (order.dispatchType === 'Courier' ? '<span class="chip courier">Courier</span>' : '') +
+        '<span class="chip">' + esc(order.paymentTermsType || '') + '</span>' +
+        (!canAct ? '<span class="chip cover">' + esc((order.ownerName || 'Another CRE') + '’s order') + '</span>' : '');
+
+      var h = '';
+      // ---- 1. What to do now ----
+      h += '<div class="dr-sec" id="secAction">' + actionSectionHtml(order, access) + '</div>';
+      if (canAct && access.note) h += '<div class="note info" style="margin-top:10px;">' + esc(access.note) + '</div>';
+      // ---- 2. Customer has paid? ----
+      var saysPaid = canAct && order.status !== 'Cancelled' && order.status !== 'Ready - Payment Pending' && (order.status === 'Logged' || Number(order.balanceDue) > 0);
+      if (saysPaid) {
+        h += '<div class="dr-sec"><div class="dr-sec-title">Customer has paid?</div><div class="act-card">' +
+          (order.customerSaysPaid
+            ? '<div class="msg">You told Accounts: <b>' + esc(order.customerSaysPaid) + '</b>. It’s at the top of their page until they record it.</div>'
+            : '<div class="msg">' + (order.status === 'Logged' ? 'The advance isn’t verified yet.' : '<b>' + inr2(order.balanceDue) + '</b> is still due.') +
+              ' This puts it at the top of the Accounts page – no need to call.</div>' +
+              '<div class="field"><input class="inp" type="text" id="spUtr" placeholder="UTR / bank reference (if the customer gave one)"></div>' +
+              '<div class="field"><input class="inp" type="text" id="spNote" placeholder="Note for Accounts (optional), e.g. paid by NEFT this morning"></div>' +
+              '<div class="act-actions"><button class="btn primary" type="button" id="spBtn">Customer has paid – tell Accounts</button></div><div class="err" id="spErr"></div>') +
+          '</div></div>';
+      }
+      // ---- 3. Details ----
+      var kv = [
+        ['Customer', order.institution],
+        ['Phone', order.phoneNumber],
+        ['Location', (order.district || order.state) ? [order.district, order.state].filter(Boolean).join(', ') + (order.pincode ? ' – ' + order.pincode : '') : ''],
+        ['Priority', order.priority],
+        ['CRE', (order.ownerName || '–') + (order.ownerCode ? ' (' + order.ownerCode + ')' : '')],
+        ['Workflow stage', order.status],
+        ['Dispatch type', order.dispatchType === 'Courier' ? 'Courier (packet by post)' : 'Vehicle'],
+        ['Delivery status', order.deliveryStatus],
+        ['Payment terms', order.paymentTermsType],
+        ['Balance due', inr2(order.balanceDue)]
+      ].filter(function (r) { return r[1] !== '' && r[1] != null; });
+      h += '<div class="dr-sec"><div class="dr-sec-title">Details</div><div class="kv">' +
+        kv.map(function (r) { return '<div class="k">' + esc(r[0]) + '</div><div class="v">' + esc(r[1]) + '</div>'; }).join('') + '</div>' +
+        (order.postalReceiptUrl ? '<a class="dr-foot-link" href="' + esc(order.postalReceiptUrl) + '" target="_blank" rel="noopener">Postal receipt (photo from Ops) &rarr;</a>' : '') + '</div>';
+      // ---- 4. Products ----
+      h += '<div class="dr-sec"><div class="dr-sec-title">Products</div><div class="prod-list" id="drProducts"><div class="prod faint">Loading…</div></div></div>';
+      // ---- 5. Purchase orders (CRM PO / customer PO) ----
+      if (order.docs) h += '<div class="dr-sec"><div class="dr-sec-title">Purchase orders</div><div id="creDocs">' + ICF_DOCS.panel(order.docs, { upload: canAct }) + '</div></div>';
+      // ---- 6. Timeline ----
+      h += '<div class="dr-sec"><div class="dr-sec-title">Order timeline</div><div id="drTimeline" class="tl"><div class="faint">Loading…</div></div></div>';
+      // ---- 7. Cancellation ----
+      h += '<div class="dr-sec" id="secCancel"></div>';
+      drBody.innerHTML = h;
+
+      bindActionSection(order, access);
+      var spBtn = $('spBtn');
+      if (spBtn) spBtn.addEventListener('click', function () {
+        var err = $('spErr'); hideEl(err); busy(spBtn, 'Sending…');
+        authRun()
+          .withSuccessHandler(function () { refreshAfterAction(); openOrder(order.trackerId, true); })
+          .withFailureHandler(function (e) { unbusy(spBtn); showErr(err, errText(e)); })
+          .creCustomerSaysPaid({ trackerId: order.trackerId, utr: $('spUtr').value.trim(), note: $('spNote').value.trim() });
+      });
+      if (order.docs) ICF_DOCS.bind($('creDocs'), order.trackerId, function () { openOrder(order.trackerId, true); });
+      renderCancelSection(order);
+      loadDrawerProducts(order.trackerId);
+      loadDrawerTimeline(order.trackerId);
+    }
+
+    // The stage-specific box -- same decision order as the classic page.
+    function actionSectionHtml(order, access) {
+      var needsCreAction = (isDispatched(order.status) && order.deliveryStatus !== 'Delivered' && order.deliveryStatus !== 'Returned') || order.status === 'Ready - Payment Pending';
+      var title = '<div class="dr-sec-title">What happens now</div>';
+      if (needsCreAction && !access.canAct) {
+        var msg = 'This is <b>' + esc(order.ownerName || 'another CRE') + '</b>’s order. You can see its details, but only ' + esc(order.ownerName || 'they') + ' can update it – unless the admin gives you access.';
+        if (access.pendingRequest) msg += ' Your request is waiting for an admin to respond.';
+        else if (access.lastDecision) msg += ' ' + esc(access.lastDecision);
+        return title + '<div class="act-card grey"><h4>Owned by another CRE</h4><div class="msg">' + msg + '</div>' +
+          (access.pendingRequest ? '' :
+            '<div class="field"><label class="lbl" for="accessReason">Why do you need to update it?</label>' +
+            '<textarea class="inp" id="accessReason" rows="2" placeholder="e.g. Customer called for delivery update, Greeshma on leave today"></textarea></div>' +
+            '<div class="act-actions"><button class="btn primary" type="button" id="btnRequestAccess">Request access from admin</button></div>') +
+          '<div class="err" id="errRequest"></div><div class="ok-msg" id="okRequest"></div></div>';
+      }
+      if (order.status === 'Ready - Payment Pending') {
+        var px = order.paymentExceptions && order.paymentExceptions.dispatch;
+        var pending = px && px.status === 'Pending';
+        return title + '<div class="act-card red"><h4 style="color:var(--red);">Payment needed for dispatch</h4>' +
+          '<div class="msg">The goods are ready' + (order.payHoldSince ? ' (since ' + esc(order.payHoldSince) + ')' : '') +
+          ', but the customer still owes <b>' + inr2(order.balanceDue) + '</b>. It can’t be dispatched until they pay – call them now.</div>' +
+          '<div id="payDispatchState">' +
+            (order.customerSaysPaid ? '<div class="note info">You told Accounts: ' + esc(order.customerSaysPaid) + '. Accounts is verifying – the order goes back to Ops by itself once recorded.</div>' : '') +
+            (pending ? '<div class="note">Asked the admin to dispatch without full payment (' + esc(px.requestId) + ') – waiting for a decision.</div>' : '') +
+            (px && px.status === 'Declined' ? '<div class="note bad">The admin declined dispatching without full payment. The customer has to pay first.</div>' : '') +
+          '</div>' +
+          '<div class="sub-h">Customer says they’ve paid?</div>' +
+          '<div class="field"><input class="inp" type="text" id="paidUtr" placeholder="UTR / bank reference (optional)"></div>' +
+          '<div class="field"><input class="inp" type="text" id="paidNote" placeholder="Note for Accounts (optional), e.g. paid by NEFT this morning"></div>' +
+          '<div class="act-actions"><button class="btn primary" type="button" id="btnSaysPaid">Customer says paid – tell Accounts</button></div>' +
+          (pending ? '' :
+            '<div class="sub-h">Arrangement to pay later?</div><div class="hint" style="margin-top:2px;">Ask the admin to let it go without full payment.</div>' +
+            '<div class="field"><input class="inp" type="text" id="noPayReason" placeholder="Reason, e.g. Known to Sambhu, pays on installation"></div>' +
+            '<div class="act-actions"><button class="btn" type="button" id="btnNoPay">Proceed without payment – ask admin</button></div>') +
+          '<div class="err" id="errPayDispatch"></div></div>';
+      }
+      if (order.status === 'Sent to Ops') {
+        return title + '<div class="act-card blue"><div class="msg">' + esc((order.opsPickedUpAt || order.opsCutover
+            ? 'With Ops' + (order.opsPickedUpBy ? ' – picked up by ' + order.opsPickedUpBy + (order.opsPickedUpAt ? ' at ' + order.opsPickedUpAt : '') : '') + '. '
+            : 'Verified by Accounts and waiting for Ops to pick it up. ') +
+          (order.dispatchType === 'Courier' ? 'Ops posts it and records the receipt – you take delivery follow-up from there.' : 'Ops requests the gate pass when it’s ready.')) + '</div></div>';
+      }
+      if (order.waitingAtGate) {
+        return title + '<div class="act-card blue"><div class="msg">' + esc('Gate pass issued' + (order.gatePassIssuedAt ? ' ' + order.gatePassIssuedAt : '') +
+          ' – waiting for the vehicle to leave. When the gate marks it out, it turns “In Transit” by itself and delivery follow-up opens here.') + '</div></div>';
+      }
+      if (isDispatched(order.status) && order.deliveryStatus !== 'Delivered' && order.deliveryStatus !== 'Returned') {
+        return title + '<div class="act-card amber"><h4>Delivery status update</h4>' +
+          '<div class="field"><label class="lbl" for="deliveryStatus">Delivery status</label><select class="inp" id="deliveryStatus">' +
+            '<option value="">– select –</option><option value="Pending">Pending</option><option value="In Transit">In Transit</option>' +
+            '<option value="Delivered">Delivered</option><option value="Returned">Returned</option></select></div>' +
+          '<div class="field row2"><div><label class="lbl" for="deliveryCourierName">Courier / Transport name<span class="opt">(optional)</span></label><input class="inp" type="text" id="deliveryCourierName"></div>' +
+            '<div><label class="lbl" for="deliveryTrackingNo">Tracking / Consignment no.<span class="opt">(optional)</span></label><input class="inp" type="text" id="deliveryTrackingNo"></div></div>' +
+          '<div class="field" id="deliveredAtGroup" style="display:none;"><label class="lbl" for="deliveredAt">Date &amp; time the customer confirmed delivery (from your call)</label><input class="inp" type="datetime-local" id="deliveredAt"></div>' +
+          '<div class="act-actions"><button class="btn primary" type="button" id="btnDeliveryUpdate">Save delivery status</button></div>' +
+          '<div class="err" id="errDelivery"></div><div class="ok-msg" id="okDelivery">Delivery status updated.</div></div>';
+      }
+      var closedMsg, tone = 'grey';
+      if (isDispatched(order.status)) { closedMsg = 'Closed – delivery status is “' + order.deliveryStatus + '”. Nothing further to do here.'; tone = 'teal'; }
+      else if (order.status === 'Cancelled') closedMsg = 'This order has been cancelled. Any refund and its status are shown below and in the order timeline.';
+      else if (order.status === 'On Hold - Balance Due') { closedMsg = 'Courier order on hold: ' + inr2(order.balanceDue) + ' is still due from this end customer. Once Accounts records it, the order goes to Ops for posting automatically.'; tone = 'amber'; }
+      else { closedMsg = 'This order is at workflow stage “' + order.status + '” – still with Accounts/Ops, nothing for you to update yet.'; tone = 'blue'; }
+      return title + '<div class="act-card ' + tone + '"><div class="msg">' + esc(closedMsg) + '</div></div>';
+    }
+
+    function bindActionSection(order, access) {
+      var id = order.trackerId;
+      // Request access to another CRE's order
+      var ra = $('btnRequestAccess');
+      if (ra) ra.addEventListener('click', function () {
+        var err = $('errRequest'), ok = $('okRequest'); hideEl(err);
+        var reason = $('accessReason').value.trim();
+        if (!reason) { showErr(err, 'Add a short reason for the admin.'); return; }
+        busy(ra, 'Sending…');
+        authRun()
+          .withSuccessHandler(function (res) {
+            ra.parentNode.style.display = 'none'; $('accessReason').parentNode.style.display = 'none';
+            loadApprovals();
+            ok.textContent = res && res.emailed
+              ? 'Request sent to the admin. It’s under Requests; once approved, you can update it for 24 hours.'
+              : 'Request saved, but no admin has an email on file yet – please tell Ananthu to check the Admin page. It’s under Requests.';
+            ok.classList.add('show');
+          })
+          .withFailureHandler(function (e) { unbusy(ra); showErr(err, errText(e)); })
+          .requestOrderAccess({ trackerId: id, reason: reason });
+      });
+      // Payment needed for dispatch
+      function payCall(btn, fn, args, okText) {
+        var err = $('errPayDispatch'); hideEl(err); busy(btn, 'Sending…');
+        var r = authRun()
+          .withSuccessHandler(function () {
+            refreshAfterAction();
+            openOrder(id, true);
+            setTimeout(function () { var b = $('payDispatchState'); if (b) b.insertAdjacentHTML('afterbegin', '<div class="note info">' + esc(okText) + '</div>'); }, 1200);
+          })
+          .withFailureHandler(function (e) { unbusy(btn); showErr(err, errText(e)); });
+        r[fn](args);
+      }
+      var sp = $('btnSaysPaid');
+      if (sp) sp.addEventListener('click', function () {
+        payCall(sp, 'creCustomerSaysPaid', { trackerId: id, utr: $('paidUtr').value.trim(), note: $('paidNote').value.trim() }, 'Accounts has been told to verify the payment.');
+      });
+      var np = $('btnNoPay');
+      if (np) np.addEventListener('click', function () {
+        var reason = $('noPayReason').value.trim();
+        if (!reason) { showErr($('errPayDispatch'), 'Write the reason for the admin.'); return; }
+        payCall(np, 'creProceedWithoutPayment', { trackerId: id, reason: reason }, 'Sent to the admin. If approved, the order goes back to Ops for the gate pass.');
+      });
+      // Delivery status update
+      var ds = $('deliveryStatus');
+      if (ds) {
+        ds.addEventListener('change', function () { $('deliveredAtGroup').style.display = ds.value === 'Delivered' ? 'block' : 'none'; });
+        $('btnDeliveryUpdate').addEventListener('click', function () {
+          var btn = this, err = $('errDelivery'), ok = $('okDelivery');
+          hideEl(err); hideEl(ok);
+          if (!ds.value) { showErr(err, 'Select a delivery status.'); return; }
+          var deliveredAt = $('deliveredAt').value;
+          if (ds.value === 'Delivered' && !deliveredAt) { showErr(err, 'Enter the date and time the customer confirmed delivery.'); return; }
+          busy(btn, 'Saving…');
+          authRun()
+            .withSuccessHandler(function () {
+              unbusy(btn); ok.classList.add('show');
+              refreshAfterAction();
+              setTimeout(function () { if (drawerOpen && drawerId === id) openOrder(id, true); }, 1500);
+            })
+            .withFailureHandler(function (e) { unbusy(btn); showErr(err, errText(e)); })
+            .submitDeliveryUpdate({ trackerId: id, deliveryStatus: ds.value, courierName: $('deliveryCourierName').value.trim(),
+              trackingNo: $('deliveryTrackingNo').value.trim(), deliveredAt: deliveredAt });
+        });
+      }
+    }
+
+    function loadDrawerProducts(id) {
+      authRun()
+        .withSuccessHandler(function (items) {
+          var el = $('drProducts'); if (!el || drawerId !== id) return;
+          el.innerHTML = (items && items.length) ? items.map(function (it) {
+            return '<div class="prod"><span>' + esc(it.product) + '</span><span class="mono muted">' + esc(it.quantity) + (Number(it.quantity) === 1 ? ' unit' : ' units') + '</span></div>';
+          }).join('') : '<div class="prod faint">None recorded</div>';
+        })
+        .withFailureHandler(function () { var el = $('drProducts'); if (el) el.innerHTML = '<div class="prod faint">Could not load</div>'; })
+        .getOrderLineItems(id);
+    }
+
+    function loadDrawerTimeline(id) {
+      authRun()
+        .withSuccessHandler(function (t) {
+          var el = $('drTimeline'); if (!el || drawerId !== id) return;
+          var rows = [];
+          if (t.enquiryDate) rows.push(['Date of enquiry', t.enquiryDate]);
+          if (t.advancePaymentVerifiedDate) rows.push(['Advance payment verified', t.advancePaymentVerifiedDate]);
+          if (t.verifiedBy) rows.push(['Verified by', t.verifiedBy, 1]);
+          if (t.verificationCode) rows.push(['Verification code', t.verificationCode, 1]);
+          rows.push(['Total order value', inr2(t.totalOrderValue), 1]);
+          rows.push(['Advance received', inr2(t.advanceReceived), 1]);
+          if (t.fullPaymentDate) rows.push(['Full payment received', t.fullPaymentDate]);
+          else if (t.balanceDue > 0) rows.push(['Balance outstanding', inr2(t.balanceDue) + (t.paymentTermsType === 'PO Customer' ? ' (PO Customer terms)' : ''), 1]);
+          if (t.handoverToOpsDate) rows.push(['Sent to Ops (verified)', t.handoverToOpsDate]);
+          if (t.pickupByOpsDate) rows.push(['Picked up by Ops', t.pickupByOpsDate]);
+          if (t.gatePassIssuedDate && t.dispatchType !== 'Courier') rows.push(['Gate pass issued', t.gatePassIssuedDate]);
+          if (t.dispatchDate) rows.push([t.dispatchType === 'Courier' ? 'Date posted' : (t.gateOutBy ? 'Left the gate (dispatch)' : 'Date of dispatch'), t.dispatchDate + (t.gateOutBy ? ' – ' + t.gateOutBy.replace(/\s*\([^)]*\)\s*$/, '') : '')]);
+          else if (t.gatePassIssuedDate && t.dispatchType !== 'Courier' && t.workflowStatus === 'Gate-Verified') rows.push(['Left the gate', 'Not yet – waiting at the gate', 1]);
+          if (t.ewayBillNo) rows.push(['E-way bill no.', t.ewayBillNo, 1]);
+          if (t.transportMode) rows.push(['Mode of dispatch', t.transportMode + (t.courierName ? ' – ' + t.courierName : ''), 1]);
+          if (t.dispatchType === 'Courier' && t.trackingNo) rows.push(['Tracking no.', t.trackingNo, 1]);
+          if (t.cancelledDate) rows.push(['Order cancelled', t.cancelledDate + (t.cancelledBy ? ' – ' + t.cancelledBy : '')]);
+          if (t.refundStatus) rows.push(['Refund', t.refundStatus + (t.refundAmount ? ' – ' + inr2(t.refundAmount) : ''), 1]);
+          if (t.deliveryDate) rows.push(['Date of delivery', t.deliveryDate]);
+          else if (t.deliveryStatus) rows.push(['Current delivery status', t.deliveryStatus, 1]);
+          el.innerHTML = rows.map(function (r) {
+            return '<div class="tl-item' + (r[2] ? ' plain' : '') + '"><span class="tl-l">' + esc(r[0]) + '</span><span class="tl-v">' + esc(r[1]) + '</span></div>';
+          }).join('');
+        })
+        .withFailureHandler(function (e) { var el = $('drTimeline'); if (el) el.innerHTML = '<div class="note bad">Could not load the timeline: ' + esc(errText(e)) + '</div>'; })
+        .getOrderTimeline(id);
+    }
+
+    // ---- Cancellation box (same rules as cancel_cre.html) ----
+    function renderCancelSection(o) {
+      var box = $('secCancel'); if (!box) return;
+      var cx = o.cancellation, me = window.ICF_STAFF || {};
+      if (cx && cx.status === 'Pending') {
+        var mine = me.code && (cx.requestedBy === me.code || o.ownerCode === me.code);
+        box.innerHTML = '<div class="dr-sec-title">Cancellation</div><div class="act-card red"><h4 style="color:var(--red);">Cancellation requested</h4>' +
+          '<div class="msg">Asked by <b>' + esc(cx.requestedByName) + '</b> on ' + esc(cx.requestedAt) + ' – waiting for the admin.</div>' +
+          '<div class="msg" style="margin-top:4px;"><b>Reason:</b> ' + esc(cx.reason) + '</div>' +
+          '<div class="hint">Accounts can’t move the order on until the admin decides.</div>' +
+          (mine ? '<div class="act-actions"><button class="btn danger" type="button" id="cxWithdraw">Withdraw request</button></div>' : '') +
+          '<div class="err" id="cxErr"></div></div>';
+        var w = $('cxWithdraw');
+        if (w) w.addEventListener('click', function () {
+          if (!window.confirm('Withdraw the cancellation request for ' + o.trackerId + '? The order carries on as normal.')) return;
+          busy(w, 'Withdrawing…');
+          authRun()
+            .withSuccessHandler(function () { loadCancellations(); refreshAfterAction(); openOrder(o.trackerId, true); })
+            .withFailureHandler(function (e) { unbusy(w); showErr($('cxErr'), errText(e)); })
+            .withdrawCancellation({ requestId: cx.requestId });
+        });
+        return;
+      }
+      if (o.status === 'Cancelled' && cx && cx.status === 'Approved') {
+        var refund = cx.refundStatus && cx.refundStatus !== 'Not required';
+        box.innerHTML = '<div class="dr-sec-title">Cancellation</div><div class="act-card grey"><h4>Order cancelled</h4>' +
+          '<div class="msg">Approved by <b>' + esc(cx.decidedBy) + '</b> on ' + esc(cx.decidedAt) + (cx.adminNote ? ' – ' + esc(cx.adminNote) : '') + '</div>' +
+          (refund
+            ? '<div class="msg" style="margin-top:6px;"><b>Refund:</b> ' + inr(cx.refundAmount) + ' – ' + refundPill(cx.refundStatus) +
+              (cx.refundStatus === 'Processed' ? ' on ' + esc(cx.refundProcessedAt) + ', UTR <b>' + esc(cx.refundUtr) + '</b>' : ' – Accounts to pay by <b>' + esc(cx.refundDeadline) + '</b>') + '</div>'
+            : '<div class="msg" style="margin-top:6px;">No refund due.</div>') + '</div>';
+        return;
+      }
+      if (o.status === 'Cancelled' || isDispatched(o.status) || (o.access && o.access.canAct === false)) { box.innerHTML = ''; return; }
+      var declined = cx && cx.status === 'Declined'
+        ? '<div class="hint">An earlier request was declined by ' + esc(cx.decidedBy) + (cx.adminNote ? ': “' + esc(cx.adminNote) + '”' : '') + '.</div>' : '';
+      box.innerHTML = '<button class="btn ghost sm" type="button" id="cxToggle" style="color:var(--red); margin-left:-10px;">&#10006;&nbsp; Customer wants to cancel this order?</button>' + declined +
+        '<div id="cxForm" class="act-card red" style="display:none; margin-top:8px;">' +
+          '<div class="msg">Received so far: <b>' + inr(o.advanceAmount) + '</b>. The admin decides, and if a refund is due, sets the amount and the date Accounts must pay by.</div>' +
+          '<div class="field"><label class="lbl" for="cxReason">Reason the customer gave</label>' +
+          '<textarea class="inp" id="cxReason" rows="2" placeholder="e.g. Customer bought locally, wants the advance back"></textarea></div>' +
+          '<div class="act-actions"><button class="btn danger" type="button" id="cxSubmit">Send cancellation request to admin</button></div>' +
+        '</div><div class="err" id="cxErr"></div>';
+      $('cxToggle').addEventListener('click', function () { var f = $('cxForm'); f.style.display = f.style.display === 'none' ? 'block' : 'none'; });
+      $('cxSubmit').addEventListener('click', function () {
+        var btn = this, reason = $('cxReason').value.trim();
+        if (reason.length < 5) { showErr($('cxErr'), 'Add the reason the customer gave.'); return; }
+        if (!window.confirm('Send a request to cancel ' + o.trackerId + ' (' + o.institution + ')?\n\nThe order is locked until the admin decides.')) return;
+        busy(btn, 'Sending…');
+        authRun()
+          .withSuccessHandler(function () { loadCancellations(); refreshAfterAction(); openOrder(o.trackerId, true); })
+          .withFailureHandler(function (e) { unbusy(btn); showErr($('cxErr'), errText(e)); })
+          .requestCancellation({ trackerId: o.trackerId, reason: reason });
+      });
+    }
+    function refundPill(status) {
+      var tone = status === 'Processed' || status === 'NoRefund' ? 'teal' : status === 'Processing' ? 'blue' : status === 'Declined' ? 'red' : 'amber';
+      return '<span class="pill t-' + tone + '"><span class="dot"></span>' + esc(status) + '</span>';
+    }
+
+    // =====================================================================
+    // Payments (was Pending Payments + Payment Follow-ups panes)
+    // =====================================================================
+    var payTerms = 'all', payTab = 'collect';
+    function ageLabel(it) {
+      if (!it.dispatched) return 'Not dispatched yet' + (it.workflowStatus ? ' (' + it.workflowStatus + ')' : '');
+      var d = it.daysSinceDispatch;
+      var when = d === 0 ? 'today' : d === 1 ? '1 day ago' : d + ' days ago';
+      var where = it.deliveryStatus === 'Delivered' ? 'Delivered' : it.deliveryStatus === 'Returned' ? 'Returned' : 'In transit';
+      return where + ' – dispatched ' + it.dispatchedOn + ' (' + when + ')';
+    }
+    function splitPayments() {
+      var byTerms = payTerms === 'all' ? payments : payments.filter(function (it) { return (it.paymentTermsType || 'End Customer') === payTerms; });
+      var follow = byTerms.filter(function (it) { return it.followUpLater; })
+        .sort(function (a, b) { return a.followUpYmd < b.followUpYmd ? -1 : a.followUpYmd > b.followUpYmd ? 1 : 0; });
+      var rank = function (it) { return it.creUrgent ? 0 : it.followUpYmd ? 1 : 2; };
+      var collect = byTerms.filter(function (it) { return !it.followUpLater; })
+        .map(function (it, i) { return { it: it, i: i }; })
+        .sort(function (a, b) { return rank(a.it) - rank(b.it) || a.i - b.i; })
+        .map(function (x) { return x.it; });
+      return { collect: collect, follow: follow };
+    }
+    function renderPayments() {
+      var sp = splitPayments();
+      $('tabCollect').textContent = sp.collect.length; $('tabFollow').textContent = sp.follow.length;
+      var urgent = sp.collect.filter(function (it) { return it.creUrgent; }).length;
+      $('railPayCount').textContent = urgent; $('railPayCount').style.display = urgent ? 'inline-flex' : 'none'; $('railPayCount').className = 'count hot';
+      renderPaySide();
+      var items = payTab === 'follow' ? sp.follow : sp.collect, inFollow = payTab === 'follow';
+      if (!items.length) {
+        $('payList').innerHTML = '<div class="card-box empty">' + (inFollow ? 'No follow-ups scheduled.' : 'Nothing to collect right now.') + '</div>';
+        return;
+      }
+      $('payList').innerHTML = items.map(function (it) {
+        var red = !inFollow && it.creUrgent;
+        var tags = '<span class="chip">' + esc(it.paymentTermsType || 'End Customer') + '</span>';
+        if (it.customerSaysPaid) tags += '<span class="pill t-blue"><span class="dot"></span>You told Accounts it’s paid – they’re verifying</span>';
+        if (it.followUpYmd) tags += '<span class="pill ' + (inFollow ? 't-grey' : 't-amber') + '"><span class="dot"></span>' + (inFollow ? 'Call on ' : 'Follow-up due – ') + esc(it.followUp) + '</span>';
+        return '<div class="pay' + (red ? ' urgent' : '') + '" data-id="' + esc(it.trackerId) + '">' +
+          '<div class="pay-top"><div><div class="pay-name">' + esc(it.institution) + '</div><div class="pay-id">' + esc(it.trackerId) + '</div></div>' +
+            '<div class="pay-bal"><div class="v">' + inr2(it.balanceDue) + '</div><div class="t">due</div></div></div>' +
+          '<div class="pay-age">' + esc(ageLabel(it)) + '</div>' +
+          (it.followUpNote ? '<div class="hint" style="margin-top:4px;">Note: ' + esc(it.followUpNote) + '</div>' : '') +
+          '<div class="pay-tags">' + tags + '</div>' +
+          '<div class="pay-acts"><button class="btn sm fu-set" type="button">' + (it.followUpYmd ? 'Change date' : 'Set follow-up date') + '</button>' +
+            (it.followUpYmd ? '<button class="btn sm ghost fu-clear" type="button">' + (inFollow ? 'Call now instead' : 'Clear date') + '</button>' : '') +
+            '<button class="btn sm ghost fu-open" type="button">Open order</button></div>' +
+          '<div class="pay-form"><input class="inp fu-date" type="date" min="' + tomorrowYmd() + '" value="' + esc(it.followUpLater ? it.followUpYmd : '') + '">' +
+            '<input class="inp fu-note" type="text" maxlength="200" placeholder="Note, e.g. 30-day credit, pays after installation" value="' + esc(it.followUpNote || '') + '">' +
+            '<button class="btn primary fu-save" type="button">Save</button></div>' +
+          '<div class="err"></div></div>';
+      }).join('');
+      each($('payList').querySelectorAll('.pay'), function (el) {
+        var id = el.getAttribute('data-id'), form = el.querySelector('.pay-form'), err = el.querySelector('.err');
+        var send = function (date, note, btn) {
+          hideEl(err); busy(btn, 'Saving…');
+          authRun()
+            .withSuccessHandler(function () { loadPendingPayments(); })
+            .withFailureHandler(function (e) { unbusy(btn); showErr(err, errText(e)); })
+            .setPaymentFollowUp({ trackerId: id, date: date, note: note });
+        };
+        el.querySelector('.pay-name').addEventListener('click', function () { openOrder(id); });
+        el.querySelector('.fu-open').addEventListener('click', function () { openOrder(id); });
+        el.querySelector('.fu-set').addEventListener('click', function () { form.classList.toggle('show'); if (form.classList.contains('show')) el.querySelector('.fu-date').focus(); });
+        el.querySelector('.fu-save').addEventListener('click', function () {
+          var d = el.querySelector('.fu-date').value;
+          if (!d) { showErr(err, 'Pick the date to call the customer.'); return; }
+          send(d, el.querySelector('.fu-note').value.trim(), this);
+        });
+        var clr = el.querySelector('.fu-clear');
+        if (clr) clr.addEventListener('click', function () { send('', '', this); });
+      });
+    }
+    function renderPaySide() {
+      var all = payments;
+      var due = all.filter(function (it) { return !it.followUpLater; });
+      var sum = function (l) { return l.reduce(function (s, it) { return s + (Number(it.balanceDue) || 0); }, 0); };
+      var urgent = due.filter(function (it) { return it.creUrgent; }).length;
+      var rows = [
+        ['To collect now', due.length, inr(sum(due)), urgent ? 'red' : 'leaf', 'collect'],
+        ['In transit 3+ days', urgent, '', urgent ? 'red' : 'leaf', 'collect'],
+        ['Follow-ups scheduled', all.length - due.length, inr(sum(all.filter(function (it) { return it.followUpLater; }))), 'leaf', 'follow']
+      ];
+      $('paySide').innerHTML = rows.map(function (r) {
+        return '<button class="stat-row' + (r[3] === 'red' ? ' alert' : '') + '" type="button" data-tab="' + r[4] + '">' + ringSvg(r[3], r[1] ? 1 : 0) +
+          '<span class="stat-label">' + esc(r[0]) + (r[2] ? '<span class="faint" style="font-size:12px;"> · ' + esc(r[2]) + '</span>' : '') + '</span><span class="stat-val">' + r[1] + '</span></button>';
+      }).join('');
+      each($('paySide').querySelectorAll('.stat-row'), function (b) {
+        b.addEventListener('click', function () { go('payments'); setPayTab(b.getAttribute('data-tab')); });
+      });
+    }
+    function setPayTab(t) {
+      payTab = t;
+      each(document.querySelectorAll('[data-ptab]'), function (b) { b.classList.toggle('on', b.getAttribute('data-ptab') === t); });
+      renderPayments();
+    }
+    function highlightPayment(id) {
+      var el = $('payList').querySelector('.pay[data-id="' + (window.CSS && CSS.escape ? CSS.escape(id) : id) + '"]');
+      if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.style.borderColor = 'var(--leaf)'; setTimeout(function () { el.style.borderColor = ''; }, 2000); }
+    }
+    each(document.querySelectorAll('[data-ptab]'), function (b) { b.addEventListener('click', function () { setPayTab(b.getAttribute('data-ptab')); }); });
+    each($('termsSeg').querySelectorAll('button'), function (b) {
+      b.addEventListener('click', function () {
+        payTerms = b.getAttribute('data-terms');
+        each($('termsSeg').querySelectorAll('button'), function (x) { x.classList.toggle('on', x === b); });
+        renderPayments();
+      });
+    });
+    function loadPendingPayments() {
+      authRun()
+        .withSuccessHandler(function (items) { payments = items || []; renderPayments(); renderActions(); })
+        .withFailureHandler(function () { if (!payments.length) $('payList').innerHTML = '<div class="card-box empty">Could not load pending payments.</div>'; })
+        .getPendingPayments();
+    }
+    $('refreshPay').addEventListener('click', loadPendingPayments);
+
+    // =====================================================================
+    // Requests (was Awaiting approval + Cancellations & refunds panes)
+    // =====================================================================
+    function updateReqBadge() {
+      var ready = approvals.filter(function (it) { return it.status !== 'Pending'; }).length + cxItems.filter(function (it) { return it.canAck; }).length;
+      $('railReqCount').textContent = ready; $('railReqCount').style.display = ready ? 'inline-flex' : 'none';
+    }
+    function loadApprovals() {
+      authRun()
+        .withSuccessHandler(function (items) { approvals = items || []; renderApprovals(); renderActions(); })
+        .withFailureHandler(function () { if (!approvals.length) $('apprList').innerHTML = '<div class="card-box empty">Could not load the list.</div>'; })
+        .getAccessApprovalsPanel();
+    }
+    function renderApprovals() {
+      var c = $('apprCount'); c.textContent = approvals.length; c.style.display = approvals.length ? 'inline-flex' : 'none';
+      updateReqBadge();
+      if (!approvals.length) { $('apprList').innerHTML = '<div class="card-box empty">Nothing waiting on an admin.</div>'; return; }
+      var TONE = { Approved: 'teal', Declined: 'red', Pending: 'amber' };
+      $('apprList').innerHTML = approvals.map(function (it) {
+        return '<div class="req req-open" data-id="' + esc(it.trackerId) + '">' +
+          '<div style="display:flex; justify-content:space-between; gap:10px; align-items:flex-start;"><div><div class="req-name">' + esc(it.institution) + '</div>' +
+          '<div class="req-sub">' + esc(it.trackerId) + (it.label ? ' · ' + esc(it.label) : '') + '</div></div>' +
+          '<span class="pill t-' + (TONE[it.status] || 'grey') + '"><span class="dot"></span>' + esc(it.statusText) + '</span></div>' +
+          '<div class="req-sub faint" style="margin-top:6px;">' + esc(it.when) + (it.decidedBy ? ' – ' + esc(it.decidedBy) : '') + '</div></div>';
+      }).join('');
+      each($('apprList').querySelectorAll('.req-open'), function (el) { el.addEventListener('click', function () { openOrder(el.getAttribute('data-id')); }); });
+    }
+    function loadCancellations() {
+      authRun()
+        .withSuccessHandler(function (items) { cxItems = items || []; renderCancellations(); })
+        .withFailureHandler(function () { if (!cxItems.length) $('cxList').innerHTML = '<div class="card-box empty">Could not load the list.</div>'; })
+        .getCancellationPanel();
+    }
+    function renderCancellations() {
+      var c = $('cxCount'); c.textContent = cxItems.length; c.style.display = cxItems.length ? 'inline-flex' : 'none';
+      updateReqBadge();
+      if (!cxItems.length) { $('cxList').innerHTML = '<div class="card-box empty">No cancellations to follow up.</div>'; return; }
+      $('cxList').innerHTML = cxItems.map(function (it) {
+        return '<div class="req" data-req="' + esc(it.requestId) + '">' +
+          '<div class="req-open" data-id="' + esc(it.trackerId) + '"><div style="display:flex; justify-content:space-between; gap:10px; align-items:flex-start;"><div>' +
+            '<div class="req-name">' + esc(it.institution) + '</div>' +
+            '<div class="req-sub">' + esc(it.trackerId) + (it.refundAmount ? ' · refund ' + inr(it.refundAmount) : '') + '</div></div>' +
+            refundPill(it.statusText || it.stage) + '</div>' +
+            '<div class="req-sub faint" style="margin-top:6px;">' + esc(it.when) + '</div></div>' +
+          (it.canAck ? '<div class="req-ack"><label class="check"><input type="checkbox" class="cx-chk"> ' + esc(it.ackLabel) + '</label><button class="btn primary sm cx-ok" type="button" disabled>OK</button></div>' : '') +
+          '</div>';
+      }).join('');
+      each($('cxList').querySelectorAll('.req-open'), function (el) { el.addEventListener('click', function () { openOrder(el.getAttribute('data-id')); }); });
+      each($('cxList').querySelectorAll('.req'), function (item) {
+        var chk = item.querySelector('.cx-chk'), ok = item.querySelector('.cx-ok');
+        if (!chk) return;
+        chk.addEventListener('change', function () { ok.disabled = !chk.checked; });
+        ok.addEventListener('click', function () {
+          ok.disabled = true; chk.disabled = true; ok.textContent = '…';
+          authRun()
+            .withSuccessHandler(function () { if (item.parentNode) item.parentNode.removeChild(item); loadCancellations(); })
+            .withFailureHandler(function (e) { ok.disabled = false; chk.disabled = false; ok.textContent = 'OK'; window.alert('Could not save: ' + errText(e)); })
+            .acknowledgeCancellation({ requestId: item.getAttribute('data-req') });
+        });
+      });
+    }
+    $('refreshReq').addEventListener('click', function () { loadApprovals(); loadCancellations(); });
+
+    // ---- All refunds report ----
+    var refunds = [], RF = ['rfCre', 'rfFrom', 'rfTo', 'rfMin', 'rfMax', 'rfType', 'rfStatus'];
+    function resetRefundFilters() { $('rfSearch').value = ''; RF.forEach(function (id) { var el = $(id); el.value = el.tagName === 'SELECT' ? 'all' : ''; }); }
+    function renderRefunds() {
+      var q = $('rfSearch').value.trim().toLowerCase(), v = function (id) { return $(id).value; };
+      var fromMs = v('rfFrom') ? new Date(v('rfFrom') + 'T00:00:00+05:30').getTime() : null;
+      var toMs = v('rfTo') ? new Date(v('rfTo') + 'T23:59:59+05:30').getTime() : null;
+      var min = v('rfMin') ? Number(v('rfMin')) : null, max = v('rfMax') ? Number(v('rfMax')) : null;
+      var rows = refunds.filter(function (r) {
+        if (q && r.institution.toLowerCase().indexOf(q) === -1 && r.trackerId.toLowerCase().indexOf(q) === -1) return false;
+        if (v('rfCre') !== 'all' && r.cre !== v('rfCre')) return false;
+        if (fromMs && !(r.dateLoggedMs >= fromMs)) return false;
+        if (toMs && !(r.dateLoggedMs <= toMs)) return false;
+        if (min !== null && r.refundAmount < min) return false;
+        if (max !== null && r.refundAmount > max) return false;
+        if (v('rfType') !== 'all' && r.paymentTerms !== v('rfType')) return false;
+        if (v('rfStatus') !== 'all' && r.refundStatus !== v('rfStatus')) return false;
+        return true;
+      });
+      var total = rows.reduce(function (s, r) { return s + r.refundAmount; }, 0);
+      var open = rows.filter(function (r) { return r.refundStatus === 'Processing'; });
+      $('rfSummary').innerHTML = '<b>' + rows.length + '</b> refund' + (rows.length === 1 ? '' : 's') + ' &middot; <b>' + inr(total) + '</b> in all' +
+        (open.length ? ' &middot; <b>' + inr(open.reduce(function (s, r) { return s + r.refundAmount; }, 0)) + '</b> still processing' : '') + ' &middot; click a row to open the order';
+      if (!rows.length) { $('rfTable').innerHTML = '<div class="empty">' + (refunds.length ? 'No refunds match.' : 'No refunds yet.') + '</div>'; return; }
+      $('rfTable').innerHTML = '<table class="tbl"><thead><tr><th>Quotation No.</th><th>Customer</th><th>CRE</th><th>Type</th><th class="num">Order value</th><th class="num">Refund</th><th>Status</th><th>Due / paid</th><th>Logged</th></tr></thead><tbody>' +
+        rows.map(function (r) {
+          var due = r.refundStatus === 'Processed'
+            ? esc(r.processedAt) + '<div class="faint" style="font-size:11px;">UTR ' + esc(r.utr) + '</div>'
+            : esc(r.deadline) + (r.daysLeft !== null && r.daysLeft < 0 ? ' <span style="color:var(--red); font-weight:700;">' + (-r.daysLeft) + 'd late</span>' : '');
+          return '<tr data-id="' + esc(r.trackerId) + '"><td class="nowrap">' + esc(r.trackerId) + '</td><td>' + esc(r.institution) + '</td><td>' + esc(r.cre) + '</td>' +
+            '<td>' + esc(r.paymentTerms) + '</td><td class="num">' + inr(r.orderValue) + '</td><td class="num">' + inr(r.refundAmount) + '</td>' +
+            '<td>' + refundPill(r.refundStatus) + '</td><td>' + due + '</td><td class="nowrap">' + fmtDay(r.dateLoggedMs) + '</td></tr>';
+        }).join('') + '</tbody></table>';
+      each($('rfTable').querySelectorAll('tbody tr'), function (tr) {
+        tr.addEventListener('click', function () { $('refundsModal').classList.remove('show'); openOrder(tr.getAttribute('data-id')); });
+      });
+    }
+    $('cxAllBtn').addEventListener('click', function () {
+      resetRefundFilters();
+      $('rfSummary').innerHTML = ''; $('rfTable').innerHTML = '<div class="empty">Loading…</div>';
+      $('refundsModal').classList.add('show');
+      authRun()
+        .withSuccessHandler(function (rows) {
+          refunds = rows || [];
+          var seen = {};
+          $('rfCre').innerHTML = '<option value="all">All CREs</option>' + refunds.map(function (r) { return r.cre; })
+            .filter(function (c) { if (!c || seen[c]) return false; seen[c] = 1; return true; }).sort()
+            .map(function (c) { return '<option value="' + esc(c) + '">' + esc(c) + '</option>'; }).join('');
+          renderRefunds();
+        })
+        .withFailureHandler(function (e) { $('rfTable').innerHTML = '<div class="empty">Could not load: ' + esc(errText(e)) + '</div>'; })
+        .getRefundsReport();
+    });
+    $('rfSearch').addEventListener('input', renderRefunds);
+    RF.forEach(function (id) { $(id).addEventListener(/Min|Max/.test(id) ? 'input' : 'change', renderRefunds); });
+    $('rfClear').addEventListener('click', function () { resetRefundFilters(); renderRefunds(); });
+    $('refundsClose').addEventListener('click', function () { $('refundsModal').classList.remove('show'); });
+    $('refundsModal').addEventListener('click', function (e) { if (e.target === $('refundsModal')) $('refundsModal').classList.remove('show'); });
+
+    // =====================================================================
+    // New PO (was the PO Generator) -- same fields, same checks, same calls
+    // =====================================================================
+    var totalInput = $('totalValue'), advanceInput = $('advanceReceived'), priorityLevel = $('priorityLevel');
+    var pincodeInput = $('pincode'), stateInput = $('state'), districtInput = $('district'), pincodeHint = $('pincodeHint');
+    var productLinesContainer = $('productLines'), productError = $('productError');
+    var productListCache = [], courierProducts = {}, stagedDocs = {}, lastLogged = '';
+
+    function updateSummary() {
+      var total = parseFloat(totalInput.value), adv = parseFloat(advanceInput.value);
+      $('sumQ').textContent = $('trackerId').value.trim() || '–';
+      $('sumCust').textContent = $('institution').value.trim() || '–';
+      var items = collectLineItems();
+      $('sumProd').textContent = items.length ? items.length + ' line' + (items.length === 1 ? '' : 's') + ' · ' + items.reduce(function (s, i) { return s + i.quantity; }, 0) + ' units' : '–';
+      $('sumTerms').textContent = $('paymentTermsType').value;
+      $('sumTotal').textContent = total > 0 ? inr2(total) : '–';
+      $('sumAdv').textContent = !isNaN(adv) && advanceInput.value !== '' ? inr2(adv) : '–';
+      $('sumBal').textContent = total > 0 && !isNaN(adv) ? inr2(Math.max(0, total - adv)) : '–';
+      if (total > 0 && !isNaN(adv)) {
+        var pct = Math.round((adv / total) * 1000) / 10;
+        $('pctPreview').textContent = 'Advance = ' + pct + '% of total';
+        $('pctFill').style.width = Math.max(0, Math.min(100, pct)) + '%';
+      } else {
+        $('pctPreview').textContent = 'Advance % appears once total and advance are in.';
+        $('pctFill').style.width = '0';
+      }
+      $('sumPri').innerHTML = priChip(priorityLevel.value) || '<span class="chip">Normal</span>';
+      // Draft dot on the rail while a PO is half-filled.
+      var dirty = ['trackerId', 'institution', 'customerPhone', 'totalValue', 'advanceReceived', 'pincode'].some(function (id) { return $(id).value.trim(); }) || items.length > 0;
+      $('railNewPo').classList.toggle('drafting', dirty);
+    }
+    $('poForm').addEventListener('input', updateSummary);
+    $('poForm').addEventListener('change', updateSummary);
+
+    // "Balance to be paid after delivery": end customer, some advance, some balance.
+    function updateBalAfter() {
+      var total = parseFloat(totalInput.value), adv = parseFloat(advanceInput.value);
+      var show = $('paymentTermsType').value === 'End Customer' && adv > 0 && total > adv;
+      $('balAfterBox').style.display = show ? 'block' : 'none';
+      if (!show) $('balAfter').checked = false;
+      $('balAfterReasonBox').style.display = $('balAfter').checked ? 'block' : 'none';
+    }
+    totalInput.addEventListener('input', updateBalAfter);
+    advanceInput.addEventListener('input', updateBalAfter);
+    $('paymentTermsType').addEventListener('change', updateBalAfter);
+    $('balAfter').addEventListener('change', updateBalAfter);
+    // The customer's PO is required for PO customers.
+    function updateCustomerPoLabel() {
+      var po = $('paymentTermsType').value === 'PO Customer';
+      $('customerPoReq').style.display = po ? 'inline' : 'none';
+      $('customerPoOpt').style.display = po ? 'none' : 'inline';
+      $('customerPoHint').textContent = po ? 'Required for a PO Customer – the purchase order the customer gave you.' : 'If the customer gave you a purchase order, attach it too.';
+    }
+    $('paymentTermsType').addEventListener('change', updateCustomerPoLabel);
+    updateCustomerPoLabel();
+
+    function fileKey(f) { return f ? [f.name, f.size, f.lastModified].join('|') : ''; }
+    function stageDoc(kind, inputId, done) {
+      var f = $(inputId).files[0];
+      if (!f) return done(null, '');
+      var key = kind + '|' + fileKey(f);
+      if (stagedDocs[key]) return done(null, stagedDocs[key]);
+      ICF_DOCS.prepare(f, function (err, file) {
+        if (err) return done((kind === 'crm' ? 'CRM PO: ' : 'Customer’s PO: ') + err);
+        authRun()
+          .withSuccessHandler(function (r) { stagedDocs[key] = r.fileId; done(null, r.fileId); })
+          .withFailureHandler(function (e) { done((kind === 'crm' ? 'CRM PO: ' : 'Customer’s PO: ') + ICF_DOCS.errText(e)); })
+          .stageOrderDocument({ kind: kind, file: file });
+      });
+    }
+
+    // ---- Product lines ----
+    function optionsHtml() {
+      return '<option value="">– select product –</option>' + productListCache.map(function (p) { return '<option value="' + esc(p) + '">' + esc(p) + '</option>'; }).join('');
+    }
+    function addProductLine() {
+      var row = document.createElement('div');
+      row.className = 'pline';
+      row.innerHTML = '<select class="inp product-select">' + optionsHtml() + '</select>' +
+        '<input class="inp product-qty mono" type="number" min="1" step="1" placeholder="Qty">' +
+        '<button type="button" class="rm" title="Remove">&times;</button>';
+      row.querySelector('.rm').addEventListener('click', function () { row.remove(); updateDispatchNote(); updateSummary(); });
+      row.querySelector('.product-select').addEventListener('change', updateDispatchNote);
+      productLinesContainer.appendChild(row);
+    }
+    function resetProductLines() { productLinesContainer.innerHTML = ''; addProductLine(); updateDispatchNote(); }
+    // Mirrors the server's rule: courier only when EVERY chosen product is a courier product.
+    function updateDispatchNote() {
+      var chosen = [];
+      each(productLinesContainer.querySelectorAll('.product-select'), function (sel) { if (sel.value) chosen.push(sel.value); });
+      var allCourier = chosen.length > 0 && chosen.every(function (p) { return courierProducts[p]; });
+      $('dispatchNote').style.display = allCourier ? 'block' : 'none';
+    }
+    function collectLineItems() {
+      var items = [];
+      each(productLinesContainer.querySelectorAll('.pline'), function (row) {
+        var product = row.querySelector('.product-select').value, qty = parseInt(row.querySelector('.product-qty').value, 10);
+        if (product && qty > 0) items.push({ product: product, quantity: qty });
+      });
+      return items;
+    }
+    $('addProductLine').addEventListener('click', function () { addProductLine(); var s = productLinesContainer.querySelectorAll('.product-select'); s[s.length - 1].focus(); });
+    authRun()
+      .withSuccessHandler(function (catalog) {
+        courierProducts = {};
+        productListCache = (catalog || []).map(function (p) { if (p.dispatchType === 'Courier') courierProducts[p.name] = true; return p.name; });
+        each(productLinesContainer.querySelectorAll('.product-select'), function (sel) { var cur = sel.value; sel.innerHTML = optionsHtml(); sel.value = cur; });
+        if (!productLinesContainer.querySelector('.pline')) addProductLine();
+      })
+      .withFailureHandler(function () { showErr(productError, 'Could not load the product list – refresh the page and try again.'); })
+      .getProductCatalog();
+    addProductLine();
+
+    // ---- Pincode -> State/District ----
+    var pincodeTimer = null;
+    function runPincodeLookup() {
+      var pincode = pincodeInput.value.trim();
+      if (!/^\d{6}$/.test(pincode)) return;
+      pincodeHint.textContent = 'Looking up…'; pincodeHint.style.color = '';
+      authRun()
+        .withSuccessHandler(function (r) {
+          if (r.success) {
+            stateInput.value = r.state; districtInput.value = r.district;
+            pincodeHint.textContent = 'State/District filled in from the pincode – correct them if this looks wrong.'; pincodeHint.style.color = 'var(--teal)';
+          } else { pincodeHint.textContent = r.message || 'Pincode not found – enter State/District manually.'; pincodeHint.style.color = 'var(--amber)'; }
+        })
+        .withFailureHandler(function () { pincodeHint.textContent = 'Could not look up the pincode – enter State/District manually.'; pincodeHint.style.color = 'var(--amber)'; })
+        .lookupPincode(pincode);
+    }
+    pincodeInput.addEventListener('input', function () { clearTimeout(pincodeTimer); pincodeTimer = setTimeout(runPincodeLookup, 500); });
+    pincodeInput.addEventListener('blur', function () { clearTimeout(pincodeTimer); runPincodeLookup(); });
+
+    // ---- Submit ----
+    $('poForm').addEventListener('submit', function (e) {
+      e.preventDefault();
+      var submitBtn = $('submitBtn'), errorBox = $('errorBox');
+      hideEl(errorBox); hideEl(productError);
+      var lineItems = collectLineItems();
+      if (!lineItems.length) { showErr(productError, 'Add at least one product with a quantity.'); productError.scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
+      if (!$('crmPoFile').files[0]) { showErr(errorBox, 'Attach the CRM PO (PDF or photo).'); return; }
+      if ($('paymentTermsType').value === 'PO Customer' && !$('customerPoFile').files[0]) { showErr(errorBox, 'Attach the customer’s PO – it’s required for a PO Customer order.'); return; }
+
+      submitBtn.disabled = true; submitBtn.textContent = 'Uploading CRM PO…';
+      var formData = {
+        trackerId: $('trackerId').value.trim(),
+        institution: $('institution').value.trim(),
+        customerPhone: $('customerPhone').value.trim(),
+        customerEmail: $('customerEmail').value.trim(),
+        customerConsent: $('customerConsent').checked,
+        paymentTermsType: $('paymentTermsType').value,
+        totalValue: totalInput.value,
+        advanceReceived: advanceInput.value,
+        balanceAfterDelivery: $('balAfter').checked,
+        balanceAfterReason: $('balAfterReason').value.trim(),
+        requestedDeliveryDate: $('requestedDeliveryDate').value,
+        priorityLevel: priorityLevel.value,
+        pincode: pincodeInput.value.trim(),
+        state: stateInput.value.trim(),
+        district: districtInput.value.trim(),
+        lineItems: lineItems
+      };
+      var fail = function (msg) { showErr(errorBox, 'Error: ' + msg); submitBtn.disabled = false; submitBtn.textContent = 'Generate Internal PO'; };
+      stageDoc('crm', 'crmPoFile', function (err1, crmId) {
+        if (err1) return fail(err1);
+        submitBtn.textContent = $('customerPoFile').files[0] ? 'Uploading customer’s PO…' : 'Generating…';
+        stageDoc('customer', 'customerPoFile', function (err2, custId) {
+          if (err2) return fail(err2);
+          formData.crmPoFileId = crmId; formData.customerPoFileId = custId;
+          submitBtn.textContent = 'Generating…';
+          authRun()
+            .withSuccessHandler(function (result) {
+              lastLogged = result.trackerId;
+              $('resultTrackerId').textContent = result.trackerId;
+              $('resultPct').textContent = 'Advance: ' + result.advancePct + '% of total order value' + (result.priority !== 'Normal' ? '  —  Priority: ' + String(result.priority).toUpperCase() : '');
+              $('resultDispatch').textContent = (result.dispatchType === 'Courier' ? 'Courier order – goes to Ops for posting after payment verification. ' : '') +
+                (result.balanceAfter ? (result.balanceAfter.error ? 'Balance after delivery: could not ask the admin (' + result.balanceAfter.error + ').'
+                  : 'Balance after delivery: sent to the admin for approval (' + result.balanceAfter.requestId + ').') : '') +
+                (result.docsWarning ? ' ' + result.docsWarning : '');
+              resetPoForm();
+              $('poForm').style.display = 'none'; $('poDone').style.display = 'block';
+              window.scrollTo(0, 0);
+              loadPendingPayments(); loadCreSummary(); loadMyOrders();
+            })
+            .withFailureHandler(function (err) { fail(errText(err)); })
+            .submitOrder(formData);
+        });
+      });
+    });
+    function resetPoForm() {
+      $('poForm').reset();
+      stagedDocs = {};
+      updateCustomerPoLabel();
+      pincodeHint.textContent = 'Enter the 6-digit pincode and State/District fill in automatically.'; pincodeHint.style.color = '';
+      resetProductLines(); updateBalAfter();
+      $('submitBtn').disabled = false; $('submitBtn').textContent = 'Generate Internal PO';
+      hideEl($('errorBox')); hideEl(productError);
+      updateSummary();
+    }
+    $('doneAnother').addEventListener('click', function () { $('poDone').style.display = 'none'; $('poForm').style.display = ''; $('trackerId').focus(); });
+    $('doneOpen').addEventListener('click', function () { if (lastLogged) openOrder(lastLogged); });
+    updateSummary();
+
+    // =====================================================================
+    // Loading, live refresh and the sign-in hooks
+    // =====================================================================
+    function loadAll() {
+      loadCreSummary(); loadMyOrders(); loadActionList(); loadPendingPayments(); loadApprovals(); loadCancellations();
+    }
+    $('refreshAll').addEventListener('click', loadAll);
+    renderGlance();
+    loadAll(); // queued until sign-in, then sent
+
+    // ICF_RELOAD: auth.html calls this every minute while the tab is on screen,
+    // when you come back to the tab, and after a new sign-in. Only lists and
+    // tiles reload -- the open drawer and a half-typed PO are left alone.
+    window.ICF_RELOAD = loadAll;
+    // ICF_CLEAR: on Sign out, wipe everything personal from the page.
+    window.ICF_CLEAR = function () {
+      closeDrawer();
+      $('refundsModal').classList.remove('show');
+      myOrders = []; myOrdersLoaded = false; summary = null; actionItems = []; payments = []; approvals = []; cxItems = []; refunds = []; lastPayIds = null;
+      $('ordersOut').innerHTML = '<div class="loading">Loading your orders…</div>'; $('resultLine').innerHTML = '';
+      renderGlance(); renderActions();
+      $('payList').innerHTML = '<div class="loading">Loading…</div>'; $('paySide').innerHTML = '';
+      $('apprList').innerHTML = '<div class="loading">Loading…</div>'; $('cxList').innerHTML = '<div class="loading">Loading…</div>';
+      ['railPayCount', 'railReqCount', 'apprCount', 'cxCount'].forEach(function (id) { $(id).style.display = 'none'; });
+      findInput.value = ''; findPop.innerHTML = ''; findPop.classList.remove('show');
+      $('poDone').style.display = 'none'; $('poForm').style.display = '';
+      userMenu.classList.remove('show');
+      go('orders');
+    };
+  })();
+  </script>
+</body>
+</html>

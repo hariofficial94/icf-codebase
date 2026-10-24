@@ -522,7 +522,8 @@ function doGet(e) {
     dashboard: 'dashboard',
     admin: 'admin',
     settings: 'settings',
-    gate: 'gate'         // Gate login (Oct 2026) -- Sanju marks vehicles out
+    gate: 'gate',        // Gate login (Oct 2026) -- Sanju marks vehicles out
+    'cre-beta': 'cre_beta' // CRE page, new layout on trial (Oct 2026) -- a separate file; the classic CRE page is untouched
   };
   var file = fileMap[page] || 'index';
   var titleMap = {
@@ -534,7 +535,8 @@ function doGet(e) {
     dashboard: 'ICF Dashboard',
     admin: 'ICF Admin',
     settings: 'ICF Settings',
-    gate: 'ICF Gate'
+    gate: 'ICF Gate',
+    'cre-beta': 'ICF CRE (Beta)'
   };
   // Evaluated as a template (not a plain file) so each page can pull in the
   // shared sign-in screen with <?!= include('auth'); ?> -- one copy of the
