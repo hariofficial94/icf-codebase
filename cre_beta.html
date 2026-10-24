@@ -289,7 +289,44 @@
     .tbl .nowrap { white-space: nowrap; }
 
     /* ---------- At a glance (right panel) ---------- */
-    .side { position: sticky; top: calc(var(--top-h) + 24px); }
+    /* Right panel: stays put and scrolls on its own */
+    .side { position: sticky; top: calc(var(--top-h) + 24px); max-height: calc(100vh - var(--top-h) - 48px); overflow-y: auto; overscroll-behavior: contain; padding-right: 6px; margin-right: -6px; }
+    .side::-webkit-scrollbar-thumb { border-color: var(--bg); }
+    .layout.side-hidden { grid-template-columns: minmax(0, 1fr); }
+    .layout.side-hidden .side { display: none; }
+    .side-tab { display: none; position: fixed; right: 0; top: calc(var(--top-h) + 120px); z-index: 45; padding: 12px 7px; border: 1px solid var(--border-2); border-right: none; border-radius: 8px 0 0 8px;
+                background: var(--surface); color: var(--text-2); cursor: pointer; writing-mode: vertical-rl; transform: rotate(180deg); font-size: 12px; font-weight: 600; letter-spacing: 0.02em; box-shadow: var(--pop-shadow); }
+    .side-tab:hover { color: var(--text); border-color: var(--leaf); }
+    .side-tab svg { width: 14px; height: 14px; transform: rotate(90deg); margin-bottom: 6px; }
+    .side-tab.show { display: flex; align-items: center; }
+    .icon-sm { width: 28px; height: 28px; padding: 0; }
+    .icon-sm svg { width: 15px; height: 15px; }
+    /* Needs your action: collapsible */
+    .action-head { cursor: pointer; user-select: none; }
+    .action-head .chev { margin-left: auto; transition: transform .15s; }
+    .action-wrap.collapsed .chev { transform: rotate(-90deg); }
+    .action-wrap.collapsed .action-list { display: none; }
+    .action-wrap.collapsed .action-head { margin-bottom: 0; }
+    .action-peek { font-size: 12.5px; color: var(--text-2); display: none; }
+    .action-wrap.collapsed .action-peek { display: inline; }
+    /* Kanban */
+    .kanban { display: flex; gap: 14px; overflow-x: auto; padding-bottom: 10px; align-items: flex-start; }
+    .kcol { flex: 0 0 272px; display: flex; flex-direction: column; max-height: calc(100vh - var(--top-h) - 120px); background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--radius); }
+    .kcol-head { display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--border); }
+    .kcol-head .dot { width: 8px; height: 8px; border-radius: 50%; }
+    .kcol-head h4 { margin: 0; font-size: 13px; font-weight: 600; flex: 1 1 auto; }
+    .kcol-head .ksum { font-size: 11.5px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+    .kcol-body { overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 8px; overscroll-behavior: contain; }
+    .kcol-empty { font-size: 12px; color: var(--text-3); text-align: center; padding: 14px 0; }
+    .kcard { width: 100%; text-align: left; padding: 11px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 7px; cursor: pointer; }
+    .kcard:hover { border-color: var(--hover-bd); background: var(--hover-card); }
+    .kcard.hot { box-shadow: inset 3px 0 0 var(--red); }
+    .kcard .k-top { display: flex; justify-content: space-between; gap: 6px; align-items: center; font-size: 11.5px; color: var(--text-3); }
+    .kcard .k-name { margin-top: 4px; font-size: 13.5px; font-weight: 600; line-height: 1.3; }
+    .kcard .k-sub { margin-top: 3px; font-size: 11.5px; color: var(--text-2); }
+    .kcard .k-foot { margin-top: 8px; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+    .kcard .k-foot .b { color: var(--amber); font-weight: 600; font-size: 11.5px; }
+    .kcard.closed { opacity: 0.7; }
     .side-block { margin-bottom: 28px; }
     .side-block h3 { margin: 0; font-size: 15px; font-weight: 600; }
     .side-block .panel-sub { margin-bottom: 6px; }
@@ -457,7 +494,8 @@
     /* ---------- Responsive ---------- */
     @media (max-width: 1180px) {
       .layout { grid-template-columns: 1fr; }
-      .side { position: static; order: -1; }
+      .side { position: static; order: -1; max-height: none; overflow: visible; padding-right: 0; margin-right: 0; }
+      .side-tab { top: auto; bottom: 90px; }
       .side-block { margin-bottom: 18px; }
       .glance { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); column-gap: 18px; }
       .po-layout { grid-template-columns: 1fr; }
@@ -578,10 +616,11 @@
         </div>
       </div>
 
-      <div class="layout">
-        <div>
+      <div class="layout" id="ordersLayout">
+        <div style="min-width:0;">
           <div class="action-wrap hidden" id="actionWrap">
-            <div class="action-head"><h3>Needs your action</h3><span class="count hot" id="actionCount">0</span></div>
+            <div class="action-head" id="actionHead" title="Collapse / expand"><h3>Needs your action</h3><span class="count hot" id="actionCount">0</span><span class="action-peek" id="actionPeek"></span>
+              <button class="btn ghost icon-sm chev" type="button" id="actionToggle" title="Collapse / expand"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="m6 9 6 6 6-6"/></svg></button></div>
             <div class="action-list" id="actionList"></div>
           </div>
 
@@ -625,6 +664,7 @@
             <div class="tb-grow"></div>
             <div class="seg" id="viewSeg">
               <button type="button" data-mode="grid" class="on" title="Cards"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg></button>
+              <button type="button" data-mode="kanban" title="Kanban by stage"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="5" height="18" rx="1"/><rect x="10" y="3" width="5" height="12" rx="1"/><rect x="17" y="3" width="4" height="8" rx="1"/></svg></button>
               <button type="button" data-mode="list" title="List"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg></button>
             </div>
             <button class="btn primary" type="button" data-go="newpo">
@@ -637,7 +677,8 @@
 
         <aside class="side">
           <div class="side-block">
-            <div class="panel-title"><h3>At a glance</h3><button class="btn ghost sm" type="button" id="refreshAll">&#8635; Refresh</button></div>
+            <div class="panel-title"><h3>At a glance</h3><div style="display:flex; gap:2px;"><button class="btn ghost sm" type="button" id="refreshAll">&#8635; Refresh</button>
+              <button class="btn ghost icon-sm" type="button" id="sideHide" title="Hide this panel"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/><path d="m8 10 2 2-2 2"/></svg></button></div></div>
             <div class="panel-sub">Your orders. Click a line to filter the list.</div>
             <div class="glance" id="glance"></div>
           </div>
@@ -648,6 +689,8 @@
           </div>
         </aside>
       </div>
+      <button class="side-tab" type="button" id="sideShow" title="Show At a glance and Payments">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 18-6-6 6-6"/></svg>At a glance</button>
     </section>
 
     <!-- =================== PAYMENTS =================== -->
@@ -1139,6 +1182,7 @@
         $('ordersOut').innerHTML = '<div class="card-box empty">' + (myOrders.length ? 'No orders match these filters.' : 'No orders yet. Log your first one with New PO.') + '</div>';
         return;
       }
+      if (viewMode === 'kanban') { renderKanban(rows); return; }
       if (viewMode === 'list') {
         $('ordersOut').innerHTML = '<div class="tbl-wrap"><table class="tbl"><thead><tr>' +
           '<th>Quotation No.</th><th>Customer</th><th>Phone</th><th>Status</th><th class="num">Value</th><th class="num">Balance</th><th>Logged</th>' +
@@ -1173,6 +1217,63 @@
         c.addEventListener('click', function () { openOrder(c.getAttribute('data-id')); });
       });
     }
+
+    // Kanban: one column per stage, in the order an order moves through. Read-only --
+    // stages are moved by Accounts, Ops and the gate; click a card to work on it.
+    var KANBAN = [
+      { key: 'acc',   label: 'With Accounts',   tone: 'amber', test: function (o) { return o.status === 'Logged' || o.status === 'On Hold - Balance Due'; } },
+      { key: 'ops',   label: 'With Ops',        tone: 'blue',  test: function (o) { return o.status === 'Sent to Ops' || o.status === 'Vehicle Confirmed' || o.status === 'On Hold - Site Not Ready'; } },
+      { key: 'pay',   label: 'Collect payment', tone: 'red',   test: function (o) { return o.status === 'Ready - Payment Pending'; } },
+      { key: 'stand', label: 'On standby',      tone: 'grey',  test: function (o) { return o.status === 'On Standby'; } },
+      { key: 'disp',  label: 'Dispatched',      tone: 'blue',  test: function (o) { return isDispatched(o.status) && o.deliveryStatus !== 'Delivered' && o.deliveryStatus !== 'Returned'; } },
+      { key: 'done',  label: 'Delivered',       tone: 'teal',  test: function (o) { return isDispatched(o.status) && (o.deliveryStatus === 'Delivered' || o.deliveryStatus === 'Returned'); } },
+      { key: 'cx',    label: 'Cancelled',       tone: 'grey',  test: function (o) { return o.status === 'Cancelled'; } }
+    ];
+    var TONE_VAR = { red: 'var(--red)', amber: 'var(--amber)', blue: 'var(--blue)', teal: 'var(--teal)', grey: 'var(--grey)' };
+    function renderKanban(rows) {
+      var cols = KANBAN.map(function (c) { return { c: c, items: [] }; });
+      var other = { c: { key: 'other', label: 'Other', tone: 'grey' }, items: [] };
+      rows.forEach(function (o) {
+        for (var i = 0; i < cols.length; i++) if (cols[i].c.test(o)) { cols[i].items.push(o); return; }
+        other.items.push(o);
+      });
+      if (other.items.length) cols.push(other);
+      $('ordersOut').innerHTML = '<div class="kanban">' + cols.map(function (col) {
+        var value = col.items.reduce(function (s, o) { return s + o.total; }, 0);
+        return '<div class="kcol"><div class="kcol-head"><span class="dot" style="background:' + TONE_VAR[col.c.tone] + ';"></span><h4>' + esc(col.c.label) + '</h4>' +
+          '<span class="count">' + col.items.length + '</span></div>' +
+          '<div class="kcol-body">' + (col.items.length ? col.items.map(function (o) {
+            var st = orderState(o), closed = isClosed(o);
+            var hot = st.tone === 'red' || (o.priority === 'High' && !closed);
+            return '<button type="button" class="kcard' + (hot ? ' hot' : '') + (closed ? ' closed' : '') + '" data-id="' + esc(o.trackerId) + '">' +
+              '<div class="k-top"><span>' + esc(o.trackerId) + '</span>' + priChip(o.priority) + '</div>' +
+              '<div class="k-name">' + esc(o.institution || '\u2013') + '</div>' +
+              '<div class="k-sub">' + esc(st.label) + ' \u00b7 ' + fmtDay(o.dateLoggedMs) + '</div>' +
+              '<div class="k-foot"><span>' + inr2(o.total) + '</span>' + (o.balance > 0 ? '<span class="b">' + inr2(o.balance) + ' due</span>' : '') + '</div></button>';
+          }).join('') : '<div class="kcol-empty">Nothing here</div>') + '</div>' +
+          (col.items.length ? '<div class="kcol-head" style="border-bottom:none; border-top:1px solid var(--border); padding:8px 14px;"><span class="ksum">' + inr2(value) + ' order value</span></div>' : '') +
+          '</div>';
+      }).join('') + '</div>';
+      each($('ordersOut').querySelectorAll('.kcard'), function (c) { c.addEventListener('click', function () { openOrder(c.getAttribute('data-id')); }); });
+    }
+
+    // Right panel: hide / show (remembered in this browser)
+    function setSideHidden(h) {
+      $('ordersLayout').classList.toggle('side-hidden', h);
+      $('sideShow').classList.toggle('show', h);
+      try { localStorage.setItem('icf_cre_beta_side', h ? 'hidden' : 'shown'); } catch (e) {}
+    }
+    $('sideHide').addEventListener('click', function () { setSideHidden(true); });
+    $('sideShow').addEventListener('click', function () { setSideHidden(false); });
+    try { if (localStorage.getItem('icf_cre_beta_side') === 'hidden') setSideHidden(true); } catch (e) {}
+
+    // Needs your action: collapse / expand (remembered in this browser)
+    function setActionCollapsed(c) {
+      $('actionWrap').classList.toggle('collapsed', c);
+      try { localStorage.setItem('icf_cre_beta_actions', c ? 'collapsed' : 'open'); } catch (e) {}
+    }
+    $('actionHead').addEventListener('click', function () { setActionCollapsed(!$('actionWrap').classList.contains('collapsed')); });
+    try { if (localStorage.getItem('icf_cre_beta_actions') === 'collapsed') $('actionWrap').classList.add('collapsed'); } catch (e) {}
 
     $('oSearch').addEventListener('input', renderOrders);
     ['oStatus', 'oSort', 'oStage', 'oDelivery', 'oType', 'oFrom', 'oTo'].forEach(function (id) { $(id).addEventListener('change', renderOrders); });
@@ -1233,6 +1334,8 @@
       $('bellCount').textContent = n; $('bellCount').style.display = n ? 'inline-flex' : 'none';
       $('bellCount').className = 'count' + (rows.some(function (r) { return r.tone === 'red'; }) ? ' hot' : '');
       $('actionCount').textContent = n;
+      var reds = rows.filter(function (r) { return r.tone === 'red'; }).length;
+      $('actionPeek').textContent = reds ? reds + ' urgent \u2013 click to expand' : 'click to expand';
       $('actionWrap').classList.toggle('hidden', !n);
       if (!n) { $('actionList').innerHTML = ''; return; }
       var payIds = rows.filter(function (r) { return r.pay; }).map(function (r) { return r.id; }).join('|');
