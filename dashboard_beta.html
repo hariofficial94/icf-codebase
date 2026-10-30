@@ -1,0 +1,1804 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <script>try { if (localStorage.getItem('icf_cre_beta_theme') === 'light') document.documentElement.setAttribute('data-theme', 'light'); } catch (e) {}</script>
+  <!--
+    Owner Dashboard -- new layout, BETA (Oct 2026). Opened with ?page=dashboard-beta.
+    A separate page: the classic dashboard (dashboard.html and its standby /
+    rental add-ons) is not touched. It signs in as the dashboard
+    (ICF_PAGE = 'dashboard', Directors and Admin) and reads the same server
+    functions -- getDashboardData, getAllLineItems, getStandbyDashboard,
+    getDirectorPanel -- plus getDashboardBetaInfo (Dashboard.gs) for the
+    department targets (Settings tab) and the office hours.
+    Read-only, except what the classic dashboard already allows: a Director's
+    standby / payment decisions, and putting an order on standby
+    (standby_direct.html).
+  -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+  <style>
+    :root {
+      --bg: #121314; --bg-2: #171819; --surface: #1c1d1f; --surface-2: #232427; --surface-3: #2a2c2f;
+      --border: #2c2e31; --border-2: #3a3d41;
+      --text: #ededed; --text-2: #a3a6ab; --text-3: #6f7278;
+      --leaf-a: #9bcb4a; --leaf-b: #4fa845; --leaf: #6db851; --on-leaf: #0e1a0b;
+      --leaf-grad: linear-gradient(135deg, var(--leaf-a), var(--leaf-b));
+      --red: #f26b6b;   --red-bg: rgba(242,107,107,0.12);   --red-bd: rgba(242,107,107,0.35);
+      --amber: #f0b44c; --amber-bg: rgba(240,180,76,0.12);  --amber-bd: rgba(240,180,76,0.35);
+      --teal: #3cc9b8;  --teal-bg: rgba(60,201,184,0.12);
+      --blue: #6aa8f7;  --blue-bg: rgba(106,168,247,0.12);
+      --grey: #8b8f96;  --grey-bg: rgba(139,143,150,0.14);
+      --radius: 8px; --rail-w: 60px; --top-h: 56px;
+      --leaf-ink: var(--leaf-a); --hover-card: #202123; --hover-bd: #45484d; --btn-hover-bd: #4a4d52;
+      --pop-shadow: 0 16px 40px rgba(0,0,0,0.5); --scrim: rgba(0,0,0,0.5); --drawer-shadow: -20px 0 50px rgba(0,0,0,0.45);
+      --scheme: dark;
+    }
+    /* Light theme: same layout, swapped tokens (toggle in the top bar) */
+    :root[data-theme="light"] {
+      --bg: #f6f7f8; --bg-2: #ffffff; --surface: #ffffff; --surface-2: #f1f2f4; --surface-3: #e5e7ea;
+      --border: #e3e5e8; --border-2: #d2d5da;
+      --text: #17181a; --text-2: #565a62; --text-3: #8a8e96;
+      --leaf-ink: #3d8a2a; --on-leaf: #0e1a0b;
+      --red: #cf3f3f;   --red-bg: rgba(207,63,63,0.09);   --red-bd: rgba(207,63,63,0.35);
+      --amber: #a86a0c; --amber-bg: rgba(214,150,30,0.12); --amber-bd: rgba(214,150,30,0.4);
+      --teal: #13897c;  --teal-bg: rgba(19,137,124,0.1);
+      --blue: #2a64c8;  --blue-bg: rgba(42,100,200,0.09);
+      --grey: #6b7079;  --grey-bg: rgba(107,112,121,0.11);
+      --hover-card: #fbfbfc; --hover-bd: #c4c8ce; --btn-hover-bd: #bfc3c9;
+      --pop-shadow: 0 12px 32px rgba(20,24,30,0.14); --scrim: rgba(20,24,30,0.32); --drawer-shadow: -16px 0 40px rgba(20,24,30,0.14);
+      --scheme: light;
+    }
+    html { color-scheme: var(--scheme); }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 'Inter', 'Segoe UI', Arial, sans-serif; -webkit-font-smoothing: antialiased; }
+    a { color: var(--leaf-ink); }
+    button { font: inherit; color: inherit; }
+    input, select, textarea { font: inherit; }
+    ::-webkit-scrollbar { width: 10px; height: 10px; }
+    ::-webkit-scrollbar-thumb { background: var(--surface-3); border-radius: 6px; border: 2px solid var(--bg); }
+    ::-webkit-scrollbar-track { background: transparent; }
+    .muted { color: var(--text-2); }
+    .faint { color: var(--text-3); }
+    .mono { font-variant-numeric: tabular-nums; letter-spacing: 0.01em; }
+
+    /* ---------- Buttons ---------- */
+    .btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 34px; padding: 0 14px; border-radius: 6px; border: 1px solid var(--border-2);
+           background: var(--surface-2); color: var(--text); font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; transition: background .12s, border-color .12s; }
+    .btn:hover { background: var(--surface-3); border-color: var(--btn-hover-bd); }
+    .btn:disabled { opacity: 0.55; cursor: not-allowed; }
+    .btn svg { width: 15px; height: 15px; flex: 0 0 auto; }
+    .btn.primary { background: var(--leaf-grad); color: var(--on-leaf); border: 1px solid rgba(155,203,74,0.6); }
+    .btn.primary:hover { filter: brightness(1.08); }
+    .btn.primary:disabled { filter: grayscale(0.6); }
+    .btn.danger { background: var(--red-bg); color: var(--red); border-color: var(--red-bd); }
+    .btn.danger:hover { background: rgba(242,107,107,0.2); }
+    .btn.ghost { background: transparent; border-color: transparent; color: var(--text-2); }
+    .btn.ghost:hover { background: var(--surface-2); color: var(--text); }
+    .btn.sm { height: 28px; padding: 0 10px; font-size: 12px; }
+    .btn.block { width: 100%; }
+    .icon-btn { width: 34px; height: 34px; padding: 0; border-radius: 50%; }
+
+    /* ---------- Form controls ---------- */
+    .field { margin-top: 14px; }
+    .field:first-child { margin-top: 0; }
+    .lbl { display: block; font-size: 12.5px; font-weight: 600; color: var(--text); margin-bottom: 6px; }
+    .lbl .rq { color: var(--red); margin-left: 2px; }
+    .lbl .opt { color: var(--text-3); font-weight: 500; margin-left: 4px; }
+    .inp { width: 100%; height: 36px; padding: 0 11px; background: var(--bg); color: var(--text); border: 1px solid var(--border-2); border-radius: 6px; font-size: 13.5px; }
+    textarea.inp { height: auto; padding: 8px 11px; resize: vertical; }
+    select.inp { appearance: none; -webkit-appearance: none; padding-right: 30px; cursor: pointer;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23a3a6ab' stroke-width='2.5'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+      background-repeat: no-repeat; background-position: right 10px center; }
+    .inp:focus { outline: none; border-color: var(--leaf); box-shadow: 0 0 0 3px rgba(109,184,81,0.18); }
+    .inp::placeholder { color: var(--text-3); }
+    input[type=date].inp, input[type=datetime-local].inp { color-scheme: var(--scheme); }
+    .hint { font-size: 11.5px; color: var(--text-3); margin-top: 5px; line-height: 1.45; }
+    .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .check { display: flex; gap: 9px; align-items: flex-start; font-size: 13px; color: var(--text); cursor: pointer; }
+    .check input { margin: 2px 0 0; width: 15px; height: 15px; accent-color: var(--leaf); flex: 0 0 auto; }
+    .err { display: none; margin-top: 10px; padding: 8px 11px; border-radius: 6px; background: var(--red-bg); border: 1px solid var(--red-bd); color: var(--red); font-size: 12.5px; }
+    .err.show { display: block; }
+    .ok-msg { display: none; margin-top: 10px; padding: 8px 11px; border-radius: 6px; background: var(--teal-bg); color: var(--teal); font-size: 12.5px; }
+    .ok-msg.show { display: block; }
+    .note { margin-top: 10px; padding: 9px 11px; border-radius: 6px; background: var(--amber-bg); border: 1px solid var(--amber-bd); color: var(--amber); font-size: 12.5px; }
+    .note.info { background: var(--blue-bg); border-color: rgba(106,168,247,0.3); color: var(--blue); }
+    .note.bad { background: var(--red-bg); border-color: var(--red-bd); color: var(--red); }
+
+    /* ---------- Pills & chips ---------- */
+    .pill { display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 9px; border-radius: 11px; font-size: 11.5px; font-weight: 600; white-space: nowrap; }
+    .pill .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+    .pill svg { width: 12px; height: 12px; }
+    .t-red { color: var(--red); background: var(--red-bg); }
+    .t-amber { color: var(--amber); background: var(--amber-bg); }
+    .t-teal { color: var(--teal); background: var(--teal-bg); }
+    .t-blue { color: var(--blue); background: var(--blue-bg); }
+    .t-grey { color: var(--grey); background: var(--grey-bg); }
+    .chip { display: inline-flex; align-items: center; height: 20px; padding: 0 7px; border-radius: 4px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; border: 1px solid var(--border-2); color: var(--text-2); }
+    .chip.high { color: var(--red); border-color: var(--red-bd); }
+    .chip.medium { color: var(--amber); border-color: var(--amber-bd); }
+    .chip.courier { color: var(--blue); border-color: rgba(106,168,247,0.35); }
+    .chip.cover { color: var(--amber); border-color: var(--amber-bd); text-transform: none; letter-spacing: 0; }
+    .count { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; font-size: 10.5px; font-weight: 700; background: var(--surface-3); color: var(--text-2); }
+    .count.hot { background: var(--red); color: #fff; }
+
+    /* ---------- Top bar ---------- */
+    .topbar { position: fixed; top: 0; left: 0; right: 0; height: var(--top-h); z-index: 50; display: flex; align-items: center; gap: 14px; padding: 0 16px 0 14px; background: var(--bg-2); border-bottom: 1px solid var(--border); }
+    .brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+    .brand-mark { width: 30px; height: 30px; flex: 0 0 auto; }
+    .brand-name { font-weight: 700; font-size: 15px; letter-spacing: -0.01em; white-space: nowrap; }
+    .brand-sep { color: var(--text-3); font-size: 18px; font-weight: 300; }
+    .brand-user { display: flex; align-items: center; gap: 8px; font-weight: 600; white-space: nowrap; min-width: 0; }
+    .brand-user span { overflow: hidden; text-overflow: ellipsis; }
+    .beta { display: inline-flex; align-items: center; height: 20px; padding: 0 7px; border-radius: 10px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.06em; color: var(--leaf-ink); border: 1px solid rgba(155,203,74,0.45); }
+    .role-tag { display: inline-flex; align-items: center; height: 20px; padding: 0 7px; border-radius: 4px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.05em; color: var(--text-2); border: 1px solid var(--border-2); text-transform: uppercase; }
+    .top-spacer { flex: 1 1 auto; }
+    .top-search { position: relative; width: 340px; max-width: 34vw; }
+    .top-search .inp { padding-left: 34px; padding-right: 62px; height: 34px; background: var(--surface); border-radius: 17px; }
+    .top-search .s-icon { position: absolute; left: 12px; top: 9px; width: 16px; height: 16px; color: var(--text-3); pointer-events: none; }
+    .top-search .kbd { position: absolute; right: 10px; top: 8px; font-size: 11px; color: var(--text-3); border: 1px solid var(--border-2); border-radius: 4px; padding: 0 5px; line-height: 17px; pointer-events: none; }
+    .search-pop { display: none; position: absolute; top: 40px; right: 0; width: 460px; max-width: calc(100vw - 24px); max-height: 70vh; overflow-y: auto; background: var(--surface); border: 1px solid var(--border-2); border-radius: 10px; box-shadow: var(--pop-shadow); z-index: 60; }
+    .search-pop.show { display: block; }
+    .sp-head { padding: 10px 14px; font-size: 12px; color: var(--text-2); border-bottom: 1px solid var(--border); }
+    .sp-row { padding: 10px 14px; border-bottom: 1px solid var(--border); cursor: pointer; }
+    .sp-row:last-child { border-bottom: none; }
+    .sp-row:hover, .sp-row.kb { background: var(--surface-2); }
+    .sp-top { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; font-weight: 600; }
+    .sp-sub { font-size: 11.5px; color: var(--text-2); margin-top: 2px; }
+    .sp-why { font-size: 10px; font-weight: 700; color: var(--leaf-ink); border: 1px solid rgba(155,203,74,0.35); border-radius: 8px; padding: 0 6px; margin-left: 6px; }
+    .sp-msg { padding: 14px; font-size: 12.5px; color: var(--text-2); }
+    .bell { position: relative; }
+    .theme-btn .i-sun { display: none; }
+    :root[data-theme="light"] .theme-btn .i-sun { display: block; }
+    :root[data-theme="light"] .theme-btn .i-moon { display: none; }
+    .bell .count { position: absolute; top: -3px; right: -4px; }
+    .avatar { width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--border-2); background: var(--surface-2); color: var(--text); font-weight: 700; font-size: 13px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+    .avatar:hover { border-color: var(--leaf); }
+    .menu { display: none; position: absolute; top: 48px; right: 12px; width: 260px; background: var(--surface); border: 1px solid var(--border-2); border-radius: 10px; box-shadow: var(--pop-shadow); z-index: 60; padding: 6px; }
+    .menu.show { display: block; }
+    .menu-head { padding: 10px 10px 12px; border-bottom: 1px solid var(--border); margin-bottom: 6px; }
+    .menu-head b { display: block; font-size: 14px; }
+    .menu-head span { font-size: 12px; color: var(--text-2); }
+    .menu-item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border-radius: 6px; background: none; border: none; text-align: left; font-size: 13px; color: var(--text); cursor: pointer; text-decoration: none; }
+    .menu-item:hover { background: var(--surface-2); }
+    .menu-item svg { width: 15px; height: 15px; color: var(--text-2); }
+    .menu-sep { height: 1px; background: var(--border); margin: 6px 0; }
+    .menu-label { font-size: 10.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-3); padding: 6px 10px 4px; }
+    /* Admin extras moved in from the shared sign-in bar */
+    #authNav { display: flex; flex-direction: column; gap: 2px; margin: 0; }
+    #authNav a, #authNav span { display: block; padding: 7px 10px; border-radius: 6px; font-size: 13px; text-decoration: none; color: var(--text); background: none; font-weight: 500; }
+    #authNav a:hover { background: var(--surface-2); }
+    #authNav span { display: none; } /* "CRE page" is the current page in auth.html's list -- the classic link above covers it */
+    .top-admin { display: flex; gap: 8px; align-items: center; }
+    .top-admin .auth-appr, .top-admin .auth-gate { height: 28px; font-size: 11.5px; border-radius: 14px; }
+    .top-admin .auth-appr { background: var(--surface-2); color: var(--text-2); border: 1px solid var(--border-2); }
+    .top-admin .auth-appr.waiting { background: var(--amber-bg); color: var(--amber); border-color: var(--amber-bd); }
+    .top-admin .auth-appr.overdue { background: var(--red-bg); color: var(--red); border-color: var(--red-bd); }
+    .top-admin .auth-appr .n b { color: var(--bg); }
+    .top-admin .auth-gate { background: var(--red-bg); color: var(--red); border-color: var(--red-bd); }
+
+    /* ---------- Order list (table) ---------- */
+    .tbl-wrap { overflow-x: auto; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+    .tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .tbl th { text-align: left; font-size: 11.5px; font-weight: 600; color: var(--text-3); padding: 10px 14px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+    .tbl td { padding: 11px 14px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    .tbl tbody tr { cursor: pointer; }
+    .tbl tbody tr:hover { background: var(--surface-2); }
+    .tbl tbody tr:last-child td { border-bottom: none; }
+    .tbl tr.closed td { color: var(--text-2); }
+    .tbl .num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .tbl .nowrap { white-space: nowrap; }
+
+    /* ---------- At a glance (right panel) ---------- */
+    /* Right panel: stays put and scrolls on its own */
+    .side { position: sticky; top: calc(var(--top-h) + 24px); max-height: calc(100vh - var(--top-h) - 48px); overflow-y: auto; overscroll-behavior: contain; padding-right: 6px; margin-right: -6px; }
+    .side::-webkit-scrollbar-thumb { border-color: var(--bg); }
+    .layout.side-hidden { grid-template-columns: minmax(0, 1fr); }
+    .layout.side-hidden .side { display: none; }
+    .side-tab { display: none; position: fixed; right: 0; top: calc(var(--top-h) + 120px); z-index: 45; padding: 12px 7px; border: 1px solid var(--border-2); border-right: none; border-radius: 8px 0 0 8px;
+                background: var(--surface); color: var(--text-2); cursor: pointer; writing-mode: vertical-rl; transform: rotate(180deg); font-size: 12px; font-weight: 600; letter-spacing: 0.02em; box-shadow: var(--pop-shadow); }
+    .side-tab:hover { color: var(--text); border-color: var(--leaf); }
+    .side-tab svg { width: 14px; height: 14px; transform: rotate(90deg); margin-bottom: 6px; }
+    .side-tab.show { display: flex; align-items: center; }
+    .icon-sm { width: 28px; height: 28px; padding: 0; }
+    .icon-sm svg { width: 15px; height: 15px; }
+    /* Needs your action: collapsible */
+    .action-head { cursor: pointer; user-select: none; }
+    .action-head .chev { margin-left: auto; transition: transform .15s; }
+    .action-wrap.collapsed .chev { transform: rotate(-90deg); }
+    .action-wrap.collapsed .action-list { display: none; }
+    .action-wrap.collapsed .action-head { margin-bottom: 0; }
+    .action-peek { font-size: 12.5px; color: var(--text-2); display: none; }
+    .action-wrap.collapsed .action-peek { display: inline; }
+    /* Kanban */
+    .kanban { display: flex; gap: 14px; overflow-x: auto; padding-bottom: 10px; align-items: flex-start; }
+    .kcol { flex: 0 0 272px; display: flex; flex-direction: column; max-height: calc(100vh - var(--top-h) - 120px); background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--radius); }
+    .kcol-head { display: flex; align-items: center; gap: 8px; padding: 12px 14px 4px; }
+    .kcol-head .dot { width: 8px; height: 8px; border-radius: 50%; }
+    .kcol-head h4 { margin: 0; font-size: 13px; font-weight: 600; flex: 1 1 auto; }
+    .kcol-head .ksum { font-size: 11.5px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+    .kcol-body { overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 8px; overscroll-behavior: contain; }
+    .khint { padding: 8px 14px 9px; font-size: 11.5px; line-height: 1.4; color: var(--text-3); border-bottom: 1px solid var(--border); }
+    .kcol-empty { font-size: 12px; color: var(--text-3); text-align: center; padding: 14px 0; }
+    .kcard { width: 100%; text-align: left; padding: 11px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 7px; cursor: pointer; }
+    .kcard:hover { border-color: var(--hover-bd); background: var(--hover-card); }
+    .kcard.hot { box-shadow: inset 3px 0 0 var(--red); }
+    .kcard .k-top { display: flex; justify-content: space-between; gap: 6px; align-items: center; font-size: 11.5px; color: var(--text-3); }
+    .kcard .k-name { margin-top: 4px; font-size: 13.5px; font-weight: 600; line-height: 1.3; }
+    .kcard .k-sub { margin-top: 3px; font-size: 11.5px; color: var(--text-2); }
+    .kcard .k-foot { margin-top: 8px; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+    .kcard .k-foot .b { color: var(--amber); font-weight: 600; font-size: 11.5px; }
+    .kcard.closed { opacity: 0.7; }
+    .side-block { margin-bottom: 28px; }
+    .side-block h3 { margin: 0; font-size: 15px; font-weight: 600; }
+    .side-block .panel-sub { margin-bottom: 6px; }
+    .stat-row { display: flex; align-items: center; gap: 11px; width: 100%; padding: 11px 4px; border: none; border-bottom: 1px solid var(--border); background: none; text-align: left; cursor: pointer; border-radius: 0; }
+    .stat-row:hover { background: var(--surface); }
+    .stat-row.on { background: var(--surface); box-shadow: inset 2px 0 0 var(--leaf); }
+    .ring { width: 16px; height: 16px; flex: 0 0 auto; }
+    .ring circle { fill: none; stroke-width: 2.4; }
+    .ring .bg { stroke: var(--surface-3); }
+    .stat-label { flex: 1 1 auto; font-size: 13.5px; color: var(--text); }
+    .stat-val { font-weight: 600; font-variant-numeric: tabular-nums; }
+    .stat-row.alert .stat-val { color: var(--red); }
+
+    /* ---------- Modal (All refunds) ---------- */
+    .modal { position: fixed; inset: 0; z-index: 90; display: none; align-items: flex-start; justify-content: center; padding: 50px 16px; background: var(--scrim); overflow-y: auto; }
+    .modal.show { display: flex; }
+    .modal-box { width: 100%; max-width: 980px; background: var(--bg-2); border: 1px solid var(--border-2); border-radius: 12px; box-shadow: var(--pop-shadow); }
+    .modal-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid var(--border); }
+    .modal-head h3 { margin: 0; font-size: 16px; font-weight: 600; }
+    .modal-body { padding: 16px 20px 20px; }
+    .flt { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; margin-bottom: 14px; }
+    .flt > div { display: flex; flex-direction: column; gap: 4px; }
+    .flt label { font-size: 11px; font-weight: 600; color: var(--text-3); }
+    .flt .inp { height: 32px; font-size: 12.5px; min-width: 120px; }
+
+    /* ---------- Sign-in screen from auth.html, restyled ---------- */
+    #authOverlay { background: radial-gradient(1200px 600px at 50% -10%, rgba(109,184,81,0.10), transparent 60%), var(--bg) !important; }
+    #authOverlay .auth-card { background: var(--surface); border: 1px solid var(--border-2); box-shadow: var(--pop-shadow); border-radius: 12px; }
+    #authOverlay .auth-head { background: none; border-bottom: 1px solid var(--border); position: relative; }
+    #authOverlay .auth-head::before { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 3px; background: var(--leaf-grad); }
+    #authOverlay .auth-head .auth-brand { color: var(--leaf-ink); opacity: 1; }
+    #authOverlay .auth-head .auth-title { color: var(--text); }
+    #authOverlay .auth-body label { color: var(--text); }
+    #authOverlay .auth-body input { background: var(--bg); color: var(--text); border: 1px solid var(--border-2); border-radius: 6px; }
+    #authOverlay .auth-body input:focus { border-color: var(--leaf); box-shadow: 0 0 0 3px rgba(109,184,81,0.18); }
+    #authOverlay .auth-body button.auth-primary { background: var(--leaf-grad); color: var(--on-leaf); border-radius: 6px; }
+    #authOverlay .auth-body button.auth-link { color: var(--leaf-ink); }
+    #authOverlay .auth-note { color: var(--text-2); }
+    #authOverlay .auth-msg { color: var(--red); }
+    #authOverlay .auth-msg.ok { color: var(--teal); }
+
+    #authBar { display: none !important; }
+    a.btn { text-decoration: none; }
+    .main { padding: calc(var(--top-h) + 26px) 32px 60px; }
+    .wrap { max-width: 1400px; margin: 0 auto; }
+    .page-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 22px; }
+    .page-title { font-size: 28px; font-weight: 600; letter-spacing: -0.02em; margin: 0; }
+    .page-sub { color: var(--text-2); font-size: 13px; margin-top: 4px; }
+    .seg { display: inline-flex; border: 1px solid var(--border-2); border-radius: 6px; overflow: hidden; background: var(--surface); }
+    .seg button { height: 32px; padding: 0 12px; border: none; background: none; color: var(--text-2); font-size: 12.5px; font-weight: 600; cursor: pointer; }
+    .seg button + button { border-left: 1px solid var(--border); }
+    .seg button.on { background: var(--surface-3); color: var(--text); }
+    .seg.sm button { height: 26px; padding: 0 10px; font-size: 11.5px; }
+    .period-wrap { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .custom-range { display: none; align-items: flex-end; gap: 8px; flex-wrap: wrap; }
+    .custom-range.show { display: flex; }
+    .custom-range .inp { height: 32px; width: 150px; }
+    .updated { font-size: 12px; color: var(--text-3); }
+
+    .grid { display: grid; gap: 18px; }
+    .g-money { grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); }
+    .g-2 { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+    .g-depts { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .g-trend { grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); }
+    .section { margin-bottom: 30px; }
+    .sec-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+    .sec-head h2 { margin: 0; font-size: 17px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+    .sec-note { font-size: 12.5px; color: var(--text-3); }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 18px 20px; min-width: 0; }
+    .card h3 { margin: 0; font-size: 14.5px; font-weight: 600; display: flex; align-items: center; gap: 7px; }
+    .card-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+    .clickable { cursor: pointer; transition: border-color .12s, background .12s; }
+    .clickable:hover { border-color: var(--hover-bd); background: var(--hover-card); }
+    .empty { padding: 18px 8px; text-align: center; color: var(--text-3); font-size: 13px; }
+    .loading-big { padding: 60px 0; text-align: center; color: var(--text-3); }
+    .num { font-variant-numeric: tabular-nums; }
+    .t-red-text { color: var(--red); } .t-amber-text { color: var(--amber); } .t-teal-text { color: var(--teal); } .t-blue-text { color: var(--blue); }
+
+    /* ⓘ buttons */
+    .info { display: inline-flex; align-items: center; justify-content: center; width: 17px; height: 17px; border-radius: 50%; border: 1px solid var(--border-2); background: none; color: var(--text-3);
+            font: 600 10.5px/1 Georgia, serif; font-style: italic; cursor: pointer; padding: 0; flex: 0 0 auto; vertical-align: middle; }
+    .info:hover { color: var(--leaf-ink); border-color: var(--leaf); }
+
+    /* Money */
+    .money-total { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+    .money-total .v { font-size: 30px; font-weight: 700; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+    .money-total .l { color: var(--text-2); font-size: 13px; }
+    .stack { display: flex; height: 12px; border-radius: 6px; overflow: hidden; background: var(--surface-3); margin: 14px 0 6px; }
+    .stack div { height: 100%; }
+    .stack .s1 { background: var(--blue); } .stack .s2 { background: var(--amber); } .stack .s3 { background: var(--red); }
+    .mrow { display: grid; grid-template-columns: 14px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 10px 8px; border-radius: 7px; cursor: pointer; }
+    .mrow:hover { background: var(--surface-2); }
+    .mrow .sw { width: 10px; height: 10px; border-radius: 3px; }
+    .mrow .k { font-size: 13.5px; font-weight: 600; }
+    .mrow .h { font-size: 12px; color: var(--text-3); margin-top: 1px; }
+    .mrow .v { font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+    .mrow .v small { display: block; font-size: 11.5px; color: var(--text-3); font-weight: 500; }
+    .mrow.sub { margin-left: 24px; padding-top: 7px; padding-bottom: 7px; }
+    .mrow.sub .k { font-weight: 500; font-size: 13px; }
+    .money-foot { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); font-size: 12.5px; color: var(--text-2); display: flex; gap: 14px; flex-wrap: wrap; }
+    .money-foot b { color: var(--text); font-variant-numeric: tabular-nums; }
+    .now-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+    .now { padding: 13px 14px; border: 1px solid var(--border); border-radius: 9px; background: var(--bg-2); }
+    .now .l { font-size: 12px; color: var(--text-2); display: flex; align-items: center; gap: 6px; justify-content: space-between; }
+    .now .v { font-size: 24px; font-weight: 700; margin-top: 4px; font-variant-numeric: tabular-nums; }
+    .now .v small { font-size: 13px; color: var(--text-3); font-weight: 600; }
+    .now .s { font-size: 11.5px; color: var(--text-3); margin-top: 2px; }
+    .now.bad .v { color: var(--red); } .now.warn .v { color: var(--amber); }
+
+    /* Pipeline flow */
+    .flow { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 0; }
+    .stage { position: relative; padding: 14px 16px 14px 22px; background: var(--bg-2); border: 1px solid var(--border); margin-left: -1px; min-height: 132px; cursor: pointer; }
+    .stage:first-child { border-radius: 10px 0 0 10px; margin-left: 0; padding-left: 16px; }
+    .stage:last-child { border-radius: 0 10px 10px 0; }
+    .stage:hover { background: var(--hover-card); z-index: 1; }
+    .stage::after { content: ''; position: absolute; right: -9px; top: 50%; width: 16px; height: 16px; background: inherit; border-top: 1px solid var(--border); border-right: 1px solid var(--border); transform: translateY(-50%) rotate(45deg); z-index: 2; }
+    .stage:last-child::after { display: none; }
+    .stage .who { font-size: 10.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-3); }
+    .stage .nm { font-size: 13.5px; font-weight: 600; margin-top: 2px; display: flex; align-items: center; gap: 6px; }
+    .stage .c { font-size: 26px; font-weight: 700; margin-top: 6px; font-variant-numeric: tabular-nums; line-height: 1.1; }
+    .stage .m { font-size: 12px; color: var(--text-2); font-variant-numeric: tabular-nums; margin-top: 2px; }
+    .stage .st { margin-top: 8px; font-size: 11.5px; font-weight: 600; }
+    .stage .bar { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; }
+    .waiting { margin-top: 12px; display: grid; grid-template-columns: auto repeat(4, minmax(0, 1fr)); gap: 10px; align-items: stretch; }
+    .waiting .wl { display: flex; flex-direction: column; justify-content: center; padding: 0 6px 0 2px; }
+    .waiting .wl b { font-size: 13.5px; }
+    .waiting .wl span { font-size: 12px; color: var(--text-3); }
+    .wbox { padding: 11px 13px; border: 1px dashed var(--border-2); border-radius: 9px; background: var(--bg-2); cursor: pointer; }
+    .wbox:hover { border-color: var(--hover-bd); background: var(--hover-card); }
+    .wbox .nm { font-size: 12.5px; font-weight: 600; display: flex; justify-content: space-between; gap: 6px; align-items: center; }
+    .wbox .c { font-size: 20px; font-weight: 700; margin-top: 3px; font-variant-numeric: tabular-nums; }
+    .wbox .m { font-size: 11.5px; color: var(--text-2); }
+    .flow-foot { margin-top: 10px; font-size: 12.5px; color: var(--text-3); display: flex; gap: 16px; flex-wrap: wrap; }
+    .flow-foot b { color: var(--text-2); }
+
+    /* Departments */
+    .dept { display: flex; flex-direction: column; gap: 10px; }
+    .dept .dh { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .dept .dh h3 { font-size: 15px; }
+    .dept .who { font-size: 12px; color: var(--text-3); margin-top: -6px; }
+    .met { padding: 10px 0; border-top: 1px solid var(--border); }
+    .met:first-of-type { border-top: none; }
+    .met .ml { font-size: 12.5px; color: var(--text-2); display: flex; align-items: center; gap: 6px; }
+    .met .mv { display: flex; align-items: baseline; gap: 8px; margin-top: 3px; flex-wrap: wrap; }
+    .met .mv b { font-size: 19px; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .met .mv .tgt { font-size: 11.5px; color: var(--text-3); }
+    .met .meter { height: 5px; border-radius: 3px; background: var(--surface-3); margin-top: 7px; overflow: hidden; }
+    .met .meter div { height: 100%; border-radius: 3px; }
+    .met .ms { font-size: 11.5px; color: var(--text-3); margin-top: 5px; display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+    .chg { font-size: 11.5px; font-weight: 600; white-space: nowrap; }
+    .chg.good { color: var(--teal); } .chg.bad { color: var(--red); } .chg.flat { color: var(--text-3); }
+    .dept .open-now { margin-top: auto; padding: 8px 10px; border-radius: 7px; font-size: 12px; background: var(--red-bg); color: var(--red); font-weight: 600; }
+    .dept .open-now.ok { background: var(--teal-bg); color: var(--teal); }
+
+    /* Lists */
+    .tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--border); margin-bottom: 8px; flex-wrap: wrap; }
+    .tab { position: relative; height: 34px; padding: 0 12px; border: none; background: none; color: var(--text-2); font-size: 13px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 7px; }
+    .tab:hover { color: var(--text); }
+    .tab.on { color: var(--text); }
+    .tab.on::after { content: ''; position: absolute; left: 8px; right: 8px; bottom: -1px; height: 2px; background: var(--leaf-grad); border-radius: 2px; }
+    .li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 10px 6px; border-bottom: 1px solid var(--border); cursor: pointer; border-radius: 6px; }
+    .li:hover { background: var(--surface-2); }
+    .li:last-child { border-bottom: none; }
+    .li .a { font-size: 13.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .li .b { font-size: 12px; color: var(--text-3); margin-top: 1px; }
+    .li .r { text-align: right; font-size: 12.5px; font-weight: 600; white-space: nowrap; }
+    .see-all { margin-top: 8px; }
+    .mini { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-bottom: 14px; }
+    .mini > div { background: var(--bg-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+    .mini .l { font-size: 11.5px; color: var(--text-2); }
+    .mini .v { font-size: 18px; font-weight: 700; margin-top: 2px; font-variant-numeric: tabular-nums; }
+    .mini .v.over { color: var(--red); }
+    .mini .s { font-size: 11px; color: var(--text-3); margin-top: 1px; }
+    .hbar { margin-bottom: 9px; }
+    .hbar .t { display: flex; justify-content: space-between; gap: 10px; font-size: 12.5px; margin-bottom: 4px; }
+    .hbar .t span:last-child { color: var(--text-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .hbar .tr { height: 7px; background: var(--surface-3); border-radius: 4px; overflow: hidden; }
+    .hbar .tr div { height: 100%; border-radius: 4px; background: var(--leaf); }
+    .hbar .tr div.alt { background: var(--amber); }
+    .hbar .tr div.sb { background: var(--grey); }
+
+    /* States leaderboard */
+    .lb .tbl td, .lb .tbl th { padding: 10px 12px; }
+    .rank { width: 22px; height: 22px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 11.5px; font-weight: 700; background: var(--surface-3); color: var(--text-2); }
+    .rank.top { background: var(--leaf-grad); color: var(--on-leaf); }
+    .share { display: flex; align-items: center; gap: 8px; min-width: 120px; }
+    .share .tr { flex: 1 1 auto; height: 6px; background: var(--surface-3); border-radius: 3px; overflow: hidden; }
+    .share .tr div { height: 100%; background: var(--leaf); border-radius: 3px; }
+    .share span { font-size: 12px; color: var(--text-2); width: 36px; text-align: right; font-variant-numeric: tabular-nums; }
+
+    /* Trend */
+    .chart-wrap { display: flex; justify-content: center; }
+    .chart-wrap svg { max-width: 100%; height: auto; }
+    .chart-wrap text { fill: var(--text-2); font: 11px Inter, sans-serif; }
+    .chart-wrap .val { fill: var(--text); font-weight: 600; }
+    .chart-wrap .bar { fill: var(--leaf); }
+    .chart-wrap .bar:hover { fill: var(--leaf-a); }
+    .chart-wrap .grid-line { stroke: var(--border); }
+    .pie-wrap { display: flex; align-items: center; gap: 22px; flex-wrap: wrap; justify-content: center; }
+    .legend { display: grid; gap: 6px; font-size: 12.5px; min-width: 200px; }
+    .legend div { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto auto; gap: 8px; align-items: center; }
+    .legend i { width: 10px; height: 10px; border-radius: 3px; }
+    .legend .p { color: var(--text-3); font-variant-numeric: tabular-nums; width: 40px; text-align: right; }
+    .legend .n { font-variant-numeric: tabular-nums; }
+    .pie-center { fill: var(--text) !important; font-weight: 700 !important; font-size: 15px !important; }
+    .pie-center-l { fill: var(--text-3) !important; font-size: 10.5px !important; }
+
+    /* Director panel */
+    .dir { border-color: var(--amber-bd); box-shadow: inset 3px 0 0 var(--amber); margin-bottom: 26px; display: none; }
+    .dir.show { display: block; }
+    .dir-sub { font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-3); margin: 14px 0 6px; }
+    .dir-item { border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; margin-top: 8px; background: var(--bg-2); font-size: 12.5px; }
+    .dir-item .t { font-weight: 600; font-size: 13.5px; }
+    .dir-item .m { color: var(--text-2); margin-top: 2px; }
+    .dir-item .why { margin-top: 6px; padding: 6px 9px; background: var(--amber-bg); border-radius: 5px; color: var(--amber); }
+    .dir-item .acts { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; margin-top: 10px; }
+    .dir-item .acts label { display: block; font-size: 11px; font-weight: 600; color: var(--text-3); margin-bottom: 3px; }
+    .dir-item .acts .inp { height: 30px; width: 160px; }
+    .dir-item .res { margin-top: 6px; font-size: 12px; }
+
+    /* Big pop-ups (lists, departments, a state) */
+    .modal-box.wide { max-width: 1180px; }
+    .modal-box.full { max-width: 1280px; min-height: calc(100vh - 100px); }
+    .modal-head .sub { font-size: 12.5px; color: var(--text-3); font-weight: 400; margin-top: 2px; }
+    .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 18px; }
+    .kpis > div { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 11px 13px; }
+    .kpis .l { font-size: 11.5px; color: var(--text-2); }
+    .kpis .v { font-size: 19px; font-weight: 700; margin-top: 3px; font-variant-numeric: tabular-nums; }
+    .kpis .s { font-size: 11.5px; margin-top: 1px; }
+    .dist { border-bottom: 1px solid var(--border); padding: 8px 0; cursor: pointer; }
+    .dist .t { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; }
+    .dist .t b { font-weight: 600; }
+    .dist .t span { color: var(--text-2); font-variant-numeric: tabular-nums; font-size: 12.5px; }
+    .dist .tr { height: 6px; background: var(--surface-3); border-radius: 3px; overflow: hidden; margin-top: 5px; }
+    .dist .tr div { height: 100%; background: var(--blue); border-radius: 3px; }
+    .dist .pins { display: none; margin: 8px 0 2px 14px; font-size: 12.5px; color: var(--text-2); }
+    .dist.open .pins { display: block; }
+    .dist .pins div { display: flex; justify-content: space-between; padding: 3px 0; border-bottom: 1px dashed var(--border); }
+    .dist .caret { display: inline-block; transition: transform .12s; font-size: 9px; margin-right: 6px; color: var(--text-3); }
+    .dist.open .caret { transform: rotate(90deg); }
+    .flt { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; margin-bottom: 12px; }
+    .flt > div { display: flex; flex-direction: column; gap: 4px; }
+    .flt label { font-size: 11px; font-weight: 600; color: var(--text-3); }
+    .flt .inp { height: 32px; font-size: 12.5px; min-width: 120px; }
+    .chips { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-bottom: 8px; font-size: 12px; color: var(--text-3); }
+    .chip-btn { height: 26px; padding: 0 10px; border-radius: 13px; border: 1px solid var(--border-2); background: var(--surface); color: var(--text); font-size: 12px; cursor: pointer; }
+    .chip-btn.on { border-color: var(--leaf); color: var(--leaf-ink); background: rgba(109,184,81,0.08); }
+    .result-line { font-size: 12.5px; color: var(--text-2); margin-bottom: 10px; }
+    .result-line b { color: var(--text); }
+    .tl-row { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0; border-bottom: 1px dashed var(--border); font-size: 13px; }
+    .tl-row:last-child { border-bottom: none; }
+    .tl-row span:first-child { color: var(--text-2); }
+    .tl-row span:last-child { text-align: right; font-weight: 500; }
+    .sb-btn { height: 26px; padding: 0 10px; font-size: 11.5px; font-weight: 600; border-radius: 6px; border: 1px solid var(--border-2); background: var(--surface-2); color: var(--text); cursor: pointer; }
+    .sb-btn:hover { border-color: var(--leaf); }
+    .info-body p { margin: 0 0 10px; font-size: 13.5px; line-height: 1.55; color: var(--text); }
+    .info-body p.m { color: var(--text-2); font-size: 12.5px; }
+
+    /* standby_direct.html pop-up, restyled for the theme */
+    .sd-overlay { background: var(--scrim) !important; }
+    .sd-overlay .sd-card { background: var(--bg-2) !important; color: var(--text); border: 1px solid var(--border-2); box-shadow: var(--pop-shadow) !important; border-left: 3px solid var(--grey) !important; border-radius: 12px !important; }
+    .sd-card h2 { color: var(--text) !important; }
+    .sd-card .sd-sub, .sd-card label { color: var(--text-2) !important; }
+    .sd-card input, .sd-card select, .sd-card textarea { background: var(--bg) !important; color: var(--text) !important; border: 1px solid var(--border-2) !important; color-scheme: var(--scheme); }
+    .sd-card button:not(.sd-x) { background: var(--leaf-grad) !important; color: var(--on-leaf) !important; border: none !important; }
+    .sd-card button.sd-light { background: var(--surface-2) !important; color: var(--text) !important; border: 1px solid var(--border-2) !important; }
+    .sd-order { background: var(--surface) !important; color: var(--text); }
+
+    @media (max-width: 1180px) {
+      .g-depts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .flow { grid-template-columns: repeat(3, minmax(0, 1fr)); row-gap: 10px; }
+      .stage, .stage:first-child, .stage:last-child { border-radius: 10px; margin-left: 0; padding-left: 16px; }
+      .stage::after { display: none; }
+      .flow { column-gap: 10px; }
+    }
+    @media (max-width: 900px) {
+      .g-money, .g-2, .g-trend { grid-template-columns: 1fr; }
+      .waiting { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .waiting .wl { grid-column: 1 / -1; }
+      .top-period { display: none; }
+    }
+    @media (max-width: 640px) {
+      .main { padding: calc(var(--top-h) + 16px) 16px 40px; }
+      .g-depts, .flow, .now-grid, .mini { grid-template-columns: 1fr; }
+      .brand-name, .top-search, .brand-user .role-tag { display: none; }
+      .page-title { font-size: 23px; }
+    }
+  </style>
+</head>
+<body>
+  <script>
+    window.ICF_PAGE = 'dashboard'; // signs in as the Owner Dashboard -- same people (Directors, Admin), same data
+    // Beta only: any script error shows as a red strip at the bottom, so a problem can be reported with a screenshot.
+    (function () {
+      function show(msg) {
+        try {
+          var bar = document.getElementById('betaErr');
+          if (!bar) {
+            bar = document.createElement('div'); bar.id = 'betaErr';
+            bar.style.cssText = 'position:fixed;left:0;right:0;bottom:0;z-index:9999;background:#3a1416;color:#ffb4b4;border-top:2px solid #f26b6b;font:12.5px/1.5 monospace;padding:8px 14px;max-height:40vh;overflow:auto;white-space:pre-wrap;';
+            (document.body || document.documentElement).appendChild(bar);
+          }
+          bar.textContent += (bar.textContent ? '\n' : 'Beta page error (screenshot this for Claude):\n') + msg;
+        } catch (e) {}
+      }
+      window.addEventListener('error', function (e) { show((e.message || 'Error') + (e.lineno ? '  @ line ' + e.lineno + ':' + e.colno : '')); });
+      window.ICF_BETA_ERR = show;
+    })();
+  </script>
+  <?!= include('auth'); ?>
+
+  <!-- =================== TOP BAR =================== -->
+  <header class="topbar">
+    <div class="brand">
+      <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+        <defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#9bcb4a"/><stop offset="1" stop-color="#4fa845"/></linearGradient></defs>
+        <path d="M5 3h12q9 0 9 8v4H14q-9 0-9-8z" fill="url(#lg)"/>
+        <path d="M5 17h12q9 0 9 8v4H14q-9 0-9-8z" fill="url(#lg)" opacity="0.8"/>
+      </svg>
+      <span class="brand-name">ICF Dashboard</span>
+      <span class="brand-sep">/</span>
+      <span class="brand-user"><span id="tbName">Owner</span><span class="role-tag" id="tbRole">Director</span></span>
+      <span class="beta" title="New layout on trial. Same live data as the classic dashboard.">BETA</span>
+    </div>
+    <div class="top-spacer"></div>
+    <div class="top-admin" id="topAdmin"></div>
+    <a class="btn" id="rentalBtn" href="<?= ScriptApp.getService().getUrl() ?>?page=rental" target="_top" title="Open the Rentals page">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="6" y="3" width="12" height="18" rx="2"/><path d="M10 7h4"/><circle cx="12" cy="14" r="2.5"/></svg>Rentals</a>
+    <button class="btn icon-btn theme-btn" id="themeBtn" type="button" title="Switch light / dark theme">
+      <svg class="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+      <svg class="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+    </button>
+    <button class="avatar" id="avatarBtn" type="button" title="Account">–</button>
+    <div class="menu" id="userMenu">
+      <div class="menu-head"><b id="menuName">–</b><span id="menuRole"></span></div>
+      <a class="menu-item" id="menuSettings" href="<?= ScriptApp.getService().getUrl() ?>?page=settings" target="_top" style="display:none;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>Settings &amp; targets</a>
+      <a class="menu-item" href="<?= ScriptApp.getService().getUrl() ?>?page=dashboard" target="_top">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/></svg>Switch to classic dashboard</a>
+      <div id="menuAdmin"><div class="menu-sep"></div><div class="menu-label">Pages</div><div id="menuAdminNav"></div></div>
+      <div class="menu-sep"></div>
+      <button class="menu-item" type="button" id="menuPin">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>Change PIN</button>
+      <button class="menu-item" type="button" id="menuSignOut">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></svg>Sign out</button>
+    </div>
+  </header>
+
+  <main class="main"><div class="wrap">
+    <div class="page-head">
+      <div>
+        <h1 class="page-title">Owner Dashboard</h1>
+        <div class="page-sub">A live, read-only view of the order tracker. Click any number to see the orders behind it; <button class="info" type="button" data-info="howto">i</button> explains what a figure means.</div>
+      </div>
+      <div class="period-wrap">
+        <div class="seg" id="periodSeg">
+          <button type="button" data-period="30" class="on">Last 30 days</button>
+          <button type="button" data-period="90">Last 90 days</button>
+          <button type="button" data-period="all">All time</button>
+          <button type="button" data-period="custom">Custom</button>
+        </div>
+        <div class="custom-range" id="customRange">
+          <input class="inp" type="date" id="customFrom" title="From">
+          <input class="inp" type="date" id="customTo" title="To">
+          <button class="btn sm" type="button" id="customApply">Apply</button>
+        </div>
+        <span class="updated" id="updated"></span>
+        <button class="btn" type="button" id="refreshBtn">&#8635; Refresh</button>
+      </div>
+    </div>
+
+    <div class="card dir" id="dirPanel"></div>
+
+    <div id="loading" class="loading-big">Loading order data…</div>
+    <div id="body" style="display:none;">
+
+      <!-- 1. Money + right now -->
+      <div class="section">
+        <div class="sec-head"><h2>Right now</h2><span class="sec-note">Every open order today – the period buttons don’t change this row.</span></div>
+        <div class="grid g-money">
+          <div class="card" id="moneyCard"></div>
+          <div class="now-grid" id="nowGrid"></div>
+        </div>
+      </div>
+
+      <!-- 2. Pipeline -->
+      <div class="section">
+        <div class="sec-head"><h2>Order pipeline <button class="info" type="button" data-info="pipeline">i</button></h2>
+          <span class="sec-note">Where every open order is now, in the order it moves. Click a stage for its orders.</span></div>
+        <div class="flow" id="flow"></div>
+        <div class="waiting" id="waiting"></div>
+        <div class="flow-foot" id="flowFoot"></div>
+      </div>
+
+      <!-- 3. Departments -->
+      <div class="section">
+        <div class="sec-head"><h2>Departments <button class="info" type="button" data-info="depts">i</button></h2>
+          <span class="sec-note" id="deptNote"></span></div>
+        <div class="grid g-depts" id="depts"></div>
+      </div>
+
+      <!-- 4. Attention + standby -->
+      <div class="section grid g-2">
+        <div class="card">
+          <div class="card-head"><h3>Needs attention</h3></div>
+          <div class="tabs" id="attTabs">
+            <button class="tab on" type="button" data-att="stuck">Stuck <span class="count" id="attStuck">0</span></button>
+            <button class="tab" type="button" data-att="late">Past delivery date <span class="count" id="attLate">0</span></button>
+            <button class="tab" type="button" data-att="high">High priority <span class="count" id="attHigh">0</span></button>
+            <button class="tab" type="button" data-att="amended">Amended <span class="count" id="attAmended">0</span></button>
+          </div>
+          <div id="attList"></div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h3>Standby – customer-side delays <button class="info" type="button" data-info="standby">i</button></h3><span class="sec-note" id="sbNote"></span></div>
+          <div class="mini" id="sbMini"></div>
+          <div class="grid g-2" style="gap:20px;">
+            <div><div class="dir-sub" style="margin-top:0;">Reasons (this period)</div><div id="sbReasons"></div></div>
+            <div><div class="dir-sub" style="margin-top:0;">On standby now</div><div id="sbActive"></div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 5. Where sales come from -->
+      <div class="section">
+        <div class="sec-head"><h2>Where sales come from <button class="info" type="button" data-info="states">i</button></h2>
+          <div style="display:flex; gap:10px; align-items:center;"><span class="sec-note">Rank by</span>
+            <div class="seg sm" id="geoSeg"><button type="button" data-m="value" class="on">Value</button><button type="button" data-m="count">Orders</button></div></div></div>
+        <div class="card lb" style="padding:6px 8px;" id="states"></div>
+      </div>
+
+      <!-- 6. Trend + products -->
+      <div class="section grid g-trend">
+        <div class="card">
+          <div class="card-head"><h3>Monthly trend <button class="info" type="button" data-info="trend">i</button></h3>
+            <div style="display:flex; gap:8px;">
+              <div class="seg sm" id="trendMetric"><button type="button" data-m="value" class="on">Value</button><button type="button" data-m="count">Orders</button></div>
+              <div class="seg sm" id="trendType"><button type="button" data-t="bar" class="on">Bar</button><button type="button" data-t="pie">Pie</button></div>
+            </div></div>
+          <div id="trend"></div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h3>By product <button class="info" type="button" data-info="products">i</button></h3>
+            <div class="seg sm" id="prodSeg"><button type="button" data-m="units" class="on">Units</button><button type="button" data-m="orders">Orders</button></div></div>
+          <div id="products"><div class="empty">Loading…</div></div>
+        </div>
+      </div>
+    </div>
+  </div></main>
+
+  <!-- Pop-ups -->
+  <div class="modal" id="listModal"><div class="modal-box wide">
+    <div class="modal-head"><div><h3 id="listTitle"></h3><div class="sub" id="listSub"></div></div>
+      <button class="btn icon-btn ghost" type="button" data-close="listModal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
+    <div class="modal-body" id="listBody"></div></div></div>
+
+  <div class="modal" id="deptModal"><div class="modal-box wide">
+    <div class="modal-head"><div><h3 id="deptTitle"></h3><div class="sub" id="deptSub"></div></div>
+      <button class="btn icon-btn ghost" type="button" data-close="deptModal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
+    <div class="modal-body" id="deptBody"></div></div></div>
+
+  <div class="modal" id="stateModal"><div class="modal-box full">
+    <div class="modal-head"><div><h3 id="stateTitle"></h3><div class="sub" id="stateSub"></div></div>
+      <button class="btn icon-btn ghost" type="button" data-close="stateModal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
+    <div class="modal-body" id="stateBody"></div></div></div>
+
+  <div class="modal" id="orderModal" style="z-index:95;"><div class="modal-box" style="max-width:580px;">
+    <div class="modal-head"><div><h3 id="orderTitle"></h3><div class="sub" id="orderSub"></div></div>
+      <button class="btn icon-btn ghost" type="button" data-close="orderModal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
+    <div class="modal-body" id="orderBody"></div></div></div>
+
+  <div class="modal" id="infoModal" style="z-index:96;"><div class="modal-box" style="max-width:480px;">
+    <div class="modal-head"><h3 id="infoTitle"></h3>
+      <button class="btn icon-btn ghost" type="button" data-close="infoModal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
+    <div class="modal-body info-body" id="infoBody"></div></div></div>
+
+  <script>
+  (function () {
+    'use strict';
+    // =====================================================================
+    // Helpers
+    // =====================================================================
+    function $(id) { return document.getElementById(id); }
+    function each(list, fn) { Array.prototype.forEach.call(list, fn); }
+    function esc(t) { return String(t == null ? '' : t).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+    function inr(n) { return '₹' + Math.round(Number(n) || 0).toLocaleString('en-IN'); }
+    function pct(a, b) { return b > 0 ? Math.round(a / b * 1000) / 10 : null; }
+    function sum(list, f) { return list.reduce(function (s, x) { return s + (Number(f(x)) || 0); }, 0); }
+    function avg(list) { return list.length ? list.reduce(function (a, b) { return a + b; }, 0) / list.length : null; }
+    function plural(n, w) { return n + ' ' + w + (n === 1 ? '' : 's'); }
+    function errText(e) { return String((e && e.message) || e || 'Something went wrong').replace(/^(Error:\s*)+/, ''); }
+    var DAY = 86400000, IST = 19800000;
+    function fmtDay(ms) { return ms ? new Date(ms).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' }) : '–'; }
+    function istTodayStart() { return Math.floor((Date.now() + IST) / DAY) * DAY - IST; }
+    function daysSince(ms) { return ms ? Math.max(0, Math.floor((Date.now() - ms) / DAY)) : null; }
+
+    // Calendar time: under a day in hours, from 24 hours up as days + hours (100 hrs -> 4 days 4 hrs).
+    function fmtHrs(h) {
+      if (h === null || h === undefined || !isFinite(h)) return '–';
+      if (h < 1) return Math.max(0, Math.round(h * 60)) + ' min';
+      if (h < 24) return (Math.round(h * 10) / 10) + ' hrs';
+      var d = Math.floor(h / 24), r = Math.round(h - d * 24);
+      if (r === 24) { d++; r = 0; }
+      return plural(d, 'day') + (r ? ' ' + plural(r, 'hr') : '');
+    }
+    // Office time (minutes): under one office day in hours, then office days + hours.
+    function fmtOffice(mins) {
+      if (mins === null || mins === undefined || !isFinite(mins)) return '–';
+      var dayLen = officeDayMins();
+      if (mins < 60) return Math.round(mins) + ' min';
+      if (mins < dayLen) return (Math.round(mins / 6) / 10) + ' hrs';
+      var d = Math.floor(mins / dayLen), r = Math.round((mins - d * dayLen) / 60);
+      if (r * 60 >= dayLen) { d++; r = 0; }
+      return plural(d, 'office day') + (r ? ' ' + plural(r, 'hr') : '');
+    }
+
+    // ---------- Office clock (same rules as the alerts: office hours, working days, holidays) ----------
+    var OFFICE = { openMin: 570, closeMin: 1110, workingDays: [1, 2, 3, 4, 5, 6], holidays: [] };
+    function officeDayMins() { return Math.max(60, OFFICE.closeMin - OFFICE.openMin); }
+    function isWorkDay(dayStartLocal) {
+      var d = new Date(dayStartLocal);
+      return OFFICE.workingDays.indexOf(d.getUTCDay()) !== -1 && OFFICE.holidays.indexOf(d.toISOString().slice(0, 10)) === -1;
+    }
+    function officeMins(fromMs, toMs) {
+      if (!fromMs || !toMs || toMs <= fromMs) return 0;
+      var s = fromMs + IST, e = toMs + IST, total = 0;
+      for (var d = Math.floor(s / DAY) * DAY, g = 0; d <= e && g < 800; d += DAY, g++) {
+        if (!isWorkDay(d)) continue;
+        var open = d + OFFICE.openMin * 60000, close = d + OFFICE.closeMin * 60000;
+        total += Math.max(0, Math.min(e, close) - Math.max(s, open));
+      }
+      return total / 60000;
+    }
+
+    // =====================================================================
+    // State
+    // =====================================================================
+    var orders = [], lineItems = null, SB = { records: [], byId: {}, usage: null, pending: 0, withDirector: 0, loaded: false };
+    var TARGETS = { accVerify: 4, opsPickup: 9, opsReady: 27, accGatePass: 2, gateOut: 6, onTimePct: 90, stuckDays: 3 };
+    var period = '30', customFrom = '', customTo = '', geoMetric = 'value', trendMetric = 'value', trendType = 'bar', prodMetric = 'units', attTab = 'stuck';
+    try {
+      trendType = localStorage.getItem('icf_dash_beta_trend') || 'bar';
+    } catch (e) {}
+
+    function isDispatched(o) { return o.status === 'Gate-Verified' || o.status === 'Posted'; }
+    function hasLeft(o) { return isDispatched(o) && !o.waitingAtGate; }
+    function isDeliveredOrReturned(o) { return o.deliveryStatus === 'Delivered' || o.deliveryStatus === 'Returned'; }
+    // Open = still needs something: not delivered yet, or delivered but not fully paid (same rule as the classic dashboard).
+    function isOpen(o) { return !(isDeliveredOrReturned(o) && o.balanceDue <= 0); }
+
+    // ---------- Standby periods: time on standby is the customer's, so it comes out of every TAT ----------
+    function periodsFor(o) { return SB.byId[String(o.id).toLowerCase()] || []; }
+    function standbyOverlapMs(o, a, b) {
+      if (!a || !b || b <= a) return 0;
+      return periodsFor(o).reduce(function (t, p) {
+        var s = Math.max(a, p.startMs), e = Math.min(b, p.endMs == null ? Date.now() : p.endMs);
+        return t + (e > s ? e - s : 0);
+      }, 0);
+    }
+    function netOffice(o, a, b) {
+      if (!a || !b || b <= a) return null;
+      var m = officeMins(a, b);
+      periodsFor(o).forEach(function (p) {
+        var s = Math.max(a, p.startMs), e = Math.min(b, p.endMs == null ? Date.now() : p.endMs);
+        if (e > s) m -= officeMins(s, e);
+      });
+      return Math.max(0, m);
+    }
+
+    // ---------- Stages (one plain-language place for every open order) ----------
+    var STAGES = [
+      { key: 'acc', who: 'Accounts', name: 'Payment check', test: function (o) { return o.status === 'Logged'; }, since: function (o) { return o.dateLogged; },
+        info: 'Logged by the CRE; Accounts hasn’t verified the payment yet.' },
+      { key: 'ops', who: 'Ops', name: 'Being prepared', test: function (o) { return o.status === 'Sent to Ops'; }, since: function (o) { return o.recvOpsDate || o.sentOpsDate || o.verifiedDate; },
+        info: 'Payment verified and handed to Ops – waiting to be picked up, or picked up and being made ready.' },
+      { key: 'gp', who: 'Accounts', name: 'Gate pass asked', test: function (o) { return o.status === 'Vehicle Confirmed'; }, since: function (o) { return o.vehConfDate; },
+        info: 'Ops has the goods and vehicle ready and asked Accounts for the gate pass.' },
+      { key: 'gate', who: 'Gate', name: 'At the gate', test: function (o) { return !!o.waitingAtGate; }, since: function (o) { return o.gatePassIssuedDate || o.dispatchDate; },
+        info: 'Gate pass issued; the vehicle hasn’t been marked out at the gate yet. (In the sheet this is Delivery Status “Pending”.)' },
+      { key: 'road', who: 'On the way', name: 'On the road', test: function (o) { return hasLeft(o) && !isDeliveredOrReturned(o); }, since: function (o) { return o.gateOutDate || o.dispatchDate; },
+        info: 'Left the factory (or posted by courier) and not yet confirmed delivered by the CRE.' },
+      { key: 'due', who: 'Sales', name: 'Delivered, balance due', test: function (o) { return isDeliveredOrReturned(o) && o.balanceDue > 0; }, since: function (o) { return o.deliveredDate || o.dispatchDate; },
+        info: 'Delivered, but the customer hasn’t paid in full yet – the CRE collects it.' }
+    ];
+    var WAITING = [
+      { key: 'pay', name: 'Balance due before dispatch', test: function (o) { return o.status === 'Ready - Payment Pending'; }, since: function (o) { return o.payHoldFromDate || o.recvOpsDate; } },
+      { key: 'site', name: 'Site not ready', test: function (o) { return o.status === 'On Hold - Site Not Ready'; }, since: function (o) { return o.vehConfDate; } },
+      { key: 'courier', name: 'Courier: balance due', test: function (o) { return o.status === 'On Hold - Balance Due'; }, since: function (o) { return o.verifiedDate || o.dateLogged; } },
+      { key: 'standby', name: 'On standby', test: function (o) { return o.status === 'On Standby'; }, since: function () { return null; } }
+    ];
+    function stageOf(o) {
+      if (!isOpen(o)) return isDeliveredOrReturned(o) ? { key: 'closed', name: o.deliveryStatus } : { key: 'other', name: o.status };
+      for (var i = 0; i < STAGES.length; i++) if (STAGES[i].test(o)) return STAGES[i];
+      for (var j = 0; j < WAITING.length; j++) if (WAITING[j].test(o)) return WAITING[j];
+      return { key: 'other', name: o.status || 'Unknown' };
+    }
+    function stageName(o) {
+      var st = stageOf(o);
+      if (st.key === 'closed') return o.deliveryStatus === 'Returned' ? 'Returned' : 'Delivered, paid';
+      return st.name;
+    }
+    // Days at the current stage (after any standby, counted from when it ended).
+    function daysAtStage(o) {
+      if (o.status === 'On Standby') return null;
+      var st = stageOf(o), base = st.since ? st.since(o) : null;
+      periodsFor(o).forEach(function (p) { if (p.endMs && (!base || p.endMs > base)) base = p.endMs; });
+      return daysSince(base);
+    }
+    function isStuck(o) {
+      if (!isOpen(o)) return false;
+      var st = stageOf(o);
+      if (['acc', 'ops', 'gp', 'gate'].indexOf(st.key) === -1 && ['pay', 'site', 'courier'].indexOf(st.key) === -1) return false;
+      var d = daysAtStage(o);
+      return d !== null && d >= TARGETS.stuckDays;
+    }
+    function daysPastDue(o) {
+      if (!o.reqDeliveryDate || isDeliveredOrReturned(o)) return null;
+      var today = istTodayStart();
+      if (o.reqDeliveryDate >= today) return null;
+      return Math.max(1, Math.round((today - o.reqDeliveryDate) / DAY));
+    }
+
+    // ---------- Period ----------
+    function periodRange(p) {
+      var now = Date.now();
+      if (p === 'all') return { from: null, to: null };
+      if (p === 'custom') {
+        return { from: customFrom ? new Date(customFrom + 'T00:00:00+05:30').getTime() : null, to: customTo ? new Date(customTo + 'T23:59:59+05:30').getTime() : null };
+      }
+      return { from: now - Number(p) * DAY, to: now };
+    }
+    function inRange(o, r) {
+      if (r.from === null && r.to === null) return true;
+      if (!o.dateLogged) return false;
+      return (r.from === null || o.dateLogged >= r.from) && (r.to === null || o.dateLogged <= r.to);
+    }
+    // The same length of time just before the selected period (for "vs before").
+    function prevRange(r) {
+      if (r.from === null) return null;
+      var to = r.to === null ? Date.now() : r.to, len = to - r.from;
+      return { from: r.from - len, to: r.from - 1 };
+    }
+    function periodText() {
+      if (period === 'all') return 'all time';
+      if (period === 'custom') return (customFrom ? fmtDay(new Date(customFrom + 'T00:00:00+05:30').getTime()) : 'the start') + ' – ' + (customTo ? fmtDay(new Date(customTo + 'T00:00:00+05:30').getTime()) : 'today');
+      return 'the last ' + period + ' days';
+    }
+    function periodOrders() { var r = periodRange(period); return orders.filter(function (o) { return inRange(o, r); }); }
+    function prevOrders() { var p = prevRange(periodRange(period)); return p ? orders.filter(function (o) { return inRange(o, p); }) : null; }
+    function chgHtml(now, before, lowerIsBetter, unit) {
+      if (now === null || before === null || before === undefined || !isFinite(before)) return '';
+      if (before === 0) return now === 0 ? '<span class="chg flat">no change</span>' : '';
+      var d = Math.round((now - before) / Math.abs(before) * 100);
+      if (d === 0) return '<span class="chg flat">same as before</span>';
+      var good = lowerIsBetter ? d < 0 : d > 0;
+      return '<span class="chg ' + (good ? 'good' : 'bad') + '">' + (d > 0 ? '▲ ' : '▼ ') + Math.abs(d) + '%' + (unit || '') + ' vs before</span>';
+    }
+
+    // =====================================================================
+    // ⓘ explanations
+    // =====================================================================
+    var INFO = {
+      howto: ['How to read this page', 'The top row and the pipeline show every open order right now. Everything from Departments down follows the period buttons (last 30 days, etc.) and counts orders LOGGED in that period. Click a number to see the orders behind it, and an order to see its timeline.', 'Cancelled orders are left out everywhere.'],
+      outstanding: ['Outstanding balance', 'Money still owed on open orders: order value minus everything received so far. It is split into two parts that add up to the total, so nothing is counted twice.', 'Not yet dispatched is the normal case – for end customers it must be paid before the vehicle leaves. Already dispatched is the risk: the goods are with the customer and the money isn’t in.'],
+      notDispatched: ['Not yet dispatched', 'Balance on open orders whose goods are still at the factory – including those at the gate with a gate pass but not yet out. End-customer orders can’t leave until this is paid.'],
+      dispatched: ['Already dispatched', 'Balance on orders that have left the factory (or were posted by courier) and are not fully paid. Split by why it was allowed to leave unpaid.'],
+      dispPO: ['PO customers on credit', 'Dealers and institutions with their own purchase order – partial payment is allowed before dispatch, and the rest comes on their credit terms.'],
+      dispEnd: ['End customers', 'End customers whose goods left before full payment – normally because the admin or a director approved it (e.g. balance after delivery, or known to the director), or it was dispatched before the payment-at-dispatch check existed.'],
+      open: ['Open orders', 'Orders still needing something: not yet delivered, or delivered but not fully paid. Cancelled orders are not counted.'],
+      high: ['High priority, still open', 'Open orders the CRE marked High priority (red sticker).'],
+      stuck: ['Stuck at a stage', 'Open orders that have sat at the same stage for the stuck threshold in Settings (now %d days) or more – before dispatch, or waiting on the customer. Standby time doesn’t count: an order on standby isn’t stuck, and after a standby the days count from when it ended. Orders on the road are covered by “Past delivery date” instead.'],
+      late: ['Past delivery date', 'The customer’s requested delivery date has gone and the order isn’t delivered yet – whether it’s still at the factory or on the road.'],
+      standbyNow: ['On standby', 'Orders paused for a customer-side delay (site not ready, payment, location). Shown against the limits in Settings; past a limit, a director must approve.'],
+      pipeline: ['Order pipeline', 'Every open order sits in exactly one place. The stages run left to right in the order an order moves; “Waiting on the customer” holds orders paused for something only the customer can fix. The amount under each stage is order value; the coloured line under it turns red when orders there are stuck.', 'What happened to the old pipeline names: Logged = Payment check, Sent to Ops = Being prepared, Vehicle Confirmed = Gate pass asked, Gate-Verified with delivery “Pending” = At the gate, Gate-Verified / Posted with “In Transit” = On the road.'],
+      depts: ['Departments', 'Each card measures only the time that department controls, in OFFICE time (office hours and working days from Settings; Sundays and holidays skipped), against the targets in Settings. Standby time and time waiting for the customer’s payment are left out. Figures cover orders logged in the selected period; “vs before” compares with the same length of time just before it.', 'A “day” here is one office day. Click a card for the per-person and per-order detail.'],
+      sales: ['Sales (CREs)', 'Orders and value logged by the CREs, the advance taken at intake, on-time delivery, and how the balance on dispatched orders is being collected. Average cycle time is calendar time from payment verification to delivery (standby left out).'],
+      accounts: ['Accounts', 'Two steps Accounts controls: verifying the payment after the CRE logs the order, and issuing the gate pass after Ops asks for it.'],
+      ops: ['Operations', 'Two steps Ops controls: picking up (acknowledging) the order after Accounts verifies it, and getting it ready – from pickup to asking for the gate pass (or posting a courier packet). Time waiting for the customer’s payment is left out.'],
+      gate: ['Gate', 'From Accounts issuing the gate pass to the gate marking the vehicle out. Counted only since the gate login went live.'],
+      onTime: ['On-time delivery', 'Delivered orders that reached the customer by their requested delivery date (allowing the whole of that day). Orders not delivered yet, or with no requested date, aren’t counted.'],
+      cycle: ['Average cycle time', 'Calendar time from payment verification to delivery, for orders that have been delivered. Standby time is left out. 24 hours or more shows as days and hours.'],
+      collect: ['Collected after dispatch', 'Of this period’s orders that left with a balance, how many are now fully paid, and the average days from dispatch to the last payment.'],
+      payWait: ['Customer payment wait', 'For orders that were ready but the end customer still had to pay: average calendar time from Ops marking them ready to the payment being recorded or dispatch approved. This is customer time, kept out of the Ops figures.'],
+      standby: ['Standby', 'Customer-side delays. Rate = share of this period’s verified orders that went on standby at least once. Days = total standby days for those orders. Reasons = why. Standby time is left out of every time figure on this page.'],
+      states: ['Where sales come from', 'States ranked by order value (or number of orders) logged in the selected period. Share = share of the period’s total. “vs before” compares with the same length of time just before. Balance due = what’s still owed on those orders today. Click a state for its full page: districts and pincodes, products, CREs, trend and every order.'],
+      trend: ['Monthly trend', 'Orders logged per month in the selected period, as order value or number of orders. The pie shows each month’s share; with more than 12 months, the older ones are grouped as “Earlier”.'],
+      products: ['By product', 'Units ordered (or number of orders containing the product) for orders logged in the period. There’s no value per product: line items record product and quantity only.']
+    };
+    function openInfo(key) {
+      var it = INFO[key]; if (!it) return;
+      $('infoTitle').textContent = it[0];
+      $('infoBody').innerHTML = '<p>' + esc(String(it[1]).replace('%d', TARGETS.stuckDays)) + '</p>' + (it[2] ? '<p class="m">' + esc(it[2]) + '</p>' : '');
+      $('infoModal').classList.add('show');
+    }
+    function infoBtn(key) { return '<button class="info" type="button" data-info="' + key + '" title="What is this?">i</button>'; }
+    document.addEventListener('click', function (e) {
+      var b = e.target.closest ? e.target.closest('[data-info]') : null;
+      if (b) { e.stopPropagation(); e.preventDefault(); openInfo(b.getAttribute('data-info')); return; }
+      var c = e.target.closest ? e.target.closest('[data-close]') : null;
+      if (c) { $(c.getAttribute('data-close')).classList.remove('show'); return; }
+      if (e.target.classList && e.target.classList.contains('modal')) e.target.classList.remove('show');
+    }, true);
+    document.addEventListener('keydown', function (e) {
+      if (e.key !== 'Escape') return;
+      var open = Array.prototype.filter.call(document.querySelectorAll('.modal.show'), function () { return true; });
+      if (!open.length) return;
+      var top = open.sort(function (a, b) { return (Number(getComputedStyle(b).zIndex) || 0) - (Number(getComputedStyle(a).zIndex) || 0); })[0];
+      top.classList.remove('show');
+    });
+
+    // =====================================================================
+    // Top bar, menu, theme
+    // =====================================================================
+    document.addEventListener('icf-signed-in', function (e) { applyStaff(e.detail || {}); });
+    function applyStaff(s) {
+      $('tbName').textContent = s.name || '';
+      $('tbRole').textContent = s.role || '';
+      $('menuName').textContent = s.name || '';
+      $('menuRole').textContent = (s.role || '') + (s.code ? ' · ' + s.code : '');
+      $('avatarBtn').textContent = String(s.name || '?').trim().split(/\s+/).map(function (w) { return w.charAt(0); }).join('').slice(0, 2).toUpperCase();
+      $('menuSettings').style.display = s.role === 'Director' ? 'flex' : 'none';
+      var nav = $('authNav'), appr = $('authAppr'), gate = $('authGate');
+      if (appr && appr.parentNode !== $('topAdmin')) { $('topAdmin').appendChild(gate); $('topAdmin').appendChild(appr); }
+      if (nav && nav.parentNode !== $('menuAdminNav')) $('menuAdminNav').appendChild(nav);
+    }
+    var userMenu = $('userMenu');
+    $('avatarBtn').addEventListener('click', function (e) { e.stopPropagation(); userMenu.classList.toggle('show'); });
+    document.addEventListener('click', function (e) { if (!userMenu.contains(e.target) && e.target !== $('avatarBtn')) userMenu.classList.remove('show'); });
+    function authClick(id) {
+      userMenu.classList.remove('show');
+      var b = $(id);
+      if (b) b.click(); else if (window.ICF_BETA_ERR) window.ICF_BETA_ERR('The shared sign-in code (auth) is missing, so ' + id + ' cannot run.');
+    }
+    $('menuPin').addEventListener('click', function () { authClick('authBarChangePin'); });
+    $('menuSignOut').addEventListener('click', function () { authClick('authBarSignOut'); });
+    $('themeBtn').addEventListener('click', function () {
+      var light = document.documentElement.getAttribute('data-theme') !== 'light';
+      if (light) document.documentElement.setAttribute('data-theme', 'light'); else document.documentElement.removeAttribute('data-theme');
+      try { localStorage.setItem('icf_cre_beta_theme', light ? 'light' : 'dark'); } catch (e) {}
+      if (orders.length) renderTrend();
+    });
+
+    // =====================================================================
+    // 1. Money + Right now
+    // =====================================================================
+    function renderMoney() {
+      var open = orders.filter(isOpen);
+      var owing = open.filter(function (o) { return o.balanceDue > 0; });
+      var notDisp = owing.filter(function (o) { return !hasLeft(o); });
+      var disp = owing.filter(hasLeft);
+      var dispPO = disp.filter(function (o) { return o.paymentTerms === 'PO Customer'; });
+      var dispEnd = disp.filter(function (o) { return o.paymentTerms !== 'PO Customer'; });
+      var bal = function (l) { return sum(l, function (o) { return o.balanceDue; }); };
+      var total = bal(owing), a = bal(notDisp), b1 = bal(dispPO), b2 = bal(dispEnd);
+      var w = function (x) { return total > 0 ? (x / total * 100).toFixed(2) + '%' : '0'; };
+      var allValue = sum(orders, function (o) { return o.total; }), allAdv = sum(orders, function (o) { return o.advance; });
+      MONEY_SETS = { outstanding: owing, notDisp: notDisp, disp: disp, dispPO: dispPO, dispEnd: dispEnd };
+      $('moneyCard').innerHTML =
+        '<div class="card-head" style="margin-bottom:6px;"><h3>Outstanding balance ' + infoBtn('outstanding') + '</h3>' +
+          '<button class="btn sm ghost" type="button" data-money="outstanding">See orders &rarr;</button></div>' +
+        '<div class="money-total"><span class="v">' + inr(total) + '</span><span class="l">owed on ' + plural(owing.length, 'open order') + '</span></div>' +
+        '<div class="stack"><div class="s1" style="width:' + w(a) + '"></div><div class="s2" style="width:' + w(b1) + '"></div><div class="s3" style="width:' + w(b2) + '"></div></div>' +
+        mrow('notDispatched', 'notDisp', 'var(--blue)', 'Not yet dispatched', 'Collected before the vehicle leaves – the normal case', a, notDisp.length, '') +
+        mrow('dispatched', 'disp', 'transparent', 'Already dispatched', 'Goods with the customer, money not in – the risk', b1 + b2, disp.length, ' style="margin-top:2px;"', true) +
+        mrow('dispPO', 'dispPO', 'var(--amber)', 'PO customers on credit', 'Dealers / institutions with their own PO', b1, dispPO.length, '', false, true) +
+        mrow('dispEnd', 'dispEnd', 'var(--red)', 'End customers', 'Approved to pay after dispatch', b2, dispEnd.length, '', false, true) +
+        '<div class="money-foot"><span>All time: <b>' + inr(allValue) + '</b> logged</span><span><b>' + inr(allAdv) + '</b> received</span><span><b>' + (pct(allAdv, allValue) || 0) + '%</b> collected</span></div>';
+      each($('moneyCard').querySelectorAll('[data-money]'), function (el) {
+        el.addEventListener('click', function () {
+          var k = el.getAttribute('data-money');
+          var titles = { outstanding: 'Outstanding balance', notDisp: 'Balance due – not yet dispatched', disp: 'Balance due – already dispatched', dispPO: 'Dispatched unpaid – PO customers', dispEnd: 'Dispatched unpaid – end customers' };
+          openList(titles[k], MONEY_SETS[k], { money: true });
+        });
+      });
+    }
+    var MONEY_SETS = {};
+    function mrow(infoKey, setKey, color, k, h, v, n, extra, isHead, isSub) {
+      return '<div class="mrow' + (isSub ? ' sub' : '') + '" data-money="' + setKey + '"' + (extra || '') + '>' +
+        '<span class="sw" style="background:' + color + ';' + (isHead ? 'border:1px solid var(--border-2);' : '') + '"></span>' +
+        '<div><div class="k">' + esc(k) + ' ' + infoBtn(infoKey) + '</div><div class="h">' + esc(h) + '</div></div>' +
+        '<div class="v">' + inr(v) + '<small>' + plural(n, 'order') + '</small></div></div>';
+    }
+
+    function renderNow() {
+      var open = orders.filter(isOpen);
+      var high = open.filter(function (o) { return o.priority === 'High'; });
+      var stuck = open.filter(isStuck);
+      var late = orders.filter(function (o) { return daysPastDue(o) !== null; });
+      var onSb = orders.filter(function (o) { return o.status === 'On Standby'; });
+      var held = sum(onSb, function (o) { return o.total; });
+      var u = SB.usage;
+      var sbOver = u && (onSb.length > u.maxOrders || held > u.maxValue);
+      NOW_SETS = { open: open, high: high, stuck: stuck, late: late, standbyNow: onSb };
+      var tiles = [
+        ['open', 'Open orders', open.length, inr(sum(open, function (o) { return o.total; })) + ' order value', ''],
+        ['high', 'High priority, still open', high.length, '', high.length ? 'warn' : ''],
+        ['stuck', 'Stuck ' + TARGETS.stuckDays + '+ days at a stage', stuck.length, 'Before dispatch or waiting on the customer', stuck.length ? 'bad' : ''],
+        ['late', 'Past delivery date', late.length, 'Requested date gone, not delivered', late.length ? 'bad' : ''],
+        ['standbyNow', 'On standby', onSb.length + (u ? ' <small>of ' + u.maxOrders + '</small>' : ''), inr(held) + ' held' + (u ? ' of ' + inr(u.maxValue) : '') +
+          (SB.pending + SB.withDirector ? ' · ' + (SB.pending + SB.withDirector) + ' awaiting decision' : ''), sbOver ? 'bad' : '']
+      ];
+      $('nowGrid').innerHTML = tiles.map(function (t) {
+        return '<div class="now clickable ' + t[4] + '" data-now="' + t[0] + '"><div class="l"><span>' + esc(t[1]) + '</span>' + infoBtn(t[0]) + '</div>' +
+          '<div class="v">' + t[2] + '</div>' + (t[3] ? '<div class="s">' + esc(t[3]) + '</div>' : '') + '</div>';
+      }).join('');
+      each($('nowGrid').querySelectorAll('[data-now]'), function (el) {
+        el.addEventListener('click', function () {
+          var k = el.getAttribute('data-now');
+          openList(el.querySelector('.l span').textContent, NOW_SETS[k], { age: k === 'stuck', late: k === 'late' });
+        });
+      });
+    }
+    var NOW_SETS = {};
+
+    // =====================================================================
+    // 2. Pipeline flow
+    // =====================================================================
+    var PIPE_SETS = {};
+    function renderPipeline() {
+      var open = orders.filter(isOpen);
+      var TONE = { acc: 'var(--amber)', ops: 'var(--blue)', gp: 'var(--amber)', gate: 'var(--blue)', road: 'var(--teal)', due: 'var(--red)' };
+      $('flow').innerHTML = STAGES.map(function (st) {
+        var list = open.filter(st.test); PIPE_SETS[st.key] = { name: st.name, list: list };
+        var ages = list.map(daysAtStage).filter(function (d) { return d !== null; });
+        var oldest = ages.length ? Math.max.apply(null, ages) : null;
+        var stuckable = ['acc', 'ops', 'gp', 'gate'].indexOf(st.key) !== -1;
+        var stuck = stuckable ? list.filter(isStuck).length : 0;
+        var lateRoad = st.key === 'road' ? list.filter(function (o) { return daysPastDue(o) !== null; }).length : 0;
+        var tail = stuck ? '<div class="st t-red-text">' + stuck + ' stuck ' + TARGETS.stuckDays + '+ days</div>'
+          : lateRoad ? '<div class="st t-red-text">' + lateRoad + ' past delivery date</div>'
+          : (oldest !== null && list.length ? '<div class="st" style="color:var(--text-3);">oldest ' + plural(oldest, 'day') + '</div>' : '<div class="st" style="color:var(--text-3);">&nbsp;</div>');
+        var barColor = (stuck || lateRoad) ? 'var(--red)' : TONE[st.key];
+        return '<div class="stage" data-stage="' + st.key + '" title="' + esc(st.info) + '">' +
+          '<div class="who">' + esc(st.who) + '</div><div class="nm">' + esc(st.name) + '</div>' +
+          '<div class="c">' + list.length + '</div>' +
+          '<div class="m">' + inr(sum(list, function (o) { return st.key === 'due' ? o.balanceDue : o.total; })) + (st.key === 'due' ? ' due' : '') + '</div>' + tail +
+          '<span class="bar" style="background:' + barColor + ';"></span></div>';
+      }).join('');
+      var wTotal = 0;
+      var boxes = WAITING.map(function (w) {
+        var list = open.filter(w.test); PIPE_SETS[w.key] = { name: w.name, list: list }; wTotal += list.length;
+        return '<div class="wbox" data-stage="' + w.key + '"><div class="nm"><span>' + esc(w.name) + '</span></div>' +
+          '<div class="c">' + list.length + '</div><div class="m">' + inr(sum(list, function (o) { return w.key === 'pay' || w.key === 'courier' ? o.balanceDue : o.total; })) + (w.key === 'pay' || w.key === 'courier' ? ' to collect' : ' order value') + '</div></div>';
+      }).join('');
+      $('waiting').innerHTML = '<div class="wl"><b>Waiting on the customer</b><span>' + plural(wTotal, 'order') + ' – paused for something only the customer can fix</span></div>' + boxes;
+      var disp = orders.filter(isDeliveredOrReturned);
+      var ret = disp.filter(function (o) { return o.deliveryStatus === 'Returned'; }).length;
+      var rr = pct(ret, disp.length);
+      $('flowFoot').innerHTML = '<span>Closed (delivered and paid): <b>' + orders.filter(function (o) { return !isOpen(o); }).length + '</b></span>' +
+        '<span>Returned: <b>' + ret + '</b>' + (rr !== null ? ' (' + rr + '% of delivered or returned)' : '') + '</span>';
+      each(document.querySelectorAll('[data-stage]'), function (el) {
+        el.addEventListener('click', function () {
+          var s = PIPE_SETS[el.getAttribute('data-stage')];
+          openList(s.name, s.list, { age: true, money: el.getAttribute('data-stage') === 'due' || el.getAttribute('data-stage') === 'pay' });
+        });
+      });
+    }
+
+    // =====================================================================
+    // 3. Departments
+    // =====================================================================
+    // Each step: office minutes the department took, per order, net of standby.
+    var STEPS = {
+      accVerify: { dept: 'accounts', name: 'Verify payment', target: 'accVerify', by: function (o) { return o.verifiedBy; },
+        span: function (o) { return o.dateLogged && o.verifiedDate ? [o.dateLogged, o.verifiedDate] : null; },
+        waitingNow: function (o) { return o.status === 'Logged' ? o.dateLogged : null; } },
+      accGatePass: { dept: 'accounts', name: 'Issue gate pass', target: 'accGatePass', by: function () { return ''; },
+        span: function (o) { return o.dispatchType !== 'Courier' && o.vehConfDate && o.gatePassIssuedDate ? [o.vehConfDate, o.gatePassIssuedDate] : null; },
+        waitingNow: function (o) { return o.status === 'Vehicle Confirmed' ? o.vehConfDate : null; } },
+      opsPickup: { dept: 'ops', name: 'Pick up', target: 'opsPickup', by: function (o) { return o.pickedUpBy; },
+        span: function (o) { var a = o.sentOpsDate || o.verifiedDate; return a && o.recvOpsDate && o.recvOpsDate >= a ? [a, o.recvOpsDate] : null; },
+        waitingNow: function (o) { return o.status === 'Sent to Ops' && !o.recvOpsDate ? (o.sentOpsDate || o.verifiedDate) : null; } },
+      opsReady: { dept: 'ops', name: 'Get it ready', target: 'opsReady', by: function (o) { return o.gatePassRequestedBy || o.pickedUpBy; },
+        span: function (o) {
+          var end = o.dispatchType === 'Courier' ? o.dispatchDate : o.vehConfDate;
+          return o.recvOpsDate && end && end >= o.recvOpsDate ? [o.recvOpsDate, end] : null;
+        },
+        less: function (o, a, b) { // customer payment wait, in office time (pro rata over the span)
+          if (!o.payHoldHrs) return 0;
+          var cal = (b - a) / 60000; return cal > 0 ? Math.min(1, o.payHoldHrs * 60 / cal) : 0;
+        },
+        waitingNow: function (o) { return o.status === 'Sent to Ops' && o.recvOpsDate ? o.recvOpsDate : null; } },
+      gateOut: { dept: 'gate', name: 'Vehicle out', target: 'gateOut', by: function (o) { return o.gateOutBy; },
+        span: function (o) { return o.gatePassIssuedDate && o.gateOutDate && o.gateOutDate >= o.gatePassIssuedDate ? [o.gatePassIssuedDate, o.gateOutDate] : null; },
+        waitingNow: function (o) { return o.waitingAtGate ? o.gatePassIssuedDate : null; } }
+    };
+    function stepRows(stepKey, list) {
+      var st = STEPS[stepKey], out = [];
+      list.forEach(function (o) {
+        var sp = st.span(o); if (!sp) return;
+        var m = netOffice(o, sp[0], sp[1]); if (m === null) return;
+        if (st.less) m = m * (1 - st.less(o, sp[0], sp[1]));
+        out.push({ o: o, mins: m, by: st.by(o) || '–' });
+      });
+      return out;
+    }
+    function stepSummary(stepKey, list) {
+      var rows = stepRows(stepKey, list), tMin = TARGETS[STEPS[stepKey].target] * 60;
+      var over = rows.filter(function (r) { return r.mins > tMin; }).length;
+      return { rows: rows, avg: avg(rows.map(function (r) { return r.mins; })), over: over, n: rows.length, targetMins: tMin };
+    }
+    function waitingOver(stepKey) {
+      var st = STEPS[stepKey], tMin = TARGETS[st.target] * 60;
+      return orders.filter(function (o) {
+        var since = st.waitingNow(o);
+        return since && netOffice(o, since, Date.now()) > tMin;
+      });
+    }
+    function metHtml(stepKey, cur, prev) {
+      var st = STEPS[stepKey], s = cur, tMin = s.targetMins;
+      var ratio = s.avg === null ? 0 : Math.min(1, s.avg / (tMin * 2));
+      var ok = s.avg !== null && s.avg <= tMin;
+      return '<div class="met"><div class="ml">' + esc(st.name) + '</div>' +
+        '<div class="mv"><b class="' + (s.avg === null ? '' : ok ? 't-teal-text' : 't-red-text') + '">' + fmtOffice(s.avg) + '</b><span class="tgt">avg · target ' + fmtOffice(tMin) + '</span></div>' +
+        '<div class="meter"><div style="width:' + (ratio * 100).toFixed(1) + '%; background:' + (ok ? 'var(--teal)' : 'var(--red)') + ';"></div></div>' +
+        '<div class="ms"><span>' + (s.n ? s.over + ' of ' + s.n + ' over target' : 'no orders yet') + '</span>' + (prev ? chgHtml(s.avg, prev.avg, true) : '') + '</div></div>';
+    }
+    function salesStats(list) {
+      var value = sum(list, function (o) { return o.total; }), adv = sum(list, function (o) { return o.advance; });
+      var delivered = list.filter(function (o) { return o.deliveredDate && o.reqDeliveryDate; });
+      var onTime = delivered.filter(function (o) { return o.deliveredDate <= o.reqDeliveryDate + DAY; });
+      var cycles = list.filter(function (o) { return o.verifiedDate && o.deliveredDate; }).map(function (o) {
+        return Math.max(0, (o.deliveredDate - o.verifiedDate - standbyOverlapMs(o, o.verifiedDate, o.deliveredDate)) / 3600000);
+      });
+      var leftOwing = list.filter(function (o) { return o.dispatchDate && (o.fullyPaidDate ? o.fullyPaidDate > o.dispatchDate : o.balanceDue > 0); });
+      var paidAfter = leftOwing.filter(function (o) { return o.fullyPaidDate; });
+      var payWait = list.filter(function (o) { return o.payHoldHrs > 0; }).map(function (o) { return o.payHoldHrs; });
+      return {
+        n: list.length, value: value, advPct: pct(adv, value),
+        onTimePct: delivered.length ? Math.round(onTime.length / delivered.length * 100) : null, delivered: delivered.length,
+        cycle: avg(cycles), leftOwing: leftOwing.length, paidAfter: paidAfter.length,
+        collectDays: avg(paidAfter.map(function (o) { return (o.fullyPaidDate - o.dispatchDate) / DAY; })),
+        stillOwed: sum(leftOwing.filter(function (o) { return o.balanceDue > 0; }), function (o) { return o.balanceDue; }),
+        payWait: avg(payWait), payWaitN: payWait.length
+      };
+    }
+    function renderDepts() {
+      var cur = periodOrders(), prev = prevOrders();
+      $('deptNote').textContent = 'Orders logged in ' + periodText() + '. Office time; targets from Settings.';
+      var ss = salesStats(cur), sp = prev ? salesStats(prev) : null;
+      var otOk = ss.onTimePct !== null && ss.onTimePct >= TARGETS.onTimePct;
+      var sales = '<div class="card dept clickable" data-dept="sales"><div class="dh"><h3>Sales</h3>' + infoBtn('sales') + '</div><div class="who">CREs</div>' +
+        '<div class="met"><div class="ml">Orders logged</div><div class="mv"><b>' + ss.n + '</b><span class="tgt">' + inr(ss.value) + '</span></div>' +
+          '<div class="ms"><span>Advance at intake ' + (ss.advPct === null ? '–' : ss.advPct + '%') + '</span>' + (sp ? chgHtml(ss.value, sp.value, false) : '') + '</div></div>' +
+        '<div class="met"><div class="ml">On-time delivery ' + infoBtn('onTime') + '</div><div class="mv"><b class="' + (ss.onTimePct === null ? '' : otOk ? 't-teal-text' : 't-red-text') + '">' + (ss.onTimePct === null ? '–' : ss.onTimePct + '%') + '</b><span class="tgt">target ' + TARGETS.onTimePct + '%</span></div>' +
+          '<div class="ms"><span>of ' + plural(ss.delivered, 'delivered order') + '</span>' + (sp ? chgHtml(ss.onTimePct, sp.onTimePct, false, ' pts') : '') + '</div></div>' +
+        '<div class="met"><div class="ml">Avg. cycle time ' + infoBtn('cycle') + '</div><div class="mv"><b>' + fmtHrs(ss.cycle) + '</b><span class="tgt">verified → delivered</span></div>' +
+          '<div class="ms"><span></span>' + (sp ? chgHtml(ss.cycle, sp.cycle, true) : '') + '</div></div>' +
+        '<div class="met"><div class="ml">Collected after dispatch ' + infoBtn('collect') + '</div><div class="mv"><b>' + ss.paidAfter + ' of ' + ss.leftOwing + '</b><span class="tgt">' + (ss.collectDays === null ? '' : 'avg ' + fmtHrs(ss.collectDays * 24)) + '</span></div>' +
+          '<div class="ms"><span>' + inr(ss.stillOwed) + ' still owed</span></div></div></div>';
+      function deptCard(key, title, who, steps) {
+        var mets = steps.map(function (k) { return metHtml(k, stepSummary(k, cur), prev ? stepSummary(k, prev) : null); }).join('');
+        var waiting = [];
+        steps.forEach(function (k) { waiting = waiting.concat(waitingOver(k)); });
+        return '<div class="card dept clickable" data-dept="' + key + '"><div class="dh"><h3>' + esc(title) + '</h3>' + infoBtn(key) + '</div><div class="who">' + esc(who) + '</div>' + mets +
+          '<div class="open-now' + (waiting.length ? '' : ' ok') + '">' + (waiting.length ? plural(waiting.length, 'order') + ' waiting on ' + esc(title) + ' right now, already over target' : 'Nothing waiting on ' + esc(title) + ' over target right now') + '</div></div>';
+      }
+      $('depts').innerHTML = sales +
+        deptCard('accounts', 'Accounts', 'Payment checks and gate passes', ['accVerify', 'accGatePass']) +
+        deptCard('ops', 'Operations', 'Pick up and get ready', ['opsPickup', 'opsReady']) +
+        deptCard('gate', 'Gate', 'Vehicles out', ['gateOut']);
+      each($('depts').querySelectorAll('[data-dept]'), function (el) {
+        el.addEventListener('click', function () { openDept(el.getAttribute('data-dept')); });
+      });
+    }
+
+    // Department pop-up: per person and per order
+    function openDept(key) {
+      var cur = periodOrders();
+      var titles = { sales: 'Sales – by CRE', accounts: 'Accounts', ops: 'Operations', gate: 'Gate' };
+      $('deptTitle').textContent = titles[key];
+      $('deptSub').textContent = 'Orders logged in ' + periodText() + (key === 'sales' ? '' : ' · office time · standby and customer payment waits left out');
+      var html = '';
+      if (key === 'sales') {
+        var byCre = {};
+        cur.forEach(function (o) { var k = o.cre || 'Unspecified'; (byCre[k] = byCre[k] || []).push(o); });
+        var rows = Object.keys(byCre).map(function (k) { var s = salesStats(byCre[k]); s.name = k; return s; }).sort(function (a, b) { return b.value - a.value; });
+        html = rows.length ? '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>CRE</th><th class="num">Orders</th><th class="num">Value</th><th class="num">Advance at intake</th>' +
+          '<th class="num">On-time delivery</th><th class="num">Avg. cycle time</th><th class="num">Collected after dispatch</th><th class="num">Still owed</th></tr></thead><tbody>' +
+          rows.map(function (r) {
+            return '<tr data-cre="' + esc(r.name) + '"><td><b>' + esc(r.name) + '</b></td><td class="num">' + r.n + '</td><td class="num">' + inr(r.value) + '</td>' +
+              '<td class="num">' + (r.advPct === null ? '–' : r.advPct + '%') + '</td>' +
+              '<td class="num ' + (r.onTimePct !== null && r.onTimePct < TARGETS.onTimePct ? 't-red-text' : '') + '">' + (r.onTimePct === null ? '–' : r.onTimePct + '% <span class="faint">(' + r.delivered + ')</span>') + '</td>' +
+              '<td class="num">' + fmtHrs(r.cycle) + '</td><td class="num">' + r.paidAfter + ' of ' + r.leftOwing + '</td><td class="num">' + inr(r.stillOwed) + '</td></tr>';
+          }).join('') + '</tbody></table></div><div class="hint" style="margin-top:8px;">Click a CRE for their orders.</div>' : '<div class="empty">No orders logged in this period.</div>';
+        $('deptBody').innerHTML = html;
+        each($('deptBody').querySelectorAll('tr[data-cre]'), function (tr) {
+          tr.addEventListener('click', function () { var c = tr.getAttribute('data-cre'); openList('Orders by ' + c, cur.filter(function (o) { return (o.cre || 'Unspecified') === c; }), {}); });
+        });
+        $('deptModal').classList.add('show');
+        return;
+      }
+      var steps = { accounts: ['accVerify', 'accGatePass'], ops: ['opsPickup', 'opsReady'], gate: ['gateOut'] }[key];
+      html = steps.map(function (k) {
+        var st = STEPS[k], s = stepSummary(k, cur), tMin = s.targetMins;
+        var byP = {};
+        s.rows.forEach(function (r) { (byP[r.by] = byP[r.by] || []).push(r.mins); });
+        var people = Object.keys(byP).map(function (p) { var v = byP[p]; return { p: p, n: v.length, avg: avg(v), over: v.filter(function (m) { return m > tMin; }).length }; })
+          .sort(function (a, b) { return b.n - a.n; });
+        var waiting = waitingOver(k);
+        var rows = s.rows.slice().sort(function (a, b) { return b.mins - a.mins; });
+        return '<div style="margin-bottom:26px;"><div class="card-head"><h3>' + esc(st.name) + ' <span class="faint" style="font-weight:400; font-size:12.5px;">target ' + fmtOffice(tMin) + '</span></h3>' +
+            '<span class="sec-note">avg ' + fmtOffice(s.avg) + ' · ' + s.over + ' of ' + s.n + ' over target</span></div>' +
+          (waiting.length ? '<div class="note bad" style="margin:0 0 12px; cursor:pointer;" data-waiting="' + k + '">' + plural(waiting.length, 'order') + ' waiting at this step now, already over target – click to see them</div>' : '') +
+          (people.length > 1 || (people[0] && people[0].p !== '–') ? '<div class="tbl-wrap" style="margin-bottom:12px;"><table class="tbl"><thead><tr><th>Done by</th><th class="num">Orders</th><th class="num">Average</th><th class="num">Over target</th></tr></thead><tbody>' +
+            people.map(function (p) {
+              return '<tr><td>' + esc(p.p) + '</td><td class="num">' + p.n + '</td><td class="num ' + (p.avg > tMin ? 't-red-text' : 't-teal-text') + '">' + fmtOffice(p.avg) + '</td><td class="num">' + p.over + '</td></tr>';
+            }).join('') + '</tbody></table></div>' : '') +
+          (rows.length ? '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Order</th><th>Customer</th><th>CRE</th><th>Done by</th><th class="num">Took</th></tr></thead><tbody>' +
+            rows.slice(0, 60).map(function (r) {
+              return '<tr data-id="' + esc(r.o.id) + '"><td class="nowrap">' + esc(r.o.id) + '</td><td>' + esc(r.o.institution) + '</td><td>' + esc(r.o.cre || '–') + '</td><td>' + esc(r.by) + '</td>' +
+                '<td class="num ' + (r.mins > tMin ? 't-red-text' : '') + '">' + fmtOffice(r.mins) + '</td></tr>';
+            }).join('') + '</tbody></table></div>' + (rows.length > 60 ? '<div class="hint">Showing the 60 slowest of ' + rows.length + '.</div>' : '') : '<div class="empty">No orders went through this step in the period.</div>') +
+          '</div>';
+      }).join('');
+      $('deptBody').innerHTML = html;
+      each($('deptBody').querySelectorAll('tr[data-id]'), function (tr) { tr.addEventListener('click', function () { openOrder(tr.getAttribute('data-id')); }); });
+      each($('deptBody').querySelectorAll('[data-waiting]'), function (el) {
+        el.addEventListener('click', function () { var k = el.getAttribute('data-waiting'); openList(STEPS[k].name + ' – waiting now, over target', waitingOver(k), { age: true }); });
+      });
+      $('deptModal').classList.add('show');
+    }
+
+    // =====================================================================
+    // 4. Needs attention + standby
+    // =====================================================================
+    function attSets() {
+      var open = orders.filter(isOpen);
+      return {
+        stuck: open.filter(isStuck).sort(function (a, b) { return daysAtStage(b) - daysAtStage(a); }),
+        late: orders.filter(function (o) { return daysPastDue(o) !== null; }).sort(function (a, b) { return daysPastDue(b) - daysPastDue(a); }),
+        high: open.filter(function (o) { return o.priority === 'High'; }),
+        amended: orders.filter(function (o) { return o.amended; })
+      };
+    }
+    function renderAttention() {
+      var sets = attSets();
+      $('attStuck').textContent = sets.stuck.length; $('attLate').textContent = sets.late.length; $('attHigh').textContent = sets.high.length; $('attAmended').textContent = sets.amended.length;
+      ['attStuck', 'attLate'].forEach(function (id) { $(id).className = 'count' + (Number($(id).textContent) ? ' hot' : ''); });
+      var list = sets[attTab];
+      var right = function (o) {
+        if (attTab === 'stuck') return '<span class="t-red-text">' + plural(daysAtStage(o), 'day') + '</span><div class="b">' + esc(stageName(o)) + '</div>';
+        if (attTab === 'late') return '<span class="t-red-text">' + plural(daysPastDue(o), 'day') + ' late</span><div class="b">' + esc(stageName(o)) + '</div>';
+        return esc(stageName(o)) + '<div class="b">' + inr(o.total) + '</div>';
+      };
+      $('attList').innerHTML = list.length ? list.slice(0, 7).map(function (o) {
+        return '<div class="li" data-id="' + esc(o.id) + '"><div style="min-width:0;"><div class="a">' + esc(o.institution) + '</div><div class="b">' + esc(o.id) + ' · ' + esc(o.cre || '–') + '</div></div><div class="r">' + right(o) + '</div></div>';
+      }).join('') + (list.length > 7 ? '<button class="btn sm see-all" type="button" id="attAll">See all ' + list.length + ' &rarr;</button>' : '')
+        : '<div class="empty">Nothing here right now.</div>';
+      each($('attList').querySelectorAll('.li'), function (el) { el.addEventListener('click', function () { openOrder(el.getAttribute('data-id')); }); });
+      var all = $('attAll');
+      if (all) all.addEventListener('click', function () {
+        var t = { stuck: 'Stuck at a stage', late: 'Past delivery date', high: 'High priority, still open', amended: 'Amended orders' };
+        openList(t[attTab], list, { age: attTab === 'stuck', late: attTab === 'late' });
+      });
+    }
+    each($('attTabs').querySelectorAll('.tab'), function (b) {
+      b.addEventListener('click', function () {
+        attTab = b.getAttribute('data-att');
+        each($('attTabs').querySelectorAll('.tab'), function (x) { x.classList.toggle('on', x === b); });
+        renderAttention();
+      });
+    });
+
+    function renderStandby() {
+      if (!SB.loaded) { $('sbMini').innerHTML = '<div style="grid-column:1/-1;"><div class="l">Standby data couldn’t be loaded.</div></div>'; $('sbReasons').innerHTML = ''; $('sbActive').innerHTML = ''; return; }
+      var cur = periodOrders();
+      var verified = cur.filter(function (o) { return o.verifiedDate; });
+      var ids = {}; cur.forEach(function (o) { ids[String(o.id).toLowerCase()] = true; });
+      var recs = SB.records.filter(function (r) { return ids[r.trackerId.toLowerCase()]; });
+      var withSb = {}; recs.forEach(function (r) { withSb[r.trackerId.toLowerCase()] = true; });
+      var rate = pct(Object.keys(withSb).length, verified.length);
+      var days = recs.reduce(function (s, r) { return s + ((r.endMs == null ? Date.now() : r.endMs) - r.startMs) / DAY; }, 0);
+      var u = SB.usage || { count: 0, value: 0, maxOrders: 0, maxValue: 0 };
+      $('sbNote').textContent = ids && period ? periodText() : '';
+      $('sbMini').innerHTML = [
+        ['On standby now', u.count + ' of ' + u.maxOrders, inr(u.value) + ' of ' + inr(u.maxValue) + ' held', u.count >= u.maxOrders || u.value >= u.maxValue],
+        ['Standby rate', rate === null ? '–' : rate + '%', Object.keys(withSb).length + ' of ' + verified.length + ' verified orders'],
+        ['Standby days', Math.round(days * 10) / 10, recs.length ? 'avg ' + Math.round(days / recs.length * 10) / 10 + ' per standby' : 'no standbys']
+      ].map(function (c) { return '<div><div class="l">' + c[0] + '</div><div class="v' + (c[3] ? ' over' : '') + '">' + c[1] + '</div><div class="s">' + esc(c[2]) + '</div></div>'; }).join('');
+      var byReason = {};
+      recs.forEach(function (r) { byReason[r.reason] = (byReason[r.reason] || 0) + 1; });
+      var reasons = Object.keys(byReason).sort(function (a, b) { return byReason[b] - byReason[a]; });
+      var max = Math.max.apply(null, reasons.map(function (k) { return byReason[k]; }).concat([1]));
+      $('sbReasons').innerHTML = reasons.length ? reasons.map(function (k) {
+        return '<div class="hbar"><div class="t"><span>' + esc(k) + '</span><span>' + byReason[k] + '</span></div><div class="tr"><div class="sb" style="width:' + (byReason[k] / max * 100) + '%;"></div></div></div>';
+      }).join('') : '<div class="empty">No standbys for orders logged in this period.</div>';
+      var active = SB.records.filter(function (r) { return r.active; }).sort(function (a, b) { return a.resumeYmd < b.resumeYmd ? -1 : 1; });
+      $('sbActive').innerHTML = active.length ? active.map(function (r) {
+        return '<div class="li" data-id="' + esc(r.trackerId) + '"><div style="min-width:0;"><div class="a">' + esc(r.institution) + '</div><div class="b">' + esc(r.trackerId) + ' · ' + esc(r.reason) + '</div></div>' +
+          '<div class="r">until ' + esc(r.resume) + '<div class="b">' + inr(r.orderValue) + '</div></div></div>';
+      }).join('') : '<div class="empty">Nothing on standby right now.</div>';
+      each($('sbActive').querySelectorAll('.li'), function (el) { el.addEventListener('click', function () { openOrder(el.getAttribute('data-id')); }); });
+    }
+
+    // =====================================================================
+    // 5. States leaderboard + state page
+    // =====================================================================
+    function groupBy(list, keyFn) {
+      var g = {};
+      list.forEach(function (o) { var k = keyFn(o); (g[k] = g[k] || []).push(o); });
+      return g;
+    }
+    function stateKey(o) { return o.state || 'Unspecified'; }
+    var stateShowAll = false;
+    function renderStates() {
+      var cur = periodOrders(), prev = prevOrders();
+      var g = groupBy(cur, stateKey), gp = prev ? groupBy(prev, stateKey) : null;
+      var totalV = sum(cur, function (o) { return o.total; }), totalN = cur.length;
+      var rows = Object.keys(g).map(function (k) {
+        var l = g[k], v = sum(l, function (o) { return o.total; });
+        var pv = gp ? sum(gp[k] || [], function (o) { return o.total; }) : null, pn = gp ? (gp[k] || []).length : null;
+        return { name: k, n: l.length, v: v, avgV: v / l.length, bal: sum(l, function (o) { return o.balanceDue > 0 ? o.balanceDue : 0; }),
+          share: geoMetric === 'value' ? (totalV ? v / totalV : 0) : (totalN ? l.length / totalN : 0), pv: pv, pn: pn };
+      }).sort(function (a, b) { return geoMetric === 'value' ? (b.v - a.v) || (b.n - a.n) : (b.n - a.n) || (b.v - a.v); });
+      if (!rows.length) { $('states').innerHTML = '<div class="empty">No orders logged in this period.</div>'; return; }
+      var maxShare = Math.max.apply(null, rows.map(function (r) { return r.share; }).concat([0.0001]));
+      var shown = stateShowAll ? rows : rows.slice(0, 10);
+      $('states').innerHTML = '<div class="tbl-wrap" style="border:none; background:none;"><table class="tbl"><thead><tr><th style="width:44px;">#</th><th>State</th><th class="num">Orders</th><th class="num">Order value</th><th class="num">Avg. order</th><th>Share of ' + (geoMetric === 'value' ? 'value' : 'orders') + '</th><th class="num">vs before</th><th class="num">Balance due</th></tr></thead><tbody>' +
+        shown.map(function (r, i) {
+          var ch = geoMetric === 'value' ? chgHtml(r.v, r.pv, false) : chgHtml(r.n, r.pn, false);
+          if (r.pv === 0 && r.v > 0 && gp) ch = '<span class="chg good">new</span>';
+          return '<tr data-state="' + esc(r.name) + '"><td><span class="rank' + (i < 3 ? ' top' : '') + '">' + (i + 1) + '</span></td><td><b>' + esc(r.name) + '</b></td>' +
+            '<td class="num">' + r.n + '</td><td class="num">' + inr(r.v) + '</td><td class="num">' + inr(r.avgV) + '</td>' +
+            '<td><div class="share"><div class="tr"><div style="width:' + (r.share / maxShare * 100).toFixed(1) + '%;"></div></div><span>' + Math.round(r.share * 100) + '%</span></div></td>' +
+            '<td class="num">' + (ch || '<span class="faint">–</span>') + '</td><td class="num ' + (r.bal > 0 ? 't-amber-text' : '') + '">' + (r.bal > 0 ? inr(r.bal) : '–') + '</td></tr>';
+        }).join('') + '</tbody></table></div>' +
+        (rows.length > 10 ? '<div style="padding:6px 12px 10px;"><button class="btn sm ghost" type="button" id="statesMore">' + (stateShowAll ? 'Show top 10' : 'Show all ' + rows.length + ' states') + '</button></div>' : '');
+      each($('states').querySelectorAll('tr[data-state]'), function (tr) { tr.addEventListener('click', function () { openState(tr.getAttribute('data-state')); }); });
+      var more = $('statesMore'); if (more) more.addEventListener('click', function () { stateShowAll = !stateShowAll; renderStates(); });
+    }
+    each($('geoSeg').querySelectorAll('button'), function (b) {
+      b.addEventListener('click', function () { geoMetric = b.getAttribute('data-m'); each($('geoSeg').querySelectorAll('button'), function (x) { x.classList.toggle('on', x === b); }); renderStates(); });
+    });
+
+    function openState(name) {
+      var cur = periodOrders().filter(function (o) { return stateKey(o) === name; });
+      var allCur = periodOrders(), prev = prevOrders();
+      var pl = prev ? prev.filter(function (o) { return stateKey(o) === name; }) : null;
+      var v = sum(cur, function (o) { return o.total; }), totalV = sum(allCur, function (o) { return o.total; });
+      var pv = pl ? sum(pl, function (o) { return o.total; }) : null;
+      var bal = sum(cur, function (o) { return o.balanceDue > 0 ? o.balanceDue : 0; });
+      var ss = salesStats(cur);
+      $('stateTitle').textContent = name;
+      $('stateSub').textContent = 'Orders logged in ' + periodText();
+      var k = [
+        ['Orders', cur.length, pl ? chgHtml(cur.length, pl.length, false) : ''],
+        ['Order value', inr(v), pl ? chgHtml(v, pv, false) : ''],
+        ['Avg. order', inr(cur.length ? v / cur.length : 0), ''],
+        ['Share of all sales', (totalV ? Math.round(v / totalV * 100) : 0) + '%', ''],
+        ['Balance due', inr(bal), ''],
+        ['On-time delivery', ss.onTimePct === null ? '–' : ss.onTimePct + '%', ss.delivered ? '<span class="faint">of ' + ss.delivered + '</span>' : '']
+      ];
+      // Districts -> pincodes
+      var gd = groupBy(cur, function (o) { return o.district || 'Unspecified'; });
+      var drows = Object.keys(gd).map(function (d) {
+        var l = gd[d], pins = groupBy(l, function (o) { return o.pincode || 'No pincode'; });
+        return { name: d, n: l.length, v: sum(l, function (o) { return o.total; }), pins: Object.keys(pins).map(function (p) { return { p: p, n: pins[p].length, v: sum(pins[p], function (o) { return o.total; }) }; }).sort(function (a, b) { return b.v - a.v; }) };
+      }).sort(function (a, b) { return b.v - a.v; });
+      var dmax = Math.max.apply(null, drows.map(function (r) { return r.v; }).concat([1]));
+      // CREs
+      var gc = groupBy(cur, function (o) { return o.cre || 'Unspecified'; });
+      var crows = Object.keys(gc).map(function (c) { return { c: c, n: gc[c].length, v: sum(gc[c], function (o) { return o.total; }) }; }).sort(function (a, b) { return b.v - a.v; });
+      // Products
+      var ids = {}; cur.forEach(function (o) { ids[o.id] = true; });
+      var prodHtml;
+      if (!lineItems) prodHtml = '<div class="empty">Loading products…</div>';
+      else {
+        var byP = {};
+        lineItems.forEach(function (li) { if (!ids[li.trackerId]) return; var p = li.product || 'Unspecified'; byP[p] = (byP[p] || 0) + li.quantity; });
+        var prows = Object.keys(byP).map(function (p) { return { p: p, u: byP[p] }; }).sort(function (a, b) { return b.u - a.u; }).slice(0, 8);
+        var pmax = Math.max.apply(null, prows.map(function (r) { return r.u; }).concat([1]));
+        prodHtml = prows.length ? prows.map(function (r) { return '<div class="hbar"><div class="t"><span>' + esc(r.p) + '</span><span>' + plural(r.u, 'unit') + '</span></div><div class="tr"><div style="width:' + (r.u / pmax * 100) + '%;"></div></div></div>'; }).join('') : '<div class="empty">No products recorded.</div>';
+      }
+      $('stateBody').innerHTML =
+        '<div class="kpis">' + k.map(function (x) { return '<div><div class="l">' + x[0] + '</div><div class="v">' + x[1] + '</div><div class="s">' + (x[2] || '&nbsp;') + '</div></div>'; }).join('') + '</div>' +
+        '<div class="grid g-2" style="margin-bottom:18px;">' +
+          '<div class="card"><div class="card-head"><h3>Districts</h3><span class="sec-note">Click a district for its pincodes</span></div>' +
+            drows.map(function (r) {
+              return '<div class="dist"><div class="t"><b><span class="caret">&#9654;</span>' + esc(r.name) + '</b><span>' + inr(r.v) + ' · ' + plural(r.n, 'order') + ' · ' + (v ? Math.round(r.v / v * 100) : 0) + '%</span></div>' +
+                '<div class="tr"><div style="width:' + (r.v / dmax * 100) + '%;"></div></div>' +
+                '<div class="pins">' + r.pins.map(function (p) { return '<div><span><b>' + esc(p.p) + '</b></span><span>' + plural(p.n, 'order') + ' · ' + inr(p.v) + '</span></div>'; }).join('') + '</div></div>';
+            }).join('') + '</div>' +
+          '<div style="display:grid; gap:18px; align-content:start;">' +
+            '<div class="card"><div class="card-head"><h3>Monthly trend</h3></div><div id="stateTrend"></div></div>' +
+            '<div class="card"><div class="card-head"><h3>Top products</h3></div>' + prodHtml + '</div>' +
+            '<div class="card"><div class="card-head"><h3>CREs selling here</h3></div>' + crows.map(function (r) {
+              return '<div class="hbar"><div class="t"><span>' + esc(r.c) + '</span><span>' + inr(r.v) + ' · ' + plural(r.n, 'order') + '</span></div><div class="tr"><div class="alt" style="width:' + (crows[0].v ? r.v / crows[0].v * 100 : 0) + '%;"></div></div></div>';
+            }).join('') + '</div>' +
+          '</div></div>' +
+        '<div class="card"><div class="card-head"><h3>Orders in ' + esc(name) + '</h3><span class="sec-note">Click an order for its timeline</span></div><div id="stateOrders"></div></div>';
+      each($('stateBody').querySelectorAll('.dist'), function (el) { el.addEventListener('click', function () { el.classList.toggle('open'); }); });
+      $('stateTrend').innerHTML = barChartSvg(monthSeries(cur, 'value'), 'value', 520, 170);
+      $('stateOrders').innerHTML = orderTableHtml(cur.slice().sort(function (a, b) { return (b.dateLogged || 0) - (a.dateLogged || 0); }), {});
+      bindOrderTable($('stateOrders'));
+      $('stateModal').classList.add('show');
+      $('stateModal').scrollTop = 0;
+    }
+
+    // =====================================================================
+    // 6. Trend (bar or pie) + products
+    // =====================================================================
+    function monthKey(ms) {
+      var p = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit' }).formatToParts(new Date(ms)), o = {};
+      p.forEach(function (x) { o[x.type] = x.value; });
+      return o.year + '-' + o.month;
+    }
+    function monthLabel(key) { var p = key.split('-'); return new Date(Date.UTC(+p[0], +p[1] - 1, 15)).toLocaleDateString('en-IN', { month: 'short', year: '2-digit', timeZone: 'UTC' }); }
+    function monthSeries(list, metric) {
+      var by = {};
+      list.forEach(function (o) { if (!o.dateLogged) return; var k = monthKey(o.dateLogged); by[k] = by[k] || { v: 0, n: 0 }; by[k].v += o.total; by[k].n++; });
+      return Object.keys(by).sort().map(function (k) { return { key: k, label: monthLabel(k), value: metric === 'count' ? by[k].n : by[k].v, n: by[k].n, v: by[k].v }; });
+    }
+    function shortINR(n) {
+      if (n >= 1e7) return '₹' + (Math.round(n / 1e6) / 10) + ' Cr';
+      if (n >= 1e5) return '₹' + (Math.round(n / 1e4) / 10) + ' L';
+      if (n >= 1e3) return '₹' + (Math.round(n / 100) / 10) + 'k';
+      return '₹' + Math.round(n);
+    }
+    function barChartSvg(series, metric, W, H) {
+      if (!series.length) return '<div class="empty">No orders logged in this period.</div>';
+      var padL = 8, padR = 8, padT = 22, padB = 30, n = series.length;
+      var slot = (W - padL - padR) / n, bw = Math.min(38, slot * 0.6);
+      var max = Math.max.apply(null, series.map(function (s) { return s.value; }).concat([1]));
+      var ih = H - padT - padB;
+      var bars = series.map(function (s, i) {
+        var h = Math.max(2, s.value / max * ih), x = padL + slot * i + (slot - bw) / 2, y = padT + ih - h;
+        var lab = metric === 'count' ? String(s.value) : shortINR(s.value);
+        return '<g><title>' + esc(s.label + ': ' + inr(s.v) + ' · ' + plural(s.n, 'order')) + '</title>' +
+          '<rect class="bar" x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" width="' + bw.toFixed(1) + '" height="' + h.toFixed(1) + '" rx="4"></rect>' +
+          (n <= 14 ? '<text class="val" x="' + (x + bw / 2).toFixed(1) + '" y="' + (y - 6).toFixed(1) + '" text-anchor="middle">' + esc(lab) + '</text>' : '') +
+          '<text x="' + (x + bw / 2).toFixed(1) + '" y="' + (H - 10) + '" text-anchor="middle">' + esc(n > 14 && i % 2 ? '' : s.label) + '</text></g>';
+      }).join('');
+      return '<div class="chart-wrap"><svg viewBox="0 0 ' + W + ' ' + H + '" width="' + W + '" height="' + H + '" role="img">' +
+        '<line class="grid-line" x1="' + padL + '" x2="' + (W - padR) + '" y1="' + (padT + ih) + '" y2="' + (padT + ih) + '"></line>' + bars + '</svg></div>';
+    }
+    var PIE_COLORS = ['#6db851', '#3cc9b8', '#6aa8f7', '#f0b44c', '#b48cf0', '#f26b6b', '#9bcb4a', '#4fa3a5', '#d98fd0', '#c9a45c', '#7f8cf5', '#5fc27e', '#8b8f96'];
+    function pieSvg(series, metric) {
+      if (!series.length) return '<div class="empty">No orders logged in this period.</div>';
+      var items = series.slice();
+      if (items.length > 12) {
+        var older = items.slice(0, items.length - 12);
+        items = [{ label: 'Earlier', value: sum(older, function (s) { return s.value; }), v: sum(older, function (s) { return s.v; }), n: sum(older, function (s) { return s.n; }) }].concat(items.slice(-12));
+      }
+      var total = sum(items, function (s) { return s.value; }) || 1;
+      var R = 78, r = 50, cx = 90, cy = 90, a0 = -Math.PI / 2, paths = '';
+      items.forEach(function (s, i) {
+        var frac = s.value / total, a1 = a0 + frac * Math.PI * 2;
+        if (frac >= 0.9999) {
+          paths += '<circle cx="' + cx + '" cy="' + cy + '" r="' + ((R + r) / 2) + '" fill="none" stroke="' + PIE_COLORS[i % PIE_COLORS.length] + '" stroke-width="' + (R - r) + '"><title>' + esc(s.label) + '</title></circle>';
+        } else if (frac > 0) {
+          var large = frac > 0.5 ? 1 : 0;
+          var p = function (rad, a) { return (cx + rad * Math.cos(a)).toFixed(2) + ' ' + (cy + rad * Math.sin(a)).toFixed(2); };
+          paths += '<path d="M ' + p(R, a0) + ' A ' + R + ' ' + R + ' 0 ' + large + ' 1 ' + p(R, a1) + ' L ' + p(r, a1) + ' A ' + r + ' ' + r + ' 0 ' + large + ' 0 ' + p(r, a0) + ' Z" fill="' + PIE_COLORS[i % PIE_COLORS.length] + '" stroke="var(--surface)" stroke-width="1.5">' +
+            '<title>' + esc(s.label + ': ' + (metric === 'count' ? plural(s.n, 'order') : inr(s.v)) + ' (' + Math.round(frac * 100) + '%)') + '</title></path>';
+        }
+        a0 = a1;
+      });
+      var totalLabel = metric === 'count' ? String(total) : shortINR(total);
+      return '<div class="pie-wrap"><div class="chart-wrap"><svg viewBox="0 0 180 180" width="180" height="180" role="img">' + paths +
+        '<text class="pie-center" x="90" y="92" text-anchor="middle">' + esc(totalLabel) + '</text><text class="pie-center-l" x="90" y="108" text-anchor="middle">' + (metric === 'count' ? 'orders' : 'order value') + '</text></svg></div>' +
+        '<div class="legend">' + items.map(function (s, i) {
+          return '<div><i style="background:' + PIE_COLORS[i % PIE_COLORS.length] + ';"></i><span>' + esc(s.label) + '</span><span class="n">' + (metric === 'count' ? s.value : shortINR(s.value)) + '</span><span class="p">' + Math.round(s.value / total * 100) + '%</span></div>';
+        }).join('') + '</div></div>';
+    }
+    function renderTrend() {
+      var series = monthSeries(periodOrders(), trendMetric);
+      var w = Math.max(320, Math.min(720, ($('trend').clientWidth || 600)));
+      $('trend').innerHTML = trendType === 'pie' ? pieSvg(series, trendMetric) : barChartSvg(series, trendMetric, w, 220);
+    }
+    each($('trendMetric').querySelectorAll('button'), function (b) {
+      b.addEventListener('click', function () { trendMetric = b.getAttribute('data-m'); each($('trendMetric').querySelectorAll('button'), function (x) { x.classList.toggle('on', x === b); }); renderTrend(); });
+    });
+    each($('trendType').querySelectorAll('button'), function (b) {
+      b.classList.toggle('on', b.getAttribute('data-t') === trendType);
+      b.addEventListener('click', function () {
+        trendType = b.getAttribute('data-t');
+        try { localStorage.setItem('icf_dash_beta_trend', trendType); } catch (e) {}
+        each($('trendType').querySelectorAll('button'), function (x) { x.classList.toggle('on', x === b); }); renderTrend();
+      });
+    });
+
+    function renderProducts() {
+      if (!lineItems) return;
+      var ids = {}; periodOrders().forEach(function (o) { ids[o.id] = true; });
+      var by = {};
+      lineItems.forEach(function (li) {
+        if (!ids[li.trackerId]) return;
+        var k = li.product || 'Unspecified';
+        by[k] = by[k] || { u: 0, ids: {} }; by[k].u += li.quantity; by[k].ids[li.trackerId] = true;
+      });
+      var rows = Object.keys(by).map(function (k) { return { p: k, u: by[k].u, n: Object.keys(by[k].ids).length }; });
+      var m = prodMetric === 'units' ? 'u' : 'n';
+      rows.sort(function (a, b) { return b[m] - a[m]; }); rows = rows.slice(0, 10);
+      var max = Math.max.apply(null, rows.map(function (r) { return r[m]; }).concat([1]));
+      $('products').innerHTML = rows.length ? rows.map(function (r) {
+        return '<div class="hbar"><div class="t"><span>' + esc(r.p) + '</span><span>' + plural(r.u, 'unit') + ' · ' + plural(r.n, 'order') + '</span></div><div class="tr"><div class="' + (m === 'n' ? 'alt' : '') + '" style="width:' + (r[m] / max * 100) + '%;"></div></div></div>';
+      }).join('') : '<div class="empty">No products recorded for orders in this period.</div>';
+    }
+    each($('prodSeg').querySelectorAll('button'), function (b) {
+      b.addEventListener('click', function () { prodMetric = b.getAttribute('data-m'); each($('prodSeg').querySelectorAll('button'), function (x) { x.classList.toggle('on', x === b); }); renderProducts(); });
+    });
+
+    // =====================================================================
+    // Order lists (every click-through), with filters
+    // =====================================================================
+    var LIST = { title: '', base: [], opts: {}, f: null };
+    var LIST_DEFAULT = { cre: 'all', from: '', to: '', min: '', max: '', type: 'all', stage: 'all' };
+    function openList(title, list, opts) {
+      LIST = { title: title, base: list || [], opts: opts || {}, f: Object.assign({}, LIST_DEFAULT) };
+      $('listTitle').textContent = title;
+      var cres = {}, stages = {};
+      LIST.base.forEach(function (o) { cres[o.cre || 'Unspecified'] = true; stages[stageName(o)] = true; });
+      $('listBody').innerHTML = '<div class="flt">' +
+        '<div><label>CRE</label><select class="inp" id="fCre"><option value="all">All CREs</option>' + Object.keys(cres).sort().map(function (c) { return '<option>' + esc(c) + '</option>'; }).join('') + '</select></div>' +
+        '<div><label>Stage</label><select class="inp" id="fStage"><option value="all">All</option>' + Object.keys(stages).sort().map(function (c) { return '<option>' + esc(c) + '</option>'; }).join('') + '</select></div>' +
+        '<div><label>Order type</label><select class="inp" id="fType"><option value="all">All</option><option>End Customer</option><option>PO Customer</option></select></div>' +
+        '<div><label>Logged from</label><input class="inp" type="date" id="fFrom"></div><div><label>Logged to</label><input class="inp" type="date" id="fTo"></div>' +
+        '<div><label>Min. value (₹)</label><input class="inp" type="number" min="0" id="fMin" placeholder="e.g. 10000"></div>' +
+        '<div><label>Max. value (₹)</label><input class="inp" type="number" min="0" id="fMax" placeholder="e.g. 500000"></div>' +
+        '<button class="btn sm ghost" type="button" id="fClear">Clear filters</button></div>' +
+        '<div class="chips" id="fChips"></div><div class="result-line" id="fSummary"></div><div id="fTable"></div>';
+      var map = { fCre: 'cre', fStage: 'stage', fType: 'type', fFrom: 'from', fTo: 'to', fMin: 'min', fMax: 'max' };
+      Object.keys(map).forEach(function (id) {
+        $(id).addEventListener(/Min|Max/.test(id) ? 'input' : 'change', function () { LIST.f[map[id]] = $(id).value; renderList(); });
+      });
+      $('fClear').addEventListener('click', function () { openList(LIST.title, LIST.base, LIST.opts); });
+      renderList();
+      $('listModal').classList.add('show');
+    }
+    function listFiltered(skipCre) {
+      var f = LIST.f;
+      return LIST.base.filter(function (o) {
+        if (!skipCre && f.cre !== 'all' && (o.cre || 'Unspecified') !== f.cre) return false;
+        if (f.stage !== 'all' && stageName(o) !== f.stage) return false;
+        if (f.type !== 'all' && o.paymentTerms !== f.type) return false;
+        if (f.from && (!o.dateLogged || o.dateLogged < new Date(f.from + 'T00:00:00+05:30').getTime())) return false;
+        if (f.to && (!o.dateLogged || o.dateLogged > new Date(f.to + 'T23:59:59+05:30').getTime())) return false;
+        if (f.min && o.total < Number(f.min)) return false;
+        if (f.max && o.total > Number(f.max)) return false;
+        return true;
+      });
+    }
+    function renderList() {
+      var rows = listFiltered(false), forCre = listFiltered(true);
+      var byCre = {}; forCre.forEach(function (o) { var k = o.cre || 'Unspecified'; byCre[k] = (byCre[k] || 0) + 1; });
+      var names = Object.keys(byCre).sort(function (a, b) { return byCre[b] - byCre[a]; });
+      $('fChips').innerHTML = names.length > 1 ? 'By CRE: ' + names.map(function (c) { return '<button type="button" class="chip-btn' + (LIST.f.cre === c ? ' on' : '') + '" data-c="' + esc(c) + '">' + esc(c) + ' <b>' + byCre[c] + '</b></button>'; }).join('') : '';
+      each($('fChips').querySelectorAll('.chip-btn'), function (b) {
+        b.addEventListener('click', function () { var c = b.getAttribute('data-c'); LIST.f.cre = LIST.f.cre === c ? 'all' : c; $('fCre').value = LIST.f.cre; renderList(); });
+      });
+      $('fSummary').innerHTML = '<b>' + rows.length + '</b> ' + (rows.length === 1 ? 'order' : 'orders') + ' · <b>' + inr(sum(rows, function (o) { return o.total; })) + '</b> order value' +
+        (LIST.opts.money ? ' · <b>' + inr(sum(rows, function (o) { return o.balanceDue > 0 ? o.balanceDue : 0; })) + '</b> balance due' : '');
+      var sorted = rows.slice().sort(function (a, b) {
+        if (LIST.opts.late) return daysPastDue(b) - daysPastDue(a);
+        if (LIST.opts.age) return (daysAtStage(b) || 0) - (daysAtStage(a) || 0);
+        if (LIST.opts.money) return b.balanceDue - a.balanceDue;
+        return (b.dateLogged || 0) - (a.dateLogged || 0);
+      });
+      $('fTable').innerHTML = sorted.length ? orderTableHtml(sorted, LIST.opts) : '<div class="empty">No orders match these filters.</div>';
+      bindOrderTable($('fTable'));
+    }
+    var STANDBY_ELIGIBLE = ['Sent to Ops', 'On Hold - Site Not Ready', 'Vehicle Confirmed', 'On Hold - Balance Due', 'Ready - Payment Pending'];
+    function orderTableHtml(rows, opts) {
+      var canSb = typeof window.ICF_OPEN_STANDBY === 'function' && window.ICF_CAN_SET_STANDBY && window.ICF_CAN_SET_STANDBY();
+      return '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Order</th><th>Customer</th><th>CRE</th><th>Type</th><th>Where it is</th>' +
+        (opts.late ? '<th class="num">Due date</th><th class="num">Days late</th>' : '') + (opts.age ? '<th class="num">Days here</th>' : '') +
+        '<th class="num">Order value</th><th class="num">Balance due</th><th class="num">Logged</th>' + (canSb ? '<th></th>' : '') + '</tr></thead><tbody>' +
+        rows.map(function (o) {
+          var d = daysAtStage(o);
+          return '<tr data-id="' + esc(o.id) + '"><td class="nowrap">' + esc(o.id) + (o.priority === 'High' ? ' <span class="chip high">High</span>' : '') + '</td><td>' + esc(o.institution) + '</td>' +
+            '<td>' + esc(o.cre || '–') + '</td><td class="nowrap">' + esc(o.paymentTerms) + '</td><td>' + esc(stageName(o)) + '</td>' +
+            (opts.late ? '<td class="num nowrap">' + fmtDay(o.reqDeliveryDate) + '</td><td class="num t-red-text">' + daysPastDue(o) + '</td>' : '') +
+            (opts.age ? '<td class="num ' + (d !== null && d >= TARGETS.stuckDays ? 't-red-text' : '') + '">' + (d === null ? '–' : d) + '</td>' : '') +
+            '<td class="num">' + inr(o.total) + '</td><td class="num ' + (o.balanceDue > 0 ? 't-amber-text' : '') + '">' + (o.balanceDue > 0 ? inr(o.balanceDue) : '–') + '</td>' +
+            '<td class="num nowrap">' + fmtDay(o.dateLogged) + '</td>' +
+            (canSb ? '<td>' + (o.status === 'On Standby' ? '<span class="pill t-grey">On standby</span>' : STANDBY_ELIGIBLE.indexOf(o.status) !== -1 ? '<button type="button" class="sb-btn" data-sb="' + esc(o.id) + '" title="Customer delay – pause this order">Standby</button>' : '') + '</td>' : '') +
+            '</tr>';
+        }).join('') + '</tbody></table></div>';
+    }
+    function bindOrderTable(el) {
+      each(el.querySelectorAll('tr[data-id]'), function (tr) { tr.addEventListener('click', function () { openOrder(tr.getAttribute('data-id')); }); });
+      each(el.querySelectorAll('[data-sb]'), function (b) { b.addEventListener('click', function (e) { e.stopPropagation(); window.ICF_OPEN_STANDBY(b.getAttribute('data-sb')); }); });
+    }
+    // standby_direct.html calls this after putting an order on standby.
+    window.ICF_AFTER_STANDBY = function (r) {
+      each(document.querySelectorAll('[data-sb]'), function (b) { if (r && b.getAttribute('data-sb') === r.trackerId) b.outerHTML = '<span class="pill t-grey">On standby</span>'; });
+      orders.forEach(function (o) { if (r && o.id === r.trackerId) o.status = 'On Standby'; });
+      setTimeout(function () { var ov = document.querySelector('.sd-overlay'); if (ov) ov.classList.remove('show'); }, 2200);
+      loadAll();
+    };
+
+    // ---------- One order: timeline + products ----------
+    function openOrder(id) {
+      var o = orders.filter(function (x) { return x.id === id; })[0] || {};
+      $('orderTitle').textContent = id;
+      $('orderSub').textContent = [o.institution, o.cre ? 'CRE: ' + o.cre : '', o.paymentTerms, o.id ? stageName(o) : ''].filter(Boolean).join(' · ');
+      $('orderBody').innerHTML = '<div class="dir-sub" style="margin-top:0;">Order timeline</div><div id="oTl" class="faint">Loading…</div>' +
+        '<div class="dir-sub">Products</div><div id="oProd" class="faint">Loading…</div>';
+      $('orderModal').classList.add('show');
+      authRun()
+        .withSuccessHandler(function (t) {
+          var el = $('oTl'); if (!el || $('orderTitle').textContent !== id) return;
+          el.className = ''; el.innerHTML = t ? timelineHtml(t) : 'No timeline found.';
+        })
+        .withFailureHandler(function (e) { var el = $('oTl'); if (el) el.innerHTML = '<span class="t-red-text">' + esc(errText(e)) + '</span>'; })
+        .getOrderTimeline(id);
+      authRun()
+        .withSuccessHandler(function (items) {
+          var el = $('oProd'); if (!el || $('orderTitle').textContent !== id) return;
+          el.className = '';
+          el.innerHTML = (items && items.length) ? items.map(function (it) { return '<div class="tl-row"><span>' + esc(it.product) + '</span><span>' + esc(it.quantity) + '</span></div>'; }).join('') : '<span class="faint">No product lines recorded.</span>';
+        })
+        .withFailureHandler(function () { var el = $('oProd'); if (el) el.textContent = 'Could not load products.'; })
+        .getOrderLineItems(id);
+    }
+    function timelineHtml(t) {
+      var r = [];
+      if (t.enquiryDate) r.push(['Date of enquiry', t.enquiryDate]);
+      if (t.advancePaymentVerifiedDate) r.push(['Advance payment verified', t.advancePaymentVerifiedDate]);
+      if (t.verifiedBy) r.push(['Verified by', t.verifiedBy]);
+      if (t.verificationCode) r.push(['Verification code', t.verificationCode]);
+      r.push(['Total order value', inr(t.totalOrderValue)]);
+      r.push(['Advance received', inr(t.advanceReceived)]);
+      if (t.fullPaymentDate) r.push(['Full payment received', t.fullPaymentDate]);
+      else if (t.balanceDue > 0) r.push(['Balance outstanding', inr(t.balanceDue) + (t.paymentTermsType === 'PO Customer' ? ' (PO Customer terms)' : '')]);
+      if (t.handoverToOpsDate) r.push(['Sent to Ops (verified)', t.handoverToOpsDate]);
+      if (t.pickupByOpsDate) r.push(['Picked up by Ops', t.pickupByOpsDate]);
+      if (t.gatePassIssuedDate && t.dispatchType !== 'Courier') r.push(['Gate pass issued', t.gatePassIssuedDate]);
+      if (t.dispatchDate) r.push([t.dispatchType === 'Courier' ? 'Date posted' : (t.gateOutBy ? 'Left the gate (dispatch)' : 'Date of dispatch'), t.dispatchDate + (t.gateOutBy ? ' – ' + t.gateOutBy.replace(/\s*\([^)]*\)\s*$/, '') : '')]);
+      else if (t.gatePassIssuedDate && t.dispatchType !== 'Courier' && t.workflowStatus === 'Gate-Verified') r.push(['Left the gate', 'Not yet – waiting at the gate']);
+      if (t.ewayBillNo) r.push(['E-way bill no.', t.ewayBillNo]);
+      if (t.transportMode) r.push(['Mode of dispatch', t.transportMode + (t.courierName ? ' – ' + t.courierName : '')]);
+      if (t.dispatchType === 'Courier' && t.trackingNo) r.push(['Tracking no.', t.trackingNo]);
+      if (t.cancelledDate) r.push(['Order cancelled', t.cancelledDate + (t.cancelledBy ? ' – ' + t.cancelledBy : '')]);
+      if (t.refundStatus) r.push(['Refund', t.refundStatus + (t.refundAmount ? ' – ' + inr(t.refundAmount) : '')]);
+      if (t.deliveryDate) r.push(['Date of delivery', t.deliveryDate]);
+      else if (t.deliveryStatus) r.push(['Current delivery status', t.deliveryStatus === 'Pending' ? 'Pending (at the gate)' : t.deliveryStatus]);
+      return r.map(function (x) { return '<div class="tl-row"><span>' + esc(x[0]) + '</span><span>' + esc(x[1]) + '</span></div>'; }).join('');
+    }
+
+    // =====================================================================
+    // Directors: waiting for a director (standby past limits, payment approvals)
+    // =====================================================================
+    function isDirector() { return !!(window.ICF_STAFF && window.ICF_STAFF.role === 'Director'); }
+    function loadDirector() {
+      if (!isDirector()) { $('dirPanel').classList.remove('show'); return; }
+      authRun().withSuccessHandler(renderDirector).withFailureHandler(function () { $('dirPanel').classList.remove('show'); }).getDirectorPanel();
+    }
+    function nextDay(ymd) { var p = String(ymd || '').split('-'); return p.length === 3 ? new Date(Date.UTC(+p[0], +p[1] - 1, +p[2] + 1)).toISOString().slice(0, 10) : ''; }
+    function renderDirector(d) {
+      var tot = d.standby.length + d.payments.length;
+      var p = $('dirPanel');
+      if (!tot) { p.classList.remove('show'); p.innerHTML = ''; return; } // nothing waiting: keep the page clean
+      p.innerHTML = '<div class="card-head" style="margin-bottom:0;"><h3>Waiting for a director (' + tot + ')</h3></div>' +
+        (d.standby.length ? '<div class="dir-sub">Standby past your limits</div>' + d.standby.map(function (r) {
+          return '<div class="dir-item" data-kind="sb" data-id="' + esc(r.requestId) + '">' +
+            '<div class="t">' + esc(r.trackerId) + ' – ' + esc(r.institution) + ' (' + inr(r.orderValue) + ')</div>' +
+            '<div class="m">' + esc(r.reason) + (r.note ? ' – ' + esc(r.note) : '') + '</div>' +
+            '<div class="m">' + esc(r.from) + ' to ' + esc(r.resume) + ' · asked by ' + esc(r.requestedByName) + ', reported by ' + esc(r.reportedBy) + ' · approved by ' + esc(r.decidedBy) + '</div>' +
+            '<div class="why">' + esc((String(r.history || '').split(' – sent to the directors: ')[1] || 'Past a limit').split(' | ')[0]) + '</div>' +
+            (r.resumeYmd <= d.today ? '<div class="m t-amber-text">The resume date has already come. Approving records ' + esc(r.from) + ' to ' + esc(r.resume) + ' as standby (not counted against Ops); the order isn’t paused.</div>' : '') +
+            '<div class="acts"><div><label>Resume date</label><input class="inp rd" type="date" value="' + esc(r.resumeYmd) + '" min="' + esc(r.resumeYmd <= d.today ? nextDay(r.fromYmd) : d.tomorrow) + '" max="' + esc(r.resumeYmd) + '"></div>' +
+            '<button type="button" class="btn primary sm yes">Approve</button><button type="button" class="btn danger sm no">Decline</button></div><div class="res"></div></div>';
+        }).join('') : '') +
+        (d.payments.length ? '<div class="dir-sub">Payment approvals</div>' + d.payments.map(function (r) {
+          return '<div class="dir-item" data-kind="px" data-id="' + esc(r.requestId) + '">' +
+            '<div class="t">' + esc(r.typeLabel) + ' – ' + esc(r.trackerId) + (r.escalated ? ' <span class="t-red-text">• overdue</span>' : '') + '</div>' +
+            '<div class="m">' + esc(r.institution) + ' – ' + esc(r.amountNote) + '</div>' +
+            '<div class="m">Asked by ' + esc(r.requestedByName) + ' at ' + esc(r.requestedAt) + ': ' + esc(r.reason) + '</div>' +
+            '<div class="acts"><button type="button" class="btn primary sm yes">Approve</button><button type="button" class="btn danger sm no">Decline</button></div><div class="res"></div></div>';
+        }).join('') : '');
+      p.classList.add('show');
+      each(p.querySelectorAll('.dir-item'), function (el) {
+        el.querySelector('.yes').addEventListener('click', function () { decide(el, true); });
+        el.querySelector('.no').addEventListener('click', function () { decide(el, false); });
+      });
+    }
+    function decide(el, approve) {
+      var btns = el.querySelectorAll('button'), res = el.querySelector('.res');
+      each(btns, function (b) { b.disabled = true; });
+      var isSb = el.getAttribute('data-kind') === 'sb';
+      var form = { requestId: el.getAttribute('data-id'), approve: approve };
+      if (isSb && approve) form.resumeDate = el.querySelector('.rd').value;
+      var run = authRun()
+        .withSuccessHandler(function (r) {
+          res.className = 'res t-teal-text';
+          res.textContent = !approve ? 'Declined.' : isSb ? (r.recordedPast ? 'Approved – recorded as standby ' + r.from + ' to ' + r.resume + '. The order stays live.' : 'Approved – on standby until ' + r.resume + '.') : 'Approved.' + (r.releasedToOps ? ' Released to Ops.' : '');
+          setTimeout(loadAll, 1200);
+        })
+        .withFailureHandler(function (e) { each(btns, function (b) { b.disabled = false; }); res.className = 'res t-red-text'; res.textContent = errText(e); });
+      if (isSb) run.decideStandbyDirector(form); else run.decidePaymentAsDirector(form);
+    }
+
+    // =====================================================================
+    // Loading
+    // =====================================================================
+    function renderAll() {
+      renderMoney(); renderNow(); renderPipeline(); renderPeriod();
+    }
+    function renderPeriod() {
+      renderDepts(); renderAttention(); renderStandby(); renderStates(); renderTrend(); renderProducts();
+    }
+    var loadSeq = 0;
+    function loadAll() {
+      var seq = ++loadSeq, got = { orders: null, sb: null, info: null }, pending = 3;
+      function done() {
+        if (--pending > 0 || seq !== loadSeq) return;
+        if (got.info) {
+          Object.keys(got.info.targets || {}).forEach(function (k) { TARGETS[k] = got.info.targets[k]; });
+          if (got.info.office) OFFICE = got.info.office;
+        }
+        SB = { records: [], byId: {}, usage: null, pending: 0, withDirector: 0, loaded: false };
+        if (got.sb) {
+          SB.records = got.sb.records || []; SB.usage = got.sb.usage; SB.pending = got.sb.pending || 0; SB.withDirector = got.sb.withDirector || 0; SB.loaded = true;
+          SB.records.forEach(function (r) { var k = r.trackerId.toLowerCase(); (SB.byId[k] = SB.byId[k] || []).push(r); });
+        }
+        if (got.orders === 'error') return;
+        orders = (got.orders || []).filter(function (o) { return o.status !== 'Cancelled'; });
+        $('loading').style.display = orders.length ? 'none' : 'block';
+        $('loading').textContent = orders.length ? '' : 'No orders logged in the tracker yet.';
+        $('body').style.display = orders.length ? 'block' : 'none';
+        $('updated').textContent = 'Updated ' + new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' });
+        if (orders.length) renderAll();
+      }
+      authRun().withSuccessHandler(function (d) { got.orders = d || []; done(); })
+        .withFailureHandler(function (e) { got.orders = 'error'; $('loading').style.display = 'block'; $('loading').textContent = 'Could not load the dashboard: ' + errText(e); done(); })
+        .getDashboardData();
+      authRun().withSuccessHandler(function (d) { got.sb = d; done(); }).withFailureHandler(function () { done(); }).getStandbyDashboard();
+      authRun().withSuccessHandler(function (d) { got.info = d; done(); }).withFailureHandler(function () { done(); }).getDashboardBetaInfo();
+      authRun().withSuccessHandler(function (items) { lineItems = items || []; if (orders.length) renderProducts(); })
+        .withFailureHandler(function () { $('products').innerHTML = '<div class="empty">Could not load product data.</div>'; })
+        .getAllLineItems();
+      loadDirector();
+    }
+
+    each($('periodSeg').querySelectorAll('button'), function (b) {
+      b.addEventListener('click', function () {
+        var p = b.getAttribute('data-period');
+        each($('periodSeg').querySelectorAll('button'), function (x) { x.classList.toggle('on', x === b); });
+        $('customRange').classList.toggle('show', p === 'custom');
+        if (p === 'custom' && !customFrom && !customTo) return;
+        period = p; stateShowAll = false;
+        if (orders.length) renderPeriod();
+      });
+    });
+    $('customApply').addEventListener('click', function () {
+      customFrom = $('customFrom').value; customTo = $('customTo').value;
+      if (!customFrom && !customTo) return;
+      period = 'custom';
+      if (orders.length) renderPeriod();
+    });
+    $('refreshBtn').addEventListener('click', loadAll);
+    var resizeT = null;
+    window.addEventListener('resize', function () { clearTimeout(resizeT); resizeT = setTimeout(function () { if (orders.length && trendType === 'bar') renderTrend(); }, 200); });
+
+    window.ICF_RELOAD = loadAll;
+    window.ICF_CLEAR = function () {
+      orders = []; lineItems = null;
+      $('body').style.display = 'none'; $('loading').style.display = 'block'; $('loading').textContent = 'Loading order data…';
+      $('dirPanel').classList.remove('show'); $('dirPanel').innerHTML = '';
+      each(document.querySelectorAll('.modal.show'), function (m) { m.classList.remove('show'); });
+      userMenu.classList.remove('show');
+    };
+    if (typeof window.authRun !== 'function' && window.ICF_BETA_ERR) window.ICF_BETA_ERR('authRun is not defined: the shared sign-in code (auth) did not load on this page.');
+    loadAll(); // queued until sign-in, then sent
+    if (window.ICF_STAFF) applyStaff(window.ICF_STAFF);
+  })();
+  </script>
+  <?!= include('standby_direct'); ?>
+</body>
+</html>

@@ -523,6 +523,7 @@ function doGet(e) {
     admin: 'admin',
     settings: 'settings',
     gate: 'gate',        // Gate login (Oct 2026) -- Sanju marks vehicles out
+    'dashboard-beta': 'dashboard_beta', // Owner dashboard, new layout on trial (Oct 2026) -- the classic dashboard is untouched
     'cre-beta': 'cre_beta', // CRE page, new layout on trial (Oct 2026) -- a separate file; the classic CRE page is untouched
     rental: 'rental'     // Rentals (Oct 2026) -- one page for CRE, Accounts, Ops and Ananthu; see Rental.js
   };
@@ -538,6 +539,7 @@ function doGet(e) {
     settings: 'ICF Settings',
     gate: 'ICF Gate',
     'cre-beta': 'ICF CRE (Beta)',
+    'dashboard-beta': 'ICF Dashboard (Beta)',
     rental: 'ICF Rentals'
   };
   // Evaluated as a template (not a plain file) so each page can pull in the
@@ -2541,7 +2543,10 @@ function getDashboardData_() {
     cycle: col('Total Cycle Time (Hrs)'), terms: col('Payment Terms Type'),
     amend: col('Amendment Flag'), state: col('State'), district: col('District'),
     pincode: col('Pincode'), fullPaid: col('Balance Fully Paid Timestamp'),
-    dispatchType: col('Dispatch Type'), payHoldH: col('Payment Hold Hours'), payHoldFrom: col('Payment Hold From')
+    dispatchType: col('Dispatch Type'), payHoldH: col('Payment Hold Hours'), payHoldFrom: col('Payment Hold From'),
+    // Owner dashboard beta (Oct 2026): who did each step, and the gate times. Extra fields only.
+    verifiedBy: col('Verified By'), pickedUpBy: col('Picked Up By'), gpReqBy: col('Gate Pass Requested By'),
+    gpIssued: col('Gate Pass Issued Timestamp'), gateOut: col('Gate Out Timestamp'), gateOutBy: col('Gate Out By')
   };
 
   var out = [];
@@ -2582,7 +2587,17 @@ function getDashboardData_() {
       pincode: (r[C.pincode] || '').toString().trim(),
       // Payment at dispatch (Oct 2026): hours the goods sat ready waiting for the customer's money
       // (finished holds + the one still running). Excluded from Ops' pickup-to-gate figure.
-      payHoldHrs: (Number(r[C.payHoldH]) || 0) + ((r[C.payHoldFrom] instanceof Date) ? Math.max(0, (Date.now() - r[C.payHoldFrom].getTime()) / 3600000) : 0)
+      payHoldHrs: (Number(r[C.payHoldH]) || 0) + ((r[C.payHoldFrom] instanceof Date) ? Math.max(0, (Date.now() - r[C.payHoldFrom].getTime()) / 3600000) : 0),
+      // Owner dashboard beta (Oct 2026) -- added fields; the classic dashboard doesn't read them.
+      payHoldFromDate: dashDate_(r[C.payHoldFrom]),
+      gatePassIssuedDate: C.gpIssued >= 0 ? dashDate_(r[C.gpIssued]) : null,
+      gateOutDate: C.gateOut >= 0 ? dashDate_(r[C.gateOut]) : null,
+      waitingAtGate: (typeof gateWaitingFromValues_ === 'function' && C.gpIssued >= 0)
+        ? gateWaitingFromValues_(r[C.status], r[C.dispatchType], r[C.gpIssued], r[C.gateOut]) : false,
+      verifiedBy: C.verifiedBy >= 0 ? String(r[C.verifiedBy] || '') : '',
+      pickedUpBy: C.pickedUpBy >= 0 ? String(r[C.pickedUpBy] || '') : '',
+      gatePassRequestedBy: C.gpReqBy >= 0 ? String(r[C.gpReqBy] || '') : '',
+      gateOutBy: C.gateOutBy >= 0 ? String(r[C.gateOutBy] || '').replace(/\s*\([^)]*\)\s*$/, '') : ''
     });
     if (out.length >= 2000) break;
   }
@@ -2797,6 +2812,11 @@ function apiMap_() {
     getDashboardData:       { fn: getDashboardData_,       roles: DIR },
     getAllLineItems:        { fn: getAllLineItems_,        roles: DIR }
   };
+  // Owner dashboard beta (Oct 2026) -- defined in Dashboard.gs.
+  if (typeof dashboardBetaApiMap_ === 'function') {
+    var extraD = dashboardBetaApiMap_();
+    for (var kd in extraD) map[kd] = extraD[kd];
+  }
   // Standby + Settings page (Oct 2026) -- defined in Standby.gs.
   if (typeof standbyApiMap_ === 'function') {
     var extra = standbyApiMap_();

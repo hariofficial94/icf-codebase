@@ -889,6 +889,12 @@ function sbSettingsSchema_() {
       rows.push({ label: r[0], def: r[1], help: r[2], kind: 'number', group: 'Ops nudges', min: 1, max: GATE_NUDGE_CEILING });
     });
   }
+  // Owner dashboard targets (Oct 2026, Dashboard.gs): numbers with their own ranges.
+  if (typeof DASH_TARGET_ROWS !== 'undefined') {
+    DASH_TARGET_ROWS.forEach(function (r) {
+      rows.push({ label: r[0], def: r[1], help: r[2], kind: 'number', group: 'Dashboard targets', min: r[3], max: r[4] });
+    });
+  }
   // Rentals (Oct 2026, Rental.gs): numbers with their own ranges, and the deposit Yes/No.
   if (typeof RENTAL_SETTINGS_ROWS !== 'undefined') {
     RENTAL_SETTINGS_ROWS.forEach(function (r) {
