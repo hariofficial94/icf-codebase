@@ -217,7 +217,8 @@
   }
   function rTodayCard(t) {
     return '<div class="card done"><div class="veh" style="font-size:19px;">' + esc(t.vehicleNo) + '<span class="rtag">' + (t.direction === 'Out' ? 'OUT' : 'IN') + '</span></div>' +
-      '<div class="gp">' + esc(t.tripId) + ' · ' + esc(t.rentalId) + '</div><div class="inst">' + esc(t.customer) + '</div><div class="meta">' + esc(t.counts) + ' · ' + esc(t.gateAt) + (t.gateNote ? '<br>' + esc(t.gateNote) : '') + '</div></div>';
+      '<div class="gp">' + esc(t.tripId) + ' · ' + esc(t.rentalId) + '</div><div class="inst">' + esc(t.customer) + '</div><div class="meta">' + esc(t.counts) + ' · ' + esc(t.gateAt) + (t.gateNote ? '<br>' + esc(t.gateNote) : '') + '</div>' +
+      (t.canUndo ? '<div class="acts"><button type="button" class="btn undo" data-rundo="' + esc(t.tripId) + '" data-dir="' + esc(t.direction) + '">Undo – tapped by mistake</button></div><div class="err"></div>' : '') + '</div>';
   }
   function renderRentals() {
     var sec = document.getElementById('rentalSec');
@@ -231,6 +232,7 @@
     document.getElementById('rOut').innerHTML = o.length ? o.map(rOutCard).join('') : '<div class="empty">No rental trips waiting to leave.</div>';
     document.getElementById('rIn').innerHTML = i.length ? i.map(rInCard).join('') : '<div class="empty">No rental pickups expected.</div>';
     document.getElementById('rToday').innerHTML = RDATA.today.length ? RDATA.today.map(rTodayCard).join('') : '<div class="empty">None yet today.</div>';
+    bindRentalUndo();
     Array.prototype.forEach.call(document.querySelectorAll('#rOut .card'), function (el) {
       var id = el.getAttribute('data-rtrip'), s1 = el.querySelector('.step1'), s2 = el.querySelector('.step2'), err = el.querySelector('.err');
       el.querySelector('.go').addEventListener('click', function () { s1.style.display = 'none'; s2.style.display = 'block'; });
@@ -254,6 +256,18 @@
         authRun().withSuccessHandler(function (r) { toast(r.received + ' item(s) in' + (r.missing.length ? ', ' + r.missing.length + ' missing' : '') + '.'); load(); })
           .withFailureHandler(function (e) { b.disabled = false; b.textContent = 'Arrived – mark in'; err.textContent = String(e && e.message || e).replace(/^(Error:\s*)+/, ''); err.className = 'err show'; })
           .markRentalTripIn({ tripId: id, missing: missing, note: el.querySelector('.rnote').value });
+      });
+    });
+  }
+  function bindRentalUndo() {
+    Array.prototype.forEach.call(document.querySelectorAll('#rToday [data-rundo]'), function (b) {
+      var err = b.closest('.card').querySelector('.err');
+      b.addEventListener('click', function () {
+        b.disabled = true; b.textContent = 'Undoing...';
+        var call = authRun().withSuccessHandler(function () { toast('Undone.'); load(); })
+          .withFailureHandler(function (e) { b.disabled = false; b.textContent = 'Undo – tapped by mistake'; err.textContent = String(e && e.message || e).replace(/^(Error:\s*)+/, ''); err.className = 'err show'; });
+        if (b.getAttribute('data-dir') === 'Out') call.undoRentalTripOut({ tripId: b.getAttribute('data-rundo') });
+        else call.undoRentalTripIn({ tripId: b.getAttribute('data-rundo') });
       });
     });
   }

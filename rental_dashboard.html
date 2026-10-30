@@ -1,0 +1,83 @@
+<!--
+  Rentals on the Owner Dashboard (Oct 2026). Pulled in by dashboard.html with
+  <?!= include('rental_dashboard'); ?> near the end of <body>. It adds one
+  "Rentals" section right after "Right now", loads its own numbers
+  (getRentalDashboard_ in RentalExtras.gs) and links to the Rentals page for
+  the detail. It does not touch the sales figures above or below it.
+-->
+<style>
+  .rn-sec .card { border-left: 4px solid #2c7a3f; }
+  .rn-sec h2 { color: #2c7a3f !important; }
+  .rn-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+  .rn-grid div { background: #f5faf6; border-radius: 6px; padding: 10px 12px; }
+  .rn-grid .l { font-size: 11px; color: #666; font-weight: 600; }
+  .rn-grid .v { font-size: 19px; font-weight: 700; color: #1F3864; margin-top: 3px; }
+  .rn-grid .v.bad { color: #B00020; }
+  .rn-grid .v.warn { color: #B06E00; }
+  .rn-grid .s { font-size: 10.5px; color: #888; margin-top: 2px; }
+  .rn-link { font-size: 12px; font-weight: 600; color: #2E74B5; text-decoration: none; border: 1px solid #d5dbe0; border-radius: 5px; padding: 6px 12px; background: #fff; }
+</style>
+<script>
+(function () {
+  function esc(t) { return String(t == null ? '' : t).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+  function rs(n) { n = Math.round(Number(n) || 0); return '₹' + n.toLocaleString('en-IN'); }
+  function tile(label, value, cls, sub) {
+    return '<div><div class="l">' + esc(label) + '</div><div class="v ' + (cls || '') + '">' + value + '</div>' + (sub ? '<div class="s">' + esc(sub) + '</div>' : '') + '</div>';
+  }
+  function place() {
+    var body = document.getElementById('dashboardBody');
+    if (!body || document.getElementById('rnSection')) return;
+    var bodyShown = body.style.display !== 'none';
+    var sec = document.createElement('div');
+    sec.className = 'section rn-sec';
+    sec.id = 'rnSection';
+    sec.innerHTML = '<div class="card"><div class="section-head" style="margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">' +
+      '<h2>Rentals</h2><a class="rn-link" id="rnLink" href="#" target="_top">Open Rentals &rarr;</a></div><div id="rnBox" class="empty-state" style="padding:14px;">Loading rentals…</div></div>';
+    var first = body.querySelector('.section');
+    var loading = document.getElementById('loadingState');
+    if (bodyShown && first && first.nextSibling) body.insertBefore(sec, first.nextSibling);
+    else if (!bodyShown && loading) loading.parentNode.insertBefore(sec, loading.nextSibling); // no sales orders yet: still show rentals
+    else body.appendChild(sec);
+  }
+  function render(d) {
+    var box = document.getElementById('rnBox');
+    if (!box) return;
+    var staff = window.ICF_STAFF || {};
+    var link = document.getElementById('rnLink');
+    if (staff.appUrl) link.href = staff.appUrl + '?page=rental'; else link.style.display = 'none';
+    if (!d || !d.live) { box.textContent = 'Rentals aren’t switched on yet.'; return; }
+    box.className = '';
+    box.innerHTML = '<div class="rn-grid">' +
+      tile('Items on hire', d.items.deployed, '', d.onHireRentals + ' rental(s)') +
+      tile('Items out (incl. transit / pickup)', d.items.out, '', d.items.available + ' tagged available in yard') +
+      tile('Off-hired, still at site', d.items.offhired, d.latePickups ? 'bad' : '', d.latePickups ? d.latePickups + ' past the pickup deadline' : 'awaiting pickup') +
+      tile('Running past planned end', d.overrunRentals, d.overrunRentals ? 'bad' : '', 'overrun not billed ~' + rs(d.money.overrunUnbilled)) +
+      tile('Balance due', rs(d.money.balance), d.money.balance ? 'warn' : '', 'verified rentals') +
+      tile('Overdue payments', rs(d.money.overdue), d.money.overdue ? 'bad' : '', d.money.rentBillsOpen ? rs(d.money.rentBillsOpen) + ' in open rent bills' : '') +
+      tile('To acknowledge', d.toAck, d.toAck ? 'warn' : '', d.scheduled + ' scheduled for later') +
+      tile('On standby', d.standby, '', d.standbyRequests ? d.standbyRequests + ' request(s) waiting' : '') +
+      tile('Late installations', d.lateInstalls, d.lateInstalls ? 'bad' : '', 'date passed, nothing installed') +
+      tile('Short of items', d.shortages, d.shortages ? 'bad' : '', 'rentals needing production') +
+      tile('Damage not billed', d.damagesUnbilled, d.damagesUnbilled ? 'warn' : '', d.items.repair + ' item(s) under repair') +
+      tile('Vendor + transport cost', rs(d.money.cost), '', 'on open rentals') +
+      '</div>';
+  }
+  function load() {
+    place();
+    if (typeof authRun !== 'function') return;
+    authRun().withSuccessHandler(render)
+      .withFailureHandler(function (e) { var b = document.getElementById('rnBox'); if (b) b.textContent = 'Could not load rentals: ' + (e && e.message || e); })
+      .getRentalDashboard();
+  }
+  // The dashboard shows its body only after its own data arrives; wait for it, then add the section once.
+  var tries = 0;
+  var t = setInterval(function () {
+    tries++;
+    var body = document.getElementById('dashboardBody');
+    if (body && body.style.display !== 'none') { clearInterval(t); load(); }
+    else if (tries === 16 && window.ICF_STAFF) { clearInterval(t); load(); } // 8 s and the sales part never showed (e.g. no orders yet)
+    else if (tries > 120) clearInterval(t);
+  }, 500);
+  document.addEventListener('icf-signed-in', function () { if (document.getElementById('rnSection')) load(); });
+})();
+</script>

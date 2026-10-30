@@ -16,6 +16,9 @@
 var RN_MAX_BATCH = 300; // items in one action
 var RN_INSTALL_BACKDATE_DAYS = 7; // Ananthu; more needs a Director
 var RN_OFFHIRE_BACKDATE_DAYS_CRE = 2; // CREs; Ananthu / Directors may go further (logged)
+// Loading photo on a dispatch trip (Oct 2026 round 2): optional for now, like the courier receipt
+// photo. Set to true to make it required -- the Rentals page follows this automatically.
+var RN_LOAD_PHOTO_REQUIRED = false;
 
 function rnTripView_(t) {
   return {
@@ -25,7 +28,7 @@ function rnTripView_(t) {
     status: String(t['Status']), createdBy: String(t['Created By'] || ''), createdAt: rnFmtTime_(t['Created At']),
     gatePassNo: String(t['Gate Pass No.'] || ''), gatePassUrl: String(t['Gate Pass URL'] || ''),
     gatePassIssuedAt: rnFmtTime_(t['Gate Pass Issued At']), gateBy: String(t['Gate By'] || ''),
-    gateAt: rnFmtTime_(t['Gate At']), gateNote: String(t['Gate Note'] || '')
+    gateAt: rnFmtTime_(t['Gate At']), gateNote: String(t['Gate Note'] || ''), photoUrl: String(t['Photo URL'] || '')
   };
 }
 
@@ -189,6 +192,11 @@ function createRentalTrip_(form) {
   var vendor = String(form.vendor || '').trim();
   if (transport === 'Hired' && !vendor) throw new Error('Enter the transporter for a hired vehicle.');
   var cost = rnMoneyValue_(form.cost, 'transport cost');
+  var hasPhoto = !!(form.photo && form.photo.data);
+  if (RN_LOAD_PHOTO_REQUIRED && !hasPhoto) throw new Error('Take a photo of the loaded vehicle – it shows the condition the items left in.');
+  // Check before saving the photo, so a refused trip leaves no file behind.
+  rnPickItems_(rnLoad_(), form.itemIds, id, [RI_ALLOCATED], 'load');
+  var photoUrl = hasPhoto ? rnSaveUpload_(form.photo, id, 'Loading ' + vehicle + ' ' + todayYmd_()) : '';
   var lock = rnLock_(), tripId, picked;
   try {
     var ctx = rnLoad_();
@@ -198,7 +206,7 @@ function createRentalTrip_(form) {
     rnAppend_(ctx.trips, {
       'Trip ID': tripId, 'Rental ID': id, 'Direction': 'Out', 'Items': picked.map(function (x) { return x['Item ID']; }).join(', '),
       'Counts': rnCounts_(picked), 'Vehicle No.': vehicle, 'Transport': transport, 'Vendor': vendor, 'Cost': cost,
-      'Status': 'Gate pass requested', 'Created By': rnWho_(me), 'Created At': new Date()
+      'Status': 'Gate pass requested', 'Created By': rnWho_(me), 'Created At': new Date(), 'Photo URL': photoUrl
     });
     picked.forEach(function (it) {
       rnSet_(ctx.items, it, { 'Status': RI_LOADED, 'Trip ID': tripId });
@@ -317,7 +325,10 @@ function getRentalGateQueue_() {
     v.site = o ? [o['Site District'], o['Site State']].filter(function (x) { return String(x || '').trim(); }).join(', ') : '';
     if (t['Direction'] === 'Out' && t['Status'] === 'Gate pass issued') out.out.push(v);
     else if (t['Direction'] === 'Return' && t['Status'] === 'Planned') out.expected.push(v);
-    else if ((t['Status'] === 'Left' || t['Status'] === 'Arrived') && rnYmd_(t['Gate At']) === today) out.today.push(v);
+    else if ((t['Status'] === 'Left' || t['Status'] === 'Arrived') && rnYmd_(t['Gate At']) === today) {
+      v.canUndo = typeof rnGateCanUndo_ === 'function' && rnGateCanUndo_(t, CURRENT_STAFF_ || {}, Date.now());
+      out.today.push(v);
+    }
   });
   return out;
 }
@@ -560,23 +571,36 @@ function inspectRentalItems_(form) {
   var me = rnMe_();
   var results = (form && form.results) || [];
   if (!results.length) throw new Error('Mark at least one item.');
+  // Damaged items need a note AND a photo (round 2): the evidence for whoever decides who pays.
+  var errs = [], noPhoto = [];
+  results.forEach(function (r) {
+    if (r.ok !== false) return;
+    if (String(r.note || '').trim().length < 3) errs.push(String(r.itemId).toUpperCase());
+    if (!(r.photo && r.photo.data)) noPhoto.push(String(r.itemId).toUpperCase());
+  });
+  if (errs.length) throw new Error('Say what is damaged on ' + errs.join(', ') + '.');
+  if (noPhoto.length) throw new Error('Take a photo of the damage on ' + noPhoto.join(', ') + '.');
+  rnPickItems_(rnLoad_(), results.map(function (r) { return r.itemId; }), null, [RI_INSPECTION], 'inspect');
+  var photos = results.map(function (r) {
+    return r.ok === false ? rnSaveUpload_(r.photo, String(r.itemId).toUpperCase(), 'Damage ' + todayYmd_()) : '';
+  });
   var lock = rnLock_(), ok = 0, bad = 0, rentals = {};
   try {
     var ctx = rnLoad_();
     var picked = rnPickItems_(ctx, results.map(function (r) { return r.itemId; }), null, [RI_INSPECTION], 'inspect');
-    var errs = [];
-    results.forEach(function (r) { if (r.ok === false && String(r.note || '').trim().length < 3) errs.push(String(r.itemId).toUpperCase()); });
-    if (errs.length) throw new Error('Say what is damaged on ' + errs.join(', ') + '.');
     picked.forEach(function (it, i) {
       var r = results[i];
       var rid = String(it['Rental ID'] || '');
       if (r.ok === false) {
         var note = String(r.note).trim();
         rnSet_(ctx.items, it, { 'Status': RI_REPAIR, 'Condition Note': note + ' (back from ' + rid + ')', 'Rental ID': '', 'Trip ID': '', 'Deployment ID': '' });
-        rnItemHistory_(ctx.items, it, 'Inspected after ' + rid + ': DAMAGED – ' + note, me);
+        rnItemHistory_(ctx.items, it, 'Inspected after ' + rid + ': DAMAGED – ' + note + (photos[i] ? ' (photo: ' + photos[i] + ')' : ''), me);
+        var ord = rid && rnFind_(ctx.orders, rid);
+        if (ord) rnAddDamage_(ctx, ord, String(it['Item ID']), note, photos[i]);
         bad++;
         (rentals[rid] = rentals[rid] || []).push(it['Item ID'] + ' damaged: ' + note);
       } else {
+        if (/^Stencil this ID/.test(String(it['Condition Note'] || ''))) rnItemHistory_(ctx.items, it, 'Stencilled at inspection', me);
         rnSet_(ctx.items, it, { 'Status': RI_AVAILABLE, 'Condition Note': '', 'Rental ID': '', 'Trip ID': '', 'Deployment ID': '' });
         rnItemHistory_(ctx.items, it, 'Inspected after ' + rid + ': OK – available', me);
         ok++;

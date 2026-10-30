@@ -49,7 +49,8 @@
  * MONEY: billing mode per order -- Per event (fixed value) or Per day /
  * week / month (rate per item per period, run per item from its installation
  * date to its off-hire date). Days past the planned end are charged at the
- * overrun rate per item per day (provisional policy, Sambhu to confirm).
+ * overrun rate per toilet per day (provisional policy, Sambhu to confirm). Rent and overrun
+ * count toilets only -- tanks and stands go with them.
  * The figures the system works out are ESTIMATES for Accounts; what is
  * actually billed is the payment schedule (Rental Payments tab).
  *
@@ -66,7 +67,12 @@ var RENTAL_GATE_PASS_FOLDER_NAME = 'ICF Rental Gate Passes';
 var RENTAL_MODES = ['Per event', 'Per day', 'Per week', 'Per month'];
 var RENTAL_PERIOD_DAYS = { 'Per day': 1, 'Per week': 7, 'Per month': 30 };
 var RENTAL_TRIGGERS = ['', 'On installation', 'On off-hire', 'Before pickup'];
-var RENTAL_CHARGE_KINDS = ['Instalment', 'Overrun', 'Extra charge'];
+var RENTAL_CHARGE_KINDS = ['Instalment', 'Overrun', 'Damage', 'Extra charge'];
+var RENTAL_EXTRA_KINDS = ['Overrun', 'Damage', 'Extra charge']; // added on top of the rent / event value
+var RENTAL_AUTO_BILL = ['', 'Every week', 'Every month'];
+var RENTAL_AUTO_BILL_DAYS = { 'Every week': 7, 'Every month': 30 };
+var RENTAL_STANDBY_REASONS = ['Site not ready', 'Customer asked to postpone', 'Customer payment pending', 'No site access for pickup', 'Other'];
+var RN_UNDO_MINUTES = 30; // a wrong tap at the gate can be undone this long after
 var RENTAL_CATEGORIES = [
   { name: 'Toilet', prefix: 'T' },
   { name: 'Septic tank', prefix: 'S' },
@@ -87,7 +93,10 @@ var RENTAL_TABLES = {
       'Toilets Requested', 'Requirement', 'Billing Mode', 'Rate', 'Order Value', 'Overrun Rate', 'Planned Start', 'Planned End',
       'Advance Amount', 'Advance UTR', 'Deposit Amount', 'Deposit UTR', 'Agreement URL', 'Status', 'Sent Back Note',
       'Verified By', 'Verified At', 'Remind On', 'Deferred By', 'Acknowledged By', 'Acknowledged At',
-      'Configured By', 'Configured At', 'Remarks', 'Closed By', 'Closed At', 'Settlement Note', 'Alerts Sent', 'History'] },
+      'Configured By', 'Configured At', 'Remarks', 'Closed By', 'Closed At', 'Settlement Note', 'Alerts Sent', 'History',
+      // Oct 2026 round 2 -- added at the end, so live sheets just grow new columns (rnTable_ writes missing headers).
+      'Auto Bill', 'Standby Status', 'Standby Reason', 'Standby Until', 'Standby New Start', 'Standby By', 'Standby Requested By',
+      'Standby Ended At', 'Damage Notes', 'Imported', 'Standby Requested At'] },
   payments: { name: 'Rental Payments', id: 'Line ID', text: ['UTR'],
     headers: ['Line ID', 'Rental ID', 'Kind', 'Amount Due', 'Due Date', 'Due Trigger', 'Status', 'Amount Received', 'UTR',
       'Customer Says Paid At', 'Recorded By', 'Verified By', 'Verified At', 'Note', 'Alerts Sent'] },
@@ -99,7 +108,7 @@ var RENTAL_TABLES = {
   trips: { name: 'Rental Trips', id: 'Trip ID', text: ['Vehicle No.', 'Gate Pass No.'],
     headers: ['Trip ID', 'Rental ID', 'Direction', 'Items', 'Counts', 'Vehicle No.', 'Transport', 'Vendor', 'Cost', 'Status',
       'Created By', 'Created At', 'Gate Pass No.', 'Gate Pass URL', 'Gate Pass Issued By', 'Gate Pass Issued At',
-      'Gate By', 'Gate At', 'Gate Note', 'Alerts Sent'] },
+      'Gate By', 'Gate At', 'Gate Note', 'Alerts Sent', 'Photo URL'] },
   deployments: { name: 'Rental Deployments', id: 'Deployment ID',
     headers: ['Deployment ID', 'Rental ID', 'Items', 'Installed On', 'Planned End', 'Photo URL', 'Marked By', 'Marked At', 'Note'] },
   offhires: { name: 'Rental Off-hires', id: 'Off-hire ID',
@@ -161,6 +170,32 @@ function rnMe_() {
   return CURRENT_STAFF_;
 }
 function rnIsCoordinator_(me) { return me && (me.role === 'Admin' || me.role === 'Director'); }
+
+/**
+ * CRE cover (Oct 2026): a CRE may act on a rental they own, or one owned by a
+ * CRE they are covering TODAY (Staff tab: Away From / Away To / Covered By,
+ * set on the Admin page -- the same cover the sales tracker uses).
+ */
+function rnCreMayAct_(o, me) {
+  if (!me || me.role !== 'CRE') return false;
+  var owner = String(o['CRE Code'] || '').toUpperCase();
+  if (owner === me.code) return true;
+  var map = (RN_COVER_MEMO_ && RN_COVER_MEMO_.code === me.code) ? RN_COVER_MEMO_.map : coveredCodesFor_(me.code, getStaffMap_(false));
+  return !!map[owner];
+}
+// Set only while one page load loops over every rental (getRentalHome_), then cleared.
+var RN_COVER_MEMO_ = null;
+function rnAssertCre_(o, me) {
+  if (me.role === 'CRE' && !rnCreMayAct_(o, me)) throw new Error('This rental belongs to ' + o['CRE Name'] + '. If you are covering for them, ask the admin to set the leave cover on the Admin page.');
+}
+/** Who gets a CRE's rental messages today: the cover while they are away, else the CRE. */
+function rnCreRecipients_(code, staffMap) {
+  var s = staffMap[String(code || '').toUpperCase()];
+  if (!s) return [];
+  var today = todayYmd_();
+  if (s.awayFrom && s.awayTo && s.awayFrom <= today && today <= s.awayTo && s.coveredBy && staffMap[s.coveredBy] && staffMap[s.coveredBy].active) return [staffMap[s.coveredBy]];
+  return s.active ? [s] : [];
+}
 function rnLock_() { var l = LockService.getScriptLock(); l.waitLock(20000); return l; }
 function rnValidYmd_(s, label) {
   s = String(s || '').trim();
@@ -342,6 +377,8 @@ function rnCoverage_(ctx, rentalId) {
   rnOf_(ctx.trips, rentalId).forEach(function (t) {
     if (t['Direction'] === 'Out' && t['Status'] === 'Left') rnSplit_(t['Items']).forEach(function (x) { sent[x] = true; });
   });
+  // Installed items count too -- a rental imported while already on site has no trip.
+  rnOf_(ctx.deployments, rentalId).forEach(function (d) { rnSplit_(d['Items']).forEach(function (x) { sent[x] = true; }); });
   Object.keys(sent).forEach(function (x) { var it = rnFind_(ctx.items, x); if (it) add(it); });
   rnOf_(ctx.items, rentalId).forEach(function (it) {
     if ((it['Status'] === RI_ALLOCATED || it['Status'] === RI_LOADED) && !sent[String(it['Item ID']).toUpperCase()]) add(it);
@@ -361,7 +398,8 @@ function rnItemSummary_(ctx, rentalId) {
   });
   var out = 0;
   RI_OUT.forEach(function (s) { out += by[s] || 0; });
-  var tripsLeft = rnOf_(ctx.trips, rentalId).filter(function (t) { return t['Direction'] === 'Out' && t['Status'] === 'Left'; }).length;
+  var tripsLeft = rnOf_(ctx.trips, rentalId).filter(function (t) { return t['Direction'] === 'Out' && t['Status'] === 'Left'; }).length +
+    rnOf_(ctx.deployments, rentalId).length; // "something has gone out" -- imported rentals have deployments but no trips
   var returnedIn = rnOf_(ctx.trips, rentalId).filter(function (t) { return t['Direction'] === 'Return' && t['Status'] === 'Arrived'; });
   var needTotal = need.reduce(function (s, x) { return s + x.quantity; }, 0);
   var haveTotal = need.reduce(function (s, x) { return s + Math.min(x.have, x.quantity); }, 0);
@@ -376,6 +414,14 @@ function rnItemSummary_(ctx, rentalId) {
 
 /** One line telling where the order stands. */
 function rnStage_(ctx, o, sum) {
+  var base = rnStageBase_(ctx, o, sum);
+  if ((o['Status'] === 'Verified' || o['Status'] === 'Acknowledged') && rnStandbyActive_(o)) {
+    return { key: 'standby', label: 'On standby until ' + rnFmtDate_(o['Standby Until']) + ' – ' + o['Standby Reason'] + ' (' + base.label + ')', under: base.key };
+  }
+  if (String(o['Standby Status']) === 'Requested') base.label += ' · standby requested';
+  return base;
+}
+function rnStageBase_(ctx, o, sum) {
   var st = String(o['Status']);
   if (st === 'Logged') return o['Sent Back Note'] ? { key: 'sentback', label: 'Sent back to the CRE' } : { key: 'verify', label: 'Awaiting advance verification' };
   if (st === 'Cancelled') return { key: 'cancelled', label: 'Cancelled' };
@@ -407,12 +453,12 @@ function rnStage_(ctx, o, sum) {
  * (time-based modes only); days after it are overrun at the overrun rate.
  * Day count = end - start + 1 (the installation day counts). Estimates.
  */
-function rnMoney_(ctx, o) {
+function rnMoney_(ctx, o, asOfYmd) {
   var id = o['Rental ID'];
   var mode = String(o['Billing Mode'] || 'Per event');
   var rate = rnNum_(o['Rate']), overrunRate = rnNum_(o['Overrun Rate']);
   var periodDays = RENTAL_PERIOD_DAYS[mode] || 0;
-  var today = todayYmd_();
+  var today = asOfYmd || todayYmd_(); // period billing asks "as of the period end"
   var offOf = {};
   rnOf_(ctx.offhires, id).forEach(function (r) {
     rnSplit_(r['Items']).forEach(function (it) { offOf[it] = rnYmd_(r['Off-hire On']); });
@@ -420,9 +466,14 @@ function rnMoney_(ctx, o) {
   var rentDays = 0, overrunDays = 0, rent = 0, itemsOnHire = 0;
   rnOf_(ctx.deployments, id).forEach(function (d) {
     var start = rnYmd_(d['Installed On']), plannedEnd = rnYmd_(d['Planned End']) || rnYmd_(o['Planned End']);
-    if (!start) return;
-    rnSplit_(d['Items']).forEach(function (it) {
-      var end = offOf[it] || today;
+    if (!start || start > today) return;
+    // Rent and overrun count TOILETS only: the toilet is the unit hired; its tanks and stands go with it
+    // ("rate per toilet" at intake). Fixed Oct 2026 round 2 -- the first build counted every item.
+    rnSplit_(d['Items']).filter(function (it) {
+      var row = rnFind_(ctx.items, it);
+      return (row ? String(row['Category']) : rnCategoryOfId_(it)) === 'Toilet';
+    }).forEach(function (it) {
+      var end = offOf[it] && offOf[it] < today ? offOf[it] : today;
       if (!offOf[it]) itemsOnHire++;
       if (end < start) return;
       var days = sbDaysBetween_(start, end) + 1;
@@ -435,7 +486,7 @@ function rnMoney_(ctx, o) {
   var lines = rnOf_(ctx.payments, id);
   var live = lines.filter(function (l) { return l['Status'] !== 'Waived'; });
   var deposit = live.filter(function (l) { return l['Kind'] === 'Deposit'; });
-  var charges = live.filter(function (l) { return l['Kind'] === 'Overrun' || l['Kind'] === 'Extra charge'; })
+  var charges = live.filter(function (l) { return RENTAL_EXTRA_KINDS.indexOf(String(l['Kind'])) !== -1; })
     .reduce(function (s, l) { return s + rnNum_(l['Amount Due']); }, 0);
   var overrunBilled = live.filter(function (l) { return l['Kind'] === 'Overrun'; }).reduce(function (s, l) { return s + rnNum_(l['Amount Due']); }, 0);
   var received = live.filter(function (l) { return l['Kind'] !== 'Deposit' && l['Status'] === 'Verified'; })
@@ -501,7 +552,8 @@ function rnCard_(ctx, o, sum) {
     rentalId: String(o['Rental ID']), customer: String(o['Customer'] || ''),
     site: [o['Site District'], o['Site State']].filter(function (x) { return String(x || '').trim(); }).join(', '),
     creName: String(o['CRE Name'] || ''), creCode: String(o['CRE Code'] || ''),
-    status: String(o['Status']), stage: stage.label, stageKey: stage.key,
+    status: String(o['Status']), stage: stage.label, stageKey: stage.key, baseKey: stage.under || stage.key,
+    standby: rnStandbyView_(o), imported: String(o['Imported'] || '') === 'Y', autoBill: String(o['Auto Bill'] || ''),
     plannedStart: rnFmtDate_(o['Planned Start']), plannedEnd: rnFmtDate_(o['Planned End']),
     daysToStart: start ? sbDaysBetween_(todayYmd_(), start) : null,
     billingMode: String(o['Billing Mode'] || ''), toilets: rnNum_(o['Toilets Requested']),
@@ -563,15 +615,34 @@ function getRentalOrder_(query) {
     money: showMoney ? money : null,
     cost: showMoney ? cost : null,
     settings: { depositOn: s.depositOn, deferDays: s.deferDays },
-    can: rnCan_(o, card, me)
+    can: rnCan_(o, card, me),
+    damages: rnDamages_(ctx, o),
+    me: { code: me.code, role: me.role },
+    cres: me.role === 'Admin' ? rnCreList_() : []
   };
+  // Off-hires the signed-in CRE may still undo (their own, recorded today).
+  detail.offhires.forEach(function (r) {
+    var row = rnFind_(ctx.offhires, r.offhireId);
+    r.recordedToday = !!row && rnYmd_(row['Recorded At']) === todayYmd_();
+    r.mine = !!row && String(row['Recorded By']).indexOf('(' + me.code + ')') !== -1;
+    r.itemsWaiting = r.items.filter(function (x) { var it = rnFind_(ctx.items, x); return it && it['Status'] === RI_OFFHIRED; }).length;
+  });
+  detail.deployments.forEach(function (d) {
+    d.allOnHire = d.items.every(function (x) { var it = rnFind_(ctx.items, x); return it && it['Status'] === RI_DEPLOYED; });
+  });
   return detail;
+}
+
+function rnCreList_() {
+  var m = getStaffMap_(false);
+  return Object.keys(m).map(function (k) { return m[k]; }).filter(function (x) { return x.active && x.role === 'CRE'; })
+    .map(function (x) { return { code: x.code, name: x.name }; });
 }
 
 /** What the signed-in person may do with this order (the page shows only these buttons). */
 function rnCan_(o, card, me) {
   var role = me.role, coord = rnIsCoordinator_(me), st = String(o['Status']);
-  var mine = String(o['CRE Code'] || '').toUpperCase() === me.code;
+  var mine = rnCreMayAct_(o, me);
   var open = st === 'Acknowledged';
   return {
     edit: st === 'Logged' && ((role === 'CRE' && mine) || role === 'Admin'),
@@ -590,7 +661,15 @@ function rnCan_(o, card, me) {
     customerPaid: st !== 'Cancelled' && st !== 'Closed' && (role === 'CRE' || role === 'Admin'),
     waive: st !== 'Cancelled' && (role === 'Admin' || role === 'Director'),
     close: open && (role === 'Accounts' || role === 'Admin'),
-    cancel: (st === 'Logged' || st === 'Verified' || open) && (role === 'Admin' || role === 'Director')
+    cancel: (st === 'Logged' || st === 'Verified' || open) && (role === 'Admin' || role === 'Director'),
+    // Round 2
+    standby: (st === 'Verified' || open) && (coord || (role === 'CRE' && mine) || role === 'Ops'),
+    decideStandby: coord && String(o['Standby Status']) === 'Requested',
+    correct: open && coord,
+    undoOffhire: open && (coord || (role === 'CRE' && mine)),
+    cancelPickup: open && (coord || role === 'Ops'),
+    reassign: role === 'Admin' && st !== 'Closed' && st !== 'Cancelled',
+    billDamage: role === 'Accounts' || role === 'Admin' || role === 'Director'
   };
 }
 
@@ -598,8 +677,9 @@ function rnCan_(o, card, me) {
 // Intake -- CRE, once the advance is paid
 // ================================================================
 /** Reads and checks the intake form. Throws a message the CRE can act on. */
-function rnCleanIntake_(f, s) {
+function rnCleanIntake_(f, s, opts) {
   f = f || {};
+  opts = opts || {};
   var t = function (k) { return String(f[k] == null ? '' : f[k]).trim(); };
   var errors = [];
   var out = {
@@ -612,8 +692,11 @@ function rnCleanIntake_(f, s) {
     plannedStart: t('plannedStart'), plannedEnd: t('plannedEnd'),
     advanceAmount: rnNum_(f.advanceAmount), advanceUtr: t('advanceUtr'),
     depositAmount: rnNum_(f.depositAmount), depositUtr: t('depositUtr'), remarks: t('remarks'),
+    autoBill: t('autoBill'),
     schedule: []
   };
+  if (RENTAL_AUTO_BILL.indexOf(out.autoBill) === -1) out.autoBill = '';
+  if (out.billingMode === 'Per event') out.autoBill = '';
   if (!out.customer) errors.push('customer name');
   if (out.customerPhone.replace(/\D/g, '').length < 10) errors.push('customer phone (10 digits)');
   if (out.customerEmail && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(out.customerEmail)) errors.push('a valid customer email (or leave it blank)');
@@ -626,8 +709,14 @@ function rnCleanIntake_(f, s) {
   if (!sbIsYmd_(out.plannedStart)) errors.push('installation date needed');
   if (!sbIsYmd_(out.plannedEnd)) errors.push('planned end date');
   if (sbIsYmd_(out.plannedStart) && sbIsYmd_(out.plannedEnd) && out.plannedEnd < out.plannedStart) errors.push('a planned end on or after the installation date');
-  if (out.advanceAmount <= 0) errors.push('advance received (a rental is logged only once the advance is paid)');
-  if (!out.advanceUtr) errors.push('advance UTR / bank reference');
+  if (opts.imported) {
+    // Already on site at go-live: the advance may be long settled -- optional, but a UTR with any amount.
+    if (out.advanceAmount < 0) errors.push('a valid advance');
+    if (out.advanceAmount > 0 && !out.advanceUtr) errors.push('the advance UTR');
+  } else {
+    if (out.advanceAmount <= 0) errors.push('advance received (a rental is logged only once the advance is paid)');
+    if (!out.advanceUtr) errors.push('advance UTR / bank reference');
+  }
   if (out.advanceAmount > out.orderValue + BALANCE_DUE_TOLERANCE) errors.push('an advance no larger than the order value');
   if (s.depositOn) {
     if (out.depositAmount < 0) errors.push('deposit amount');
@@ -657,7 +746,7 @@ function rnOrderFields_(c) {
     'Toilets Requested': c.toilets, 'Requirement': c.requirement, 'Billing Mode': c.billingMode, 'Rate': c.rate || '',
     'Order Value': c.orderValue, 'Overrun Rate': c.overrunRate || '', 'Planned Start': sbYmdToDate_(c.plannedStart),
     'Planned End': sbYmdToDate_(c.plannedEnd), 'Advance Amount': c.advanceAmount, 'Advance UTR': c.advanceUtr,
-    'Deposit Amount': c.depositAmount || '', 'Deposit UTR': c.depositUtr, 'Remarks': c.remarks
+    'Deposit Amount': c.depositAmount || '', 'Deposit UTR': c.depositUtr, 'Remarks': c.remarks, 'Auto Bill': c.autoBill
   };
 }
 
@@ -733,7 +822,7 @@ function updateRental_(form) {
     var ctx = rnLoad_();
     var o = rnOrder_(ctx, id);
     if (o['Status'] !== 'Logged') throw new Error('Accounts has already verified this rental, so it can’t be edited. Ask the admin.');
-    if (me.role === 'CRE' && String(o['CRE Code']).toUpperCase() !== me.code) throw new Error('This rental belongs to ' + o['CRE Name'] + '.');
+    rnAssertCre_(o, me);
     var f = rnOrderFields_(c);
     f['Sent Back Note'] = '';
     rnSet_(ctx.orders, o, f);
@@ -954,7 +1043,7 @@ function rentalCustomerPaid_(form) {
     if (!l) throw new Error('Payment line not found.');
     id = String(l['Rental ID']);
     var o = rnOrder_(ctx, id);
-    if (me.role === 'CRE' && String(o['CRE Code']).toUpperCase() !== me.code) throw new Error('This rental belongs to ' + o['CRE Name'] + '.');
+    rnAssertCre_(o, me);
     if (l['Status'] !== 'Due') throw new Error('This line is “' + l['Status'] + '” – nothing to mark.');
     rnSet_(ctx.payments, l, { 'Status': 'Paid – to verify', 'Amount Received': amt, 'UTR': utr, 'Customer Says Paid At': new Date(),
       'Recorded By': rnWho_(me), 'Note': [String(l['Note'] || ''), String(form.note || '').trim()].filter(Boolean).join(' – ') });
@@ -1086,7 +1175,7 @@ function extendRental_(form) {
     var ctx = rnLoad_();
     var o = rnOrder_(ctx, id);
     if (o['Status'] !== 'Acknowledged' && o['Status'] !== 'Verified') throw new Error('Only an open rental can be extended.');
-    if (me.role === 'CRE' && String(o['CRE Code']).toUpperCase() !== me.code) throw new Error('This rental belongs to ' + o['CRE Name'] + '.');
+    rnAssertCre_(o, me);
     var depId = String(form.deploymentId || '').trim().toUpperCase();
     var deps = rnOf_(ctx.deployments, id).filter(function (d) { return !depId || String(d['Deployment ID']).toUpperCase() === depId; });
     if (depId && !deps.length) throw new Error('Deployment ' + depId + ' not found.');
@@ -1185,12 +1274,18 @@ function cancelRental_(form) {
 // ================================================================
 function getRentalHome_() {
   var me = rnMe_();
+  RN_COVER_MEMO_ = { code: me.code, map: coveredCodesFor_(me.code, getStaffMap_(false)) };
+  try { return rnRentalHome_(me); } finally { RN_COVER_MEMO_ = null; }
+}
+function rnRentalHome_(me) {
   var live = rnIsLive_();
   var s = getRentalSettings_();
   var out = { live: live, role: me.role, me: { code: me.code, name: me.name }, coordinator: rnIsCoordinator_(me),
     settings: { depositOn: s.depositOn, deferDays: s.deferDays }, today: todayYmd_(),
     categories: RENTAL_CATEGORIES.map(function (c) { return c.name; }), modes: RENTAL_MODES, triggers: RENTAL_TRIGGERS.slice(1),
-    chargeKinds: RENTAL_CHARGE_KINDS, jobKinds: RENTAL_JOB_KINDS, types: [], queues: {}, alerts: [] };
+    chargeKinds: RENTAL_CHARGE_KINDS, jobKinds: RENTAL_JOB_KINDS, types: [], queues: {}, alerts: [],
+    standbyReasons: RENTAL_STANDBY_REASONS, autoBill: RENTAL_AUTO_BILL.slice(1), loadPhotoRequired: RN_LOAD_PHOTO_REQUIRED,
+    cres: (me.role === 'Admin' || me.role === 'Director') ? rnCreList_() : [] };
   if (!live) return out;
   var ctx = rnLoad_();
   out.types = ctx.types.rows.filter(function (r) { return String(r['Active'] || 'Y').toUpperCase() !== 'N'; })
@@ -1208,7 +1303,7 @@ function getRentalHome_() {
   var role = me.role;
 
   if (role === 'CRE' || role === 'Admin') {
-    q.mine = list(function (o) { return openOrder(o) && (role === 'Admin' || String(o['CRE Code']).toUpperCase() === me.code); });
+    q.mine = list(function (o) { return openOrder(o) && (role === 'Admin' || rnCreMayAct_(o, me)); });
     q.sentBack = q.mine.filter(function (c) { return c.stageKey === 'sentback'; });
   }
   if (role === 'Accounts' || role === 'Admin') {
@@ -1224,7 +1319,7 @@ function getRentalHome_() {
       v.rentalId = String(o['Rental ID']); v.customer = String(o['Customer']);
       q.paymentsToVerify.push(v);
     });
-    q.toSettle = list(function (o) { return o['Status'] === 'Acknowledged' && cards[o['Rental ID']].stageKey === 'settle'; });
+    q.toSettle = list(function (o) { return o['Status'] === 'Acknowledged' && sums[o['Rental ID']].allBack; });
   }
   if (role === 'Ops' || role === 'Admin') {
     q.toPrepare = list(function (o) {
@@ -1239,7 +1334,8 @@ function getRentalHome_() {
     q.pickups = list(function (o) { return o['Status'] === 'Acknowledged' && sums[o['Rental ID']].by[RI_OFFHIRED] > 0; });
   }
   if (rnIsCoordinator_(me)) {
-    q.toAck = list(function (o) { return o['Status'] === 'Verified' && !(rnYmd_(o['Remind On']) > today); });
+    q.toAck = list(function (o) { return o['Status'] === 'Verified' && !(rnYmd_(o['Remind On']) > today) && !rnStandbyActive_(o, today); });
+    q.standby = list(function (o) { return (o['Status'] === 'Verified' || o['Status'] === 'Acknowledged') && (rnStandbyActive_(o, today) || String(o['Standby Status']) === 'Requested'); });
     q.scheduled = list(function (o) { return o['Status'] === 'Verified' && rnYmd_(o['Remind On']) > today; });
     q.toConfigure = list(function (o) { return o['Status'] === 'Acknowledged' && !sums[o['Rental ID']].need.length; });
     q.toInstall = list(function (o) { return o['Status'] === 'Acknowledged' && sums[o['Rental ID']].by[RI_TRANSIT] > 0; });
@@ -1285,7 +1381,9 @@ function rnAttention_(ctx, me, cards, sums) {
   var add = function (who, rentalId, text, level) { out.push({ rentalId: rentalId, text: text, level: level || 'warn', who: who }); };
   ctx.orders.rows.forEach(function (o) {
     var id = String(o['Rental ID']), st = String(o['Status']), sum = sums[id];
-    var mine = String(o['CRE Code']).toUpperCase() === me.code;
+    var mine = rnCreMayAct_(o, me);
+    var paused = (st === 'Verified' || st === 'Acknowledged') && rnStandbyActive_(o, today);
+    if (coord && String(o['Standby Status']) === 'Requested') add('Ananthu', id, id + ' – ' + o['Customer'] + ': standby asked by ' + String(o['Standby Requested By']).replace(/\s*\([^)]*\)$/, '') + ' – ' + o['Standby Reason'] + '. Approve or decline it.', 'warn');
     if (st === 'Logged') {
       if (o['Sent Back Note'] && (mine || role === 'Admin') && (role === 'CRE' || role === 'Admin')) add('CRE', id, id + ' was sent back by Accounts: ' + o['Sent Back Note'], 'bad');
       if (!o['Sent Back Note'] && (role === 'Accounts' || role === 'Admin')) {
@@ -1296,18 +1394,18 @@ function rnAttention_(ctx, me, cards, sums) {
     }
     if (st === 'Verified') {
       var rem = rnYmd_(o['Remind On']);
-      if (coord && !(rem > today)) add('Ananthu', id, id + ' – ' + o['Customer'] + (rem ? ': reminder date reached – acknowledge it now.' : ': verified, waiting for your acknowledgement.'), rem ? 'bad' : 'warn');
+      if (coord && !(rem > today) && !paused) add('Ananthu', id, id + ' – ' + o['Customer'] + (rem ? ': reminder date reached – acknowledge it now.' : ': verified, waiting for your acknowledgement.'), rem ? 'bad' : 'warn');
       return;
     }
     if (st !== 'Acknowledged') return;
     if (coord && !sum.need.length) add('Ananthu', id, id + ' – ' + o['Customer'] + ': enter the component configuration.');
     var start = rnYmd_(o['Planned Start']);
     var daysTo = start ? sbDaysBetween_(today, start) : null;
-    if ((role === 'Ops' || role === 'Admin') && sum.need.length && daysTo !== null && daysTo <= 2 && !sum.tripsLeft && sum.haveTotal < sum.needTotal) {
+    if (!paused && (role === 'Ops' || role === 'Admin') && sum.need.length && daysTo !== null && daysTo <= 2 && !sum.tripsLeft && sum.haveTotal < sum.needTotal) {
       add('Ops', id, id + ' – ' + o['Customer'] + ': needed ' + (daysTo < 0 ? rnPlural_(-daysTo, 'day') + ' ago' : daysTo === 0 ? 'today' : 'in ' + rnPlural_(daysTo, 'day')) + ', ' + sum.haveTotal + ' of ' + sum.needTotal + ' items allocated.', daysTo <= 0 ? 'bad' : 'warn');
     }
     if (coord && sum.by[RI_TRANSIT]) add('Ananthu', id, id + ' – ' + o['Customer'] + ': ' + rnPlural_(sum.by[RI_TRANSIT], 'item') + ' dispatched – mark the installation when done.');
-    if (coord && sum.need.length && start && start < today && !rnOf_(ctx.deployments, id).length) add('Ananthu', id, id + ' – ' + o['Customer'] + ': installation date ' + fmtYmd_(start) + ' has passed and nothing is marked installed.', 'bad');
+    if (!paused && coord && sum.need.length && start && start < today && !rnOf_(ctx.deployments, id).length) add('Ananthu', id, id + ' – ' + o['Customer'] + ': installation date ' + fmtYmd_(start) + ' has passed and nothing is marked installed.', 'bad');
     // End dates
     rnOf_(ctx.deployments, id).forEach(function (d) {
       var still = rnSplit_(d['Items']).filter(function (x) { var it = rnFind_(ctx.items, x); return it && it['Status'] === RI_DEPLOYED && String(it['Rental ID']).toUpperCase() === id.toUpperCase(); }).length;
@@ -1321,7 +1419,7 @@ function rnAttention_(ctx, me, cards, sums) {
       }
     });
     // Pickups
-    if (coord) {
+    if (coord && !paused) {
       rnOf_(ctx.offhires, id).forEach(function (r) {
         var waiting = rnSplit_(r['Items']).filter(function (x) { var it = rnFind_(ctx.items, x); return it && it['Status'] === RI_OFFHIRED; }).length;
         if (!waiting) return;
@@ -1340,7 +1438,7 @@ function rnAttention_(ctx, me, cards, sums) {
     if (l['Status'] !== 'Due') return;
     var due = rnLineDue_(ctx, o, l, sums[id]);
     if (!due || due >= today) return;
-    var mine = String(o['CRE Code']).toUpperCase() === me.code;
+    var mine = rnCreMayAct_(o, me);
     if (coord || (role === 'CRE' && mine) || role === 'Accounts') add('Payment', id, id + ' – ' + o['Customer'] + ': ' + l['Kind'].toLowerCase() + ' ' + rnRupees_(l['Amount Due']) + ' was due ' + fmtYmd_(due) + '.', 'bad');
   });
   if (role === 'Accounts' || role === 'Admin') {
@@ -1365,7 +1463,7 @@ function rnPeopleFor_(kind, staffMap, cfg, creCode) {
   else if (kind === 'escalate') list = pick(cfg.escalateTo, all.filter(function (s) { return s.role === 'Director'; }).concat(admins));
   else if (kind === 'accounts') list = all.filter(function (s) { return s.role === 'Accounts'; });
   else if (kind === 'ops') list = all.filter(function (s) { return s.role === 'Ops'; });
-  else if (kind === 'cre') list = pick(String(creCode || '').toUpperCase(), []);
+  else if (kind === 'cre') list = rnCreRecipients_(creCode, staffMap);
   return list.map(staffRecipient_);
 }
 
@@ -1392,9 +1490,16 @@ function rentalSweep_(nowMs, staffMap, cfg) {
   var has = opsHasToken_;
   var orderMark = function (o, tok) { return { tbl: ctx.orders, row: o, col: 'Alerts Sent', tok: tok }; };
   var label = function (o) { return o['Rental ID'] + ' – ' + o['Customer'] + (o['Site District'] ? ' (' + o['Site District'] + ')' : ''); };
+  // Round 2: standby timers and period rent bills (RentalExtras.js) run first, so a standby that ends today is not paused below.
+  var extraSent = 0;
+  if (typeof rnExtrasSweep_ === 'function') {
+    try { extraSent = rnExtrasSweep_(ctx, nowMs, staffMap, cfg, today); } catch (e) { Logger.log('rental extras sweep failed: ' + e); }
+  }
 
   ctx.orders.rows.forEach(function (o) {
     var id = String(o['Rental ID']), st = String(o['Status']), cell = String(o['Alerts Sent'] || '');
+    // Standby pauses the work reminders (acknowledge, prepare, install, pick up) -- not rent, overrun or payments.
+    var paused = (st === 'Verified' || st === 'Acknowledged') && rnStandbyActive_(o, today);
     if (st === 'Logged') {
       if (o['Sent Back Note']) return;
       var h = opsWorkingHours_(rnMs_(o['Logged At']), nowMs);
@@ -1409,6 +1514,7 @@ function rentalSweep_(nowMs, staffMap, cfg) {
     if (st === 'Verified') {
       var rem = rnYmd_(o['Remind On']);
       if (rem && rem > today) return; // scheduled -- quiet until the reminder date
+      if (paused) return;
       var start = rnYmd_(o['Planned Start']);
       var far = start && sbDaysBetween_(today, start) >= s.deferDays;
       if (!has(cell, 'New') && !rem) push('new', { event: 'RENTAL_NEW', to: who('coordinator'),
@@ -1418,7 +1524,7 @@ function rentalSweep_(nowMs, staffMap, cfg) {
       if (rem && !has(cell, 'Back' + rem)) push('back', { event: 'RENTAL_REMINDER_DATE', to: who('coordinator'),
         subject: 'Rentals back for acknowledgement today', intro: 'You set a reminder for these rentals. Acknowledge them now on the Rentals page.' },
         label(o) + ', needed ' + rnFmtDate_(o['Planned Start']), orderMark(o, 'Back' + rem));
-      var from = Math.max(rnMs_(o['Verified At']), rnDayStartMs_(rem));
+      var from = Math.max(rnMs_(o['Verified At']), rnDayStartMs_(rem), rnMs_(o['Standby Ended At'])); // the clock restarts after a standby
       var ah = opsWorkingHours_(from, nowMs);
       if (ah >= s.ackEscHours && !has(cell, 'AckEscalated')) push('ackEsc', { event: 'RENTAL_ACK_ESCALATION', to: who('escalate'), cc: emailsOf(who('coordinator')),
         subject: 'OVERDUE: rentals not acknowledged after ' + s.ackEscHours + ' working hours', intro: 'These verified rentals haven’t been acknowledged by the rental coordinator.' },
@@ -1432,13 +1538,13 @@ function rentalSweep_(nowMs, staffMap, cfg) {
     var sum = rnItemSummary_(ctx, id);
     var startA = rnYmd_(o['Planned Start']);
     // Prep: the working day before the installation date, still not fully allocated.
-    if (startA && sum.need.length && !sum.tripsLeft && sum.haveTotal < sum.needTotal && sbDaysBetween_(today, startA) <= 1 && !has(cell, 'PrepLate')) {
+    if (!paused && startA && sum.need.length && !sum.tripsLeft && sum.haveTotal < sum.needTotal && sbDaysBetween_(today, startA) <= 1 && !has(cell, 'PrepLate')) {
       push('prep', { event: 'RENTAL_PREP_LATE', to: who('ops'), cc: emailsOf(who('coordinator')),
         subject: 'Rentals needed tomorrow or sooner are not fully prepared', intro: 'Tag and allocate the remaining items and request the gate pass on the Rentals page.' },
         label(o) + ': needed ' + fmtYmd_(startA) + ', ' + sum.haveTotal + ' of ' + sum.needTotal + ' items allocated', orderMark(o, 'PrepLate'));
     }
     // Installation: the planned date has passed and nothing is marked installed.
-    if (startA && startA < today && !rnOf_(ctx.deployments, id).length) {
+    if (!paused && startA && startA < today && !rnOf_(ctx.deployments, id).length) {
       var late = rnWorkingDays_(rnDayStartMs_(startA) + 86400000, nowMs);
       if (late >= 2 && !has(cell, 'InstallEsc')) push('installEsc', { event: 'RENTAL_INSTALL_ESCALATION', to: who('escalate'), cc: emailsOf(who('coordinator')),
         subject: 'OVERDUE: rentals past their installation date with nothing installed', intro: 'Nothing is marked installed on these rentals two working days after the date agreed with the customer.' },
@@ -1470,8 +1576,8 @@ function rentalSweep_(nowMs, staffMap, cfg) {
           label(o) + ': ' + depId + ', ' + rnPlural_(still, 'item') + ', ends ' + fmtYmd_(end), orderMark(o, 'EndSoon-' + depId));
       }
     });
-    // Pickup after off-hire.
-    rnOf_(ctx.offhires, id).forEach(function (r) {
+    // Pickup after off-hire (paused on standby, e.g. no site access).
+    if (!paused) rnOf_(ctx.offhires, id).forEach(function (r) {
       var ohId = String(r['Off-hire ID']);
       var waiting = rnSplit_(r['Items']).filter(function (x) { var it = rnFind_(ctx.items, x); return it && it['Status'] === RI_OFFHIRED; }).length;
       if (!waiting) return;
@@ -1559,7 +1665,7 @@ function rentalSweep_(nowMs, staffMap, cfg) {
       rnSet_(m.tbl, m.row, (function () { var f = {}; f[m.col] = (cur ? cur + ' | ' : '') + m.tok + ' ' + rnStamp_(); return f; })());
     });
   });
-  return sent;
+  return sent + extraSent;
 }
 
 // ================================================================
@@ -1761,7 +1867,15 @@ function rnDeleteTestRentals_(ids) {
     var urls = [];
     ctx.orders.rows.forEach(function (o) { if (want[String(o['Rental ID']).toUpperCase()] && o['Agreement URL']) urls.push(String(o['Agreement URL'])); });
     ctx.deployments.rows.forEach(function (d) { if (want[String(d['Rental ID']).toUpperCase()] && d['Photo URL']) urls.push(String(d['Photo URL'])); });
-    ctx.trips.rows.forEach(function (t) { if (want[String(t['Rental ID']).toUpperCase()] && t['Gate Pass URL']) urls.push(String(t['Gate Pass URL'])); });
+    ctx.trips.rows.forEach(function (t) {
+      if (!want[String(t['Rental ID']).toUpperCase()]) return;
+      if (t['Gate Pass URL']) urls.push(String(t['Gate Pass URL']));
+      if (t['Photo URL']) urls.push(String(t['Photo URL'])); // loading photo (round 2)
+    });
+    ctx.orders.rows.forEach(function (o) { // damage photos (round 2)
+      if (!want[String(o['Rental ID']).toUpperCase()]) return;
+      String(o['Damage Notes'] || '').split('\n').forEach(function (x) { var u = (x.split(' | ')[2] || '').trim(); if (u) urls.push(u); });
+    });
     urls.forEach(function (u) {
       var m = u.match(/\/d\/([A-Za-z0-9_-]+)/) || u.match(/[?&]id=([A-Za-z0-9_-]+)/);
       if (!m) return;

@@ -166,6 +166,7 @@
       <div class="btns">
         <button type="button" class="btn-alerts" id="alertsBtn"></button>
         <button type="button" class="btn-new" id="newBtn" style="display:none;">+ New rental</button>
+        <button type="button" class="btn-ghost" id="importBtn" style="display:none;">+ Already on site</button>
         <button type="button" class="btn-ghost refresh-btn" id="refreshBtn">&#8635; Refresh</button>
       </div>
     </div>
@@ -308,6 +309,7 @@
     { key: 'toSettle', label: 'To settle', kind: 'order', note: 'Everything is back. Bill any overrun, record the balance and close.' },
     { key: 'toAck', label: 'To acknowledge', kind: 'order', alert: true, note: 'Verified rentals. Acknowledge – or, for one needed far ahead, set a reminder date.' },
     { key: 'scheduled', label: 'Scheduled', kind: 'order', quiet: true, note: 'Rentals you set a reminder for. They come back to “To acknowledge” on that date, with no nudges until then.' },
+    { key: 'standby', label: 'Standby', kind: 'order', note: 'On standby for a customer-side delay, or waiting for your OK. Work reminders stop until the resume date; rent, overrun and payment reminders don’t.' },
     { key: 'toConfigure', label: 'To configure', kind: 'order', alert: true, note: 'Enter how many toilets, septic tanks, water tanks and stands go out.' },
     { key: 'toPrepare', label: 'To prepare', kind: 'order', note: 'Tag or allocate the items, then load a trip and request the gate pass. Soonest first.' },
     { key: 'requested', label: 'Loaded – at the gate', kind: 'trip', quiet: true, note: 'Trips waiting for the gate pass or for the gate to mark them out.' },
@@ -330,6 +332,7 @@
     if (!HOME) return;
     $('notLive').classList.toggle('show', !HOME.live);
     $('newBtn').style.display = HOME.live && (role() === 'CRE' || role() === 'Admin') ? '' : 'none';
+    $('importBtn').style.display = HOME.live && isCoord() ? '' : 'none';
     var subs = { CRE: 'Log a rental once the advance is paid; record off-hires and extensions.', Accounts: 'Verify advances and payments, issue rental gate passes, settle.',
       Ops: 'Tag and load items, inspect what comes back.', Director: 'Acknowledge, configure, install, pick up – and the overview.', Admin: 'Everything on rentals.' };
     $('topSub').textContent = subs[role()] || '';
@@ -357,10 +360,11 @@
   }
 
   function orderCard(c) {
-    var lvl = c.stageKey === 'sentback' ? 'bad' : (c.daysToStart !== null && c.daysToStart <= 1 && ['prepare', 'configure', 'ack'].indexOf(c.stageKey) !== -1) ? 'bad' : (c.stageKey === 'scheduled' ? 'warn' : '');
+    var lvl = c.standby && c.standby.status === 'Requested' && isCoord() ? 'warn' : c.stageKey === 'sentback' ? 'bad' : (c.daysToStart !== null && c.daysToStart <= 1 && ['prepare', 'configure', 'ack'].indexOf(c.stageKey) !== -1) ? 'bad' : (c.stageKey === 'scheduled' ? 'warn' : '');
     return '<div class="card ' + lvl + '" data-open="' + esc(c.rentalId) + '">' +
       '<div class="row1"><div><div class="inst">' + esc(c.customer) + '</div><div class="id">' + esc(c.rentalId) + (c.site ? ' · ' + esc(c.site) : '') + ' · CRE ' + esc(c.creName) + '</div></div>' +
-      '<span class="badge">' + esc(c.billingMode) + '</span></div>' +
+      '<span class="badge">' + esc(c.billingMode) + (c.autoBill ? ' · billed ' + esc(c.autoBill.replace('Every ', '')) + 'ly' : '') + '</span></div>' +
+      (c.standby ? '<div style="margin-top:6px;"><span class="badge warn">' + (c.standby.status === 'Requested' ? 'Standby asked' : 'Standby until ' + esc(c.standby.until)) + '</span>' + (c.imported ? ' <span class="badge">Imported</span>' : '') + '</div>' : (c.imported ? '<div style="margin-top:6px;"><span class="badge">Imported – already on site</span></div>' : '')) +
       '<div class="meta">' + c.toilets + ' toilet' + (c.toilets === 1 ? '' : 's') + ' requested · needed ' + esc(c.plannedStart) + (c.daysToStart !== null && c.status !== 'Closed' ? ' (' + daysText(c.daysToStart) + ')' : '') + ' to ' + esc(c.plannedEnd) +
         (c.needTotal ? '<br>Configured ' + c.needTotal + ' items · ' + c.haveTotal + ' allocated or sent' : '') + '</div>' +
       '<div class="stage">' + esc(c.stage) + '</div>' +
@@ -381,8 +385,10 @@
   }
   function inspectCard(it) {
     return '<div class="card plain" id="ins' + esc(it.itemId) + '"><div class="row1"><div><div class="itemid">' + esc(it.itemId) + '</div><div class="id">' + esc(it.type) + ' · back from ' + esc(it.rentalId) + '</div></div></div>' +
+      (/^Stencil/.test(it.note || '') ? '<div class="warnbox" style="margin-top:8px;">Not stencilled yet – paint <b>' + esc(it.itemId) + '</b> on it now.</div>' : '') +
       '<div class="acts"><button type="button" class="btn green" data-insp="' + esc(it.itemId) + '" data-ok="1">OK – available</button><button type="button" class="btn light" data-dmg="' + esc(it.itemId) + '">Damaged…</button></div>' +
       '<div style="display:none;" id="dmg' + esc(it.itemId) + '"><label>What is damaged?</label><input type="text" id="dmgNote' + esc(it.itemId) + '" placeholder="e.g. cracked door panel">' +
+      '<label>Photo of the damage</label><input type="file" id="dmgPh' + esc(it.itemId) + '" accept="image/*"><img class="photo-prev" id="dmgPv' + esc(it.itemId) + '" alt="">' +
       '<button type="button" class="btn red block" data-insp="' + esc(it.itemId) + '" data-ok="0">Save – send to repair</button></div><div class="err" id="insErr' + esc(it.itemId) + '"></div></div>';
   }
   function repairCard(it) {
@@ -408,13 +414,16 @@
         run('verifyRentalPayment', [{ lineId: id }], b, 'vpErr' + id, function () { toast('Payment verified.'); load(); });
       });
     });
+    var dmgPhotos = {};
     Array.prototype.forEach.call(list.querySelectorAll('[data-dmg]'), function (b) {
-      b.addEventListener('click', function () { $('dmg' + b.getAttribute('data-dmg')).style.display = 'block'; });
+      var id = b.getAttribute('data-dmg');
+      dmgPhotos[id] = fileField('dmgPh' + id, 'dmgPv' + id, 'insErr' + id);
+      b.addEventListener('click', function () { $('dmg' + id).style.display = 'block'; });
     });
     Array.prototype.forEach.call(list.querySelectorAll('[data-insp]'), function (b) {
       b.addEventListener('click', function () {
         var id = b.getAttribute('data-insp'), okv = b.getAttribute('data-ok') === '1';
-        run('inspectRentalItems', [{ results: [{ itemId: id, ok: okv, note: okv ? '' : val('dmgNote' + id) }] }], b, 'insErr' + id, function () {
+        run('inspectRentalItems', [{ results: [{ itemId: id, ok: okv, note: okv ? '' : val('dmgNote' + id), photo: okv ? null : (dmgPhotos[id] && dmgPhotos[id]()) }] }], b, 'insErr' + id, function () {
           toast(id + (okv ? ' is available again.' : ' sent to repair.')); load();
         });
       });
@@ -517,10 +526,11 @@
   function renderDetail() {
     var d = DETAIL, c = d.card, o = d.order, can = d.can;
     $('sheetTitle').textContent = c.rentalId + ' · ' + c.customer;
-    var lvl = { sentback: 'bad', settle: 'ok', closed: 'ok', cancelled: 'bad', scheduled: 'warn' }[c.stageKey] || '';
+    var lvl = { sentback: 'bad', settle: 'ok', closed: 'ok', cancelled: 'bad', scheduled: 'warn', standby: 'warn' }[c.stageKey] || '';
     var h = '<div class="status-line ' + lvl + '">' + esc(c.stage) + '</div>';
 
     // ---- actions first ----
+    h += standbyPanel();
     if (can.edit) h += '<div class="panel act' + (c.sentBackNote ? ' warn' : '') + '"><h2>Correct the intake</h2>' + (c.sentBackNote ? '<div class="warnbox">Sent back: ' + esc(c.sentBackNote) + '</div>' : '<div class="hint">Accounts hasn’t verified this yet, so you can still change it.</div>') +
       '<button type="button" class="btn block" id="editBtn">Edit this rental</button></div>';
     if (can.verify) h += verifyPanel();
@@ -542,6 +552,9 @@
     if (can.close) h += closePanel();
     if (can.extend) h += extendPanel();
     if (can.vendorJob) h += jobPanel();
+    if (can.reassign) h += '<div class="panel"><details class="more"><summary>Reassign to another CRE</summary><div class="inline"><select id="raTo">' +
+      d.cres.filter(function (x) { return x.code !== c.creCode; }).map(function (x) { return '<option value="' + esc(x.code) + '">' + esc(x.name) + '</option>'; }).join('') +
+      '</select><input type="text" id="raNote" placeholder="Why (optional)"><button type="button" class="btn" id="raBtn">Reassign</button></div><div class="err" id="raErr"></div></details></div>';
 
     // ---- the record ----
     h += infoPanels();
@@ -549,6 +562,32 @@
       '<label>Reason</label><input type="text" id="cxReason"><button type="button" class="btn red block" id="cxBtn">Cancel rental</button><div class="err" id="cxErr"></div></details></div>';
     $('sheetBody').innerHTML = h;
     bindDetail();
+  }
+
+  function standbyPanel() {
+    var d = DETAIL, c = d.card, sb = c.standby, can = d.can;
+    if (sb && sb.status === 'Requested') {
+      var h = '<div class="panel act warn"><h2>Standby asked</h2><div class="kv"><div class="k">Asked by</div><div class="v">' + esc(String(sb.requestedBy).replace(/\s*\([^)]*\)$/, '')) + '</div>' +
+        '<div class="k">Reason</div><div class="v">' + esc(sb.reason) + '</div><div class="k">Resume</div><div class="v">' + esc(sb.until) + '</div>' +
+        (sb.newStart ? '<div class="k">New installation</div><div class="v">' + esc(sb.newStart) + '</div>' : '') + '</div>';
+      if (can.decideStandby) h += '<label>Resume date (change it if needed)</label><input type="date" id="sdUntil" value="' + esc(sb.untilYmd) + '" min="' + addDays(HOME.today, 1) + '">' +
+        '<button type="button" class="btn green block" id="sdYes">Approve standby</button><details class="more"><summary>Decline</summary><input type="text" id="sdWhy" placeholder="Why – the person who asked is told"><button type="button" class="btn red block" id="sdNo">Decline</button></details>';
+      else if (can.standby) h += '<div class="hint">Waiting for Ananthu.</div><button type="button" class="btn light block" id="sbEnd">Withdraw the request</button>';
+      return h + '<div class="err" id="sdErr"></div></div>';
+    }
+    if (sb && sb.active) {
+      return '<div class="panel act warn"><h2>On standby until ' + esc(sb.until) + '</h2><div class="hint">' + esc(sb.reason) + (sb.by ? ' · approved by ' + esc(String(sb.by).replace(/\s*\([^)]*\)$/, '')) : '') +
+        '. Work reminders are paused; rent, overrun and payment reminders still run. It ends by itself on the resume date.</div>' +
+        ((can.standby && role() !== 'Ops') ? '<button type="button" class="btn light block" id="sbEnd">End standby now</button>' : '') + '<div class="err" id="sdErr"></div></div>';
+    }
+    if (!can.standby) return '';
+    var direct = isCoord();
+    return '<div class="panel"><details class="more"><summary>' + (direct ? 'Put on standby' : 'Ask Ananthu for standby') + ' – customer-side delay</summary>' +
+      '<div class="grid2"><div><label>Reason</label><select id="sbReason">' + HOME.standbyReasons.map(function (r) { return '<option>' + esc(r) + '</option>'; }).join('') + '</select></div>' +
+      '<div><label>Resumes on</label><input type="date" id="sbUntil" min="' + addDays(HOME.today, 1) + '"></div></div>' +
+      '<label>Details</label><input type="text" id="sbNote" placeholder="e.g. foundation for the tanks not ready">' +
+      (d.deployments.length ? '' : '<label>New installation date (if it moves)</label><input type="date" id="sbStart" min="' + addDays(HOME.today, 1) + '"><div class="hint">The planned end moves with it, keeping the same length.</div>') +
+      '<button type="button" class="btn block" id="sbBtn">' + (direct ? 'Put on standby' : 'Send to Ananthu') + '</button><div class="err" id="sbErr"></div></details></div>';
   }
 
   function verifyPanel() {
@@ -610,6 +649,7 @@
       '<h3>Allocated – ready to load (' + alloc.length + ')</h3>' + picker('pkLoad', alloc, true) +
       (alloc.length ? '<div class="grid2"><div><label>Vehicle no.</label><input type="text" id="trVeh" placeholder="KL07 AB 1234"></div><div><label>Vehicle</label><select id="trMode"><option value="Own">Our own</option><option value="Hired">Hired</option></select></div>' +
         '<div><label>Transporter (hired)</label><input type="text" id="trVendor"></div><div><label>Transport cost ₹ (if known)</label><input type="number" id="trCost" min="0"></div></div>' +
+        '<label>Photo of the loaded vehicle' + (HOME.loadPhotoRequired ? '' : ' (recommended)') + '</label><input type="file" id="trPhoto" accept="image/*"><img class="photo-prev" id="trPrev" alt=""><div class="hint">Shows the condition the items left in.</div>' +
         '<button type="button" class="btn green block" id="trBtn">Load these and request the gate pass</button>' +
         '<details class="more"><summary>Release selected items back to the yard</summary><button type="button" class="btn light block" id="relBtn">Release selected</button></details>' : '') +
       '<div class="err" id="trErr"></div>' + loadedTrips() + '</div>';
@@ -670,8 +710,8 @@
       '<div><div class="k">Balance</div><div class="v' + (m.balance > 0 ? ' bad' : '') + '">' + rupees(m.balance) + '</div></div>' +
       (m.overrunEstimate ? '<div><div class="k">Overrun so far (est.)</div><div class="v est">' + rupees(m.overrunEstimate) + '</div></div>' : '') +
       (m.deposit ? '<div><div class="k">Deposit held</div><div class="v">' + rupees(m.deposit) + '</div></div>' : '') + '</div>';
-    var terms = '<div class="hint">' + esc(m.mode) + (m.rate ? ' · ' + rupees(m.rate) + ' per item ' + esc(m.mode.replace('Per ', '')) : '') + ' · agreed value ' + rupees(m.orderValue) +
-      ' · overrun ' + (m.overrunRate ? rupees(m.overrunRate) + ' per item per day' : 'rate not set') + (m.rentDays ? ' · ' + m.rentDays + ' item-days on hire' : '') + (m.overrunDays ? ', ' + m.overrunDays + ' past the planned end' : '') + '. Estimates are worked out from the installation and off-hire dates.</div>';
+    var terms = '<div class="hint">' + esc(m.mode) + (d.card.autoBill ? ' · rent billed automatically ' + esc(d.card.autoBill.toLowerCase()) : '') + (m.rate ? ' · ' + rupees(m.rate) + ' per toilet per ' + esc(m.mode.replace('Per ', '')) : '') + ' · agreed value ' + rupees(m.orderValue) +
+      ' · overrun ' + (m.overrunRate ? rupees(m.overrunRate) + ' per toilet per day' : 'rate not set') + (m.rentDays ? ' · ' + m.rentDays + ' toilet-days on hire' : '') + (m.overrunDays ? ', ' + m.overrunDays + ' past the planned end' : '') + '. Estimates are worked out from the installation and off-hire dates.</div>';
     var unverified = d.card.status === 'Logged' || d.card.status === 'Cancelled';
     var lines = d.payments.map(function (p) {
       var cls = p.status === 'Verified' ? 'ok' : p.status === 'Waived' ? '' : p.overdue ? 'bad' : 'warn';
@@ -691,17 +731,22 @@
       add = '<details class="more"' + (m.overrunUnbilled ? ' open' : '') + '><summary>Add a charge' + (m.overrunUnbilled ? ' – overrun of about ' + rupees(m.overrunUnbilled) + ' not billed yet' : '') + '</summary>' +
         '<div class="grid2"><div><label>For</label><select id="chKind">' + HOME.chargeKinds.map(function (k) { return '<option' + (m.overrunUnbilled && k === 'Overrun' ? ' selected' : '') + '>' + esc(k) + '</option>'; }).join('') + '</select></div>' +
         '<div><label>Amount ₹</label><input type="number" id="chAmt" min="1" value="' + (m.overrunUnbilled || '') + '"></div><div><label>Due date (optional)</label><input type="date" id="chDue"></div>' +
-        '<div><label>Note</label><input type="text" id="chNote" value="' + (m.overrunUnbilled ? esc(m.overrunDays + ' item-days past the planned end') : '') + '"></div></div>' +
+        '<div><label>Note</label><input type="text" id="chNote" value="' + (m.overrunUnbilled ? esc(m.overrunDays + ' toilet-days past the planned end') : '') + '"></div></div>' +
         '<button type="button" class="btn block" id="chBtn">Add charge</button><div class="err" id="chErr"></div></details>' +
         ((role() === 'Accounts' || role() === 'Admin') && d.card.status !== 'Logged' ? '<details class="more"><summary>Money received with no line for it</summary><div class="inline"><input type="number" id="rxA" placeholder="Amount ₹"><input type="text" id="rxU" placeholder="UTR"><input type="text" id="rxN" placeholder="Note"><button type="button" class="btn" id="rxBtn">Record</button></div><div class="err" id="rxErr"></div></details>' : '');
     }
-    return '<div class="panel"><h2>Money</h2>' + tiles + terms + lines + add +
+    var dmg = (d.damages || []).length ? '<h3>Damage found at inspection</h3>' + d.damages.map(function (x) {
+      return '<div class="line"><div class="top2"><b>' + esc(x.itemId) + '</b><span class="badge ' + (x.billed ? 'ok' : 'warn') + '">' + (x.billed ? 'Billed' : 'Not billed') + '</span></div>' +
+        '<div class="sub2">' + esc(x.note) + ' · ' + esc(x.date) + (x.photoUrl ? ' · <a href="' + esc(x.photoUrl) + '" target="_blank">Photo</a>' : '') + '</div>' +
+        (!x.billed && can.billDamage && !unverified && d.card.status !== 'Closed' ? '<button type="button" class="btn light" data-billdmg="' + esc(x.itemId) + '" data-note="' + esc(x.note) + '" style="margin-top:6px;">Bill this damage</button>' : '') + '</div>';
+    }).join('') + '<div class="hint">Who pays for damage is Sambhu’s decision – nothing is charged automatically.</div>' : '';
+    return '<div class="panel"><h2>Money</h2>' + tiles + terms + lines + dmg + add +
       (d.cost && (d.cost.total || d.jobs.length) ? '<div class="hint" style="margin-top:10px;">Costs so far: vendors ' + rupees(d.cost.jobs) + ' + transport ' + rupees(d.cost.trips) + ' = <b>' + rupees(d.cost.total) + '</b>' +
         (m.mode === 'Per event' ? ' · margin about ' + rupees(m.due - d.cost.total) : '') + '</div>' : '') + '</div>';
   }
 
   function closePanel() {
-    var m = DETAIL.money, ready = DETAIL.card.stageKey === 'settle';
+    var m = DETAIL.money, ready = DETAIL.card.baseKey === 'settle';
     var inner = '<div class="hint">' + (ready ? 'Everything is back.' : 'Items are still out – close once everything is back.') + ' Balance ' + rupees(m.balance) + (m.deposit ? ' · deposit held ' + rupees(m.deposit) + ' (refund it outside this page and note it here)' : '') + '.</div>' +
       '<label>Note</label><input type="text" id="clNote" placeholder="e.g. settled in full; deposit refunded on 30-Oct">' +
       (role() === 'Admin' ? '<label class="tick"><input type="checkbox" id="clOverride"> Close even with a balance or unbilled overrun (give the reason above)</label>' : '') +
@@ -722,6 +767,16 @@
       '<div><label>Vendor</label><input type="text" id="jbVendor"></div><div><label>Date</label><input type="date" id="jbDate" value="' + HOME.today + '"></div>' +
       '<div><label>Cost ₹</label><input type="number" id="jbCost" min="0"></div><div><label>For (installation / trip, optional)</label><input type="text" id="jbRef" placeholder="e.g. DEP-0003"></div><div><label>Note</label><input type="text" id="jbNote"></div></div>' +
       '<button type="button" class="btn block" id="jbBtn">Add job</button><div class="err" id="jbErr"></div></details></div>';
+  }
+
+  /** Correction box under an installation or off-hire: correct the date and/or undo it. */
+  function fixBox(kind, id, undoLabel, undoOnly) {
+    var k = kind + id;
+    return '<details class="more"><summary>' + (undoOnly ? 'Recorded by mistake?' : 'Correct this') + '</summary>' +
+      (undoOnly ? '' : '<label>Correct date</label><div class="inline"><input type="date" id="fxD' + k + '" max="' + HOME.today + '"><button type="button" class="btn" data-fixdate="' + kind + '" data-id="' + esc(id) + '">Save date</button></div>') +
+      '<label>Reason (required)</label><input type="text" id="fxR' + k + '" placeholder="e.g. plumber’s photo was dated 22-Oct">' +
+      (undoLabel ? '<button type="button" class="btn light block" data-undo="' + kind + '" data-id="' + esc(id) + '">' + esc(undoLabel) + '</button>' : '') +
+      '<div class="err" id="fxE' + k + '"></div></details>';
   }
 
   function infoPanels() {
@@ -749,15 +804,20 @@
     }
     if (d.trips.length) h += '<div class="panel"><h2>Trips</h2><div class="scroll"><table class="t"><tr><th>Trip</th><th>Vehicle</th><th>Items</th><th>Status</th></tr>' + d.trips.map(function (t) {
       return '<tr><td><b>' + esc(t.tripId) + '</b><br><span class="hint">' + (t.direction === 'Out' ? 'to site' : 'pickup') + '</span></td><td>' + esc(t.vehicleNo) + '<br><span class="hint">' + esc(t.transport) + (t.vendor ? ' – ' + esc(t.vendor) : '') + '</span></td><td>' + esc(t.counts) +
-        '</td><td>' + esc(t.status) + (t.gateAt ? '<br><span class="hint">' + esc(t.gateAt) + '</span>' : '') + (t.gatePassUrl ? '<br><a href="' + esc(t.gatePassUrl) + '" target="_blank">' + esc(t.gatePassNo) + '</a>' : '') + (t.gateNote ? '<br><span class="hint">' + esc(t.gateNote) + '</span>' : '') + '</td></tr>';
-    }).join('') + '</table></div></div>';
+        (t.photoUrl ? '<br><a href="' + esc(t.photoUrl) + '" target="_blank">Loading photo</a>' : '') +
+        '</td><td>' + esc(t.status) + (t.gateAt ? '<br><span class="hint">' + esc(t.gateAt) + '</span>' : '') + (t.gatePassUrl ? '<br><a href="' + esc(t.gatePassUrl) + '" target="_blank">' + esc(t.gatePassNo) + '</a>' : '') + (t.gateNote ? '<br><span class="hint">' + esc(t.gateNote) + '</span>' : '') +
+        (t.direction === 'Return' && t.status === 'Planned' && d.can.cancelPickup ? '<br><button type="button" class="btn light" data-cxret="' + esc(t.tripId) + '" style="margin-top:6px;padding:6px 10px;font-size:13px;">Cancel pickup</button>' : '') + '</td></tr>';
+    }).join('') + '</table></div><div class="err" id="cxrErr"></div></div>';
     if (d.deployments.length) h += '<div class="panel"><h2>Installations</h2>' + d.deployments.map(function (x) {
       return '<div class="line"><div class="top2"><b>' + esc(x.deploymentId) + ' · installed ' + esc(x.installedOn) + '</b><span>ends ' + esc(x.plannedEnd || c.plannedEnd) + '</span></div><div class="ids">' + esc(x.items.join(', ')) + '</div>' +
-        '<div class="sub2">' + (x.photoUrl ? '<a href="' + esc(x.photoUrl) + '" target="_blank">Site photo</a> · ' : '') + 'by ' + esc(String(x.markedBy).replace(/\s*\([^)]*\)$/, '')) + (x.note ? ' · ' + esc(x.note) : '') + '</div></div>';
+        '<div class="sub2">' + (x.photoUrl ? '<a href="' + esc(x.photoUrl) + '" target="_blank">Site photo</a> · ' : '') + 'by ' + esc(String(x.markedBy).replace(/\s*\([^)]*\)$/, '')) + (x.note ? ' · ' + esc(x.note) : '') + '</div>' +
+        (d.can.correct ? fixBox('install', x.deploymentId, x.allOnHire && !c.imported ? 'Undo this installation (items go back to “to install”)' : '') : '') + '</div>';
     }).join('') + '</div>';
     if (d.offhires.length) h += '<div class="panel"><h2>Off-hires</h2>' + d.offhires.map(function (x) {
       return '<div class="line"><div class="top2"><b>' + esc(x.offhireId) + ' · from ' + esc(x.offhireOn) + '</b><span>' + (x.suctionOn ? 'suction ' + esc(x.suctionOn) : 'no suction yet') + '</span></div><div class="ids">' + esc(x.items.join(', ')) + '</div>' +
-        '<div class="sub2">by ' + esc(String(x.recordedBy).replace(/\s*\([^)]*\)$/, '')) + (x.suctionVendor ? ' · suction by ' + esc(x.suctionVendor) : '') + (x.note ? ' · ' + esc(x.note) : '') + '</div></div>';
+        '<div class="sub2">by ' + esc(String(x.recordedBy).replace(/\s*\([^)]*\)$/, '')) + (x.suctionVendor ? ' · suction by ' + esc(x.suctionVendor) : '') + (x.note ? ' · ' + esc(x.note) : '') + '</div>' +
+        (d.can.correct ? fixBox('offhire', x.offhireId, x.itemsWaiting === x.items.length ? 'Undo this off-hire (items back on hire, rent runs again)' : '')
+          : (d.can.undoOffhire && x.mine && x.recordedToday && x.itemsWaiting === x.items.length ? fixBox('offhire', x.offhireId, 'Undo this off-hire – recorded by mistake', true) : '')) + '</div>';
     }).join('') + '</div>';
     if (d.jobs.length) h += '<div class="panel"><h2>Vendor jobs</h2><div class="scroll"><table class="t"><tr><th>Job</th><th>Vendor</th><th>Date</th><th class="n">Cost</th></tr>' + d.jobs.map(function (j) {
       return '<tr><td>' + esc(j.kind) + (j.ref ? '<br><span class="hint">' + esc(j.ref) + '</span>' : '') + '</td><td>' + esc(j.vendor) + (j.note ? '<br><span class="hint">' + esc(j.note) + '</span>' : '') + '</td><td>' + esc(j.date) + '</td><td class="n">' + (j.cost !== '' ? rupees(j.cost) : '') + '</td></tr>';
@@ -806,8 +866,9 @@
       });
     });
     on('allocBtn', function () { run('allocateRentalItems', [{ rentalId: id, itemIds: val('allocIds') }], this, 'allocErr', function (r) { refreshDetail(r.count + ' item(s) allocated.'); }); });
+    var loadPhoto = fileField('trPhoto', 'trPrev', 'trErr');
     on('trBtn', function () {
-      run('createRentalTrip', [{ rentalId: id, itemIds: picked('pkLoad'), vehicleNo: val('trVeh'), transport: val('trMode'), vendor: val('trVendor'), cost: val('trCost') }], this, 'trErr', function (r) {
+      run('createRentalTrip', [{ rentalId: id, itemIds: picked('pkLoad'), vehicleNo: val('trVeh'), transport: val('trMode'), vendor: val('trVendor'), cost: val('trCost'), photo: loadPhoto() }], this, 'trErr', function (r) {
         refreshDetail(r.tripId + ' loaded – gate pass requested from Accounts.');
       });
     });
@@ -856,6 +917,41 @@
     on('exBtn', function () { run('extendRental', [{ rentalId: id, deploymentId: val('exDep'), plannedEnd: val('exDate'), note: val('exNote') }], this, 'exErr', function (r) { refreshDetail('New end date ' + r.plannedEnd + '.'); }); });
     on('jbBtn', function () { run('addRentalVendorJob', [{ rentalId: id, kind: val('jbKind'), vendor: val('jbVendor'), date: val('jbDate'), cost: val('jbCost'), ref: val('jbRef'), note: val('jbNote') }], this, 'jbErr', function () { refreshDetail('Job added.'); }); });
     on('cxBtn', function () { run('cancelRental', [{ rentalId: id, reason: val('cxReason') }], this, 'cxErr', function () { refreshDetail('Rental cancelled.'); }); });
+    // ---- round 2 ----
+    on('sbBtn', function () {
+      run('requestRentalStandby', [{ rentalId: id, reason: val('sbReason'), note: val('sbNote'), until: val('sbUntil'), newStart: val('sbStart') }], this, 'sbErr', function (r) {
+        refreshDetail(r.active ? 'On standby until ' + r.until + '.' : 'Sent to Ananthu.');
+      });
+    });
+    on('sdYes', function () { run('decideRentalStandby', [{ rentalId: id, approve: true, until: val('sdUntil') }], this, 'sdErr', function () { refreshDetail('Standby approved.'); }); });
+    on('sdNo', function () { run('decideRentalStandby', [{ rentalId: id, approve: false, note: val('sdWhy') }], this, 'sdErr', function () { refreshDetail('Standby declined.'); }); });
+    on('sbEnd', function () { run('endRentalStandby', [{ rentalId: id }], this, 'sdErr', function () { refreshDetail('Standby ended.'); }); });
+    on('raBtn', function () { run('reassignRental', [{ rentalId: id, toCode: val('raTo'), note: val('raNote') }], this, 'raErr', function (r) { refreshDetail('Now with ' + r.to + '.'); }); });
+    Array.prototype.forEach.call(root.querySelectorAll('[data-fixdate]'), function (b) {
+      b.addEventListener('click', function () {
+        var kind = b.getAttribute('data-fixdate'), k = kind + b.getAttribute('data-id');
+        run('correctRentalDate', [{ kind: kind, id: b.getAttribute('data-id'), date: val('fxD' + k), reason: val('fxR' + k) }], b, 'fxE' + k, function (r) { refreshDetail(r.ref + ': date corrected to ' + r.to + '.'); });
+      });
+    });
+    Array.prototype.forEach.call(root.querySelectorAll('[data-undo]'), function (b) {
+      b.addEventListener('click', function () {
+        var kind = b.getAttribute('data-undo'), k = kind + b.getAttribute('data-id');
+        var fn = kind === 'install' ? 'undoRentalInstall' : 'undoRentalOffHire';
+        var arg = kind === 'install' ? { deploymentId: b.getAttribute('data-id'), reason: val('fxR' + k) } : { offhireId: b.getAttribute('data-id'), reason: val('fxR' + k) };
+        run(fn, [arg], b, 'fxE' + k, function () { refreshDetail('Undone.'); });
+      });
+    });
+    Array.prototype.forEach.call(root.querySelectorAll('[data-cxret]'), function (b) {
+      b.addEventListener('click', function () { run('cancelRentalReturn', [{ tripId: b.getAttribute('data-cxret') }], b, 'cxrErr', function () { refreshDetail('Pickup cancelled – items are back to “waiting at site”.'); }); });
+    });
+    Array.prototype.forEach.call(root.querySelectorAll('[data-billdmg]'), function (b) {
+      b.addEventListener('click', function () {
+        var kindSel = $('chKind'); if (!kindSel) return;
+        kindSel.closest('details').open = true;
+        kindSel.value = 'Damage'; $('chAmt').value = ''; $('chNote').value = b.getAttribute('data-billdmg') + ' – ' + b.getAttribute('data-note');
+        $('chAmt').focus();
+      });
+    });
   }
 
   // ---------------- intake (new or edit) ----------------
@@ -865,14 +961,20 @@
       '<input type="date" data-date value="' + esc(l.dueDate || '') + '"><select data-trig><option value="">– or when –</option>' +
       HOME.triggers.map(function (t) { return '<option' + (t === l.trigger ? ' selected' : '') + '>' + esc(t) + '</option>'; }).join('') + '</select><button type="button" class="btn light" data-schdel>&times;</button></div>';
   }
-  function openIntake(d) {
+  function openIntake(d, mode0) {
+    var imp = mode0 === 'import';
     var e = !!d, o = d ? d.order : {}, c = d ? d.card : {}, m = d && d.money ? d.money : {};
     var adv = d ? (d.payments.filter(function (p) { return p.kind === 'Advance'; })[0] || {}) : {};
     var dep = d ? (d.payments.filter(function (p) { return p.kind === 'Deposit'; })[0] || {}) : {};
     var sched = d ? d.payments.filter(function (p) { return p.kind === 'Instalment' && p.status === 'Due'; }) : [];
     var sv = function (x) { return esc(x == null ? '' : x); };
-    $('sheetTitle').textContent = e ? 'Edit ' + c.rentalId : 'New rental';
-    var h = '<div class="warnbox">Log a rental <b>only once the advance is paid</b>. Accounts verifies it against the UTR.</div>' +
+    $('sheetTitle').textContent = imp ? 'Rental already on site' : e ? 'Edit ' + c.rentalId : 'New rental';
+    var cfgDefault = [{ category: 'Toilet', type: 'Toilet', quantity: '' }, { category: 'Septic tank', type: 'Septic tank', quantity: '' }, { category: 'Water tank', type: 'Water tank', quantity: '' }, { category: 'Stand', type: 'Stand', quantity: '' }];
+    var h = (imp ? '<div class="warnbox">For a rental that was <b>already installed before rentals went live</b>. Its items get IDs now and show as on hire; Manoj stencils the IDs when they come back. Rent counts from the installation date you enter.</div>' +
+        '<div class="panel act"><h2>On site now</h2><div class="grid2"><div><label>CRE for this customer *</label><select id="fCre">' + HOME.cres.map(function (x) { return '<option value="' + esc(x.code) + '">' + esc(x.name) + '</option>'; }).join('') + '</select></div>' +
+        '<div><label>Installed on *</label><input type="date" id="fInst" max="' + HOME.today + '"></div></div>' +
+        '<h3>What is at the site</h3><div id="cfgRows">' + cfgDefault.map(function (l, i) { return configRow(i, l); }).join('') + '</div><button type="button" class="btn light" id="cfgAdd" style="margin-top:8px;">+ Add a line</button></div>'
+      : '<div class="warnbox">Log a rental <b>only once the advance is paid</b>. Accounts verifies it against the UTR.</div>') +
       '<div class="panel"><h2>Customer</h2><div class="grid2">' +
       '<div><label>Customer / company *</label><input type="text" id="fCust" value="' + sv(c.customer) + '"></div>' +
       '<div><label>Phone *</label><input type="tel" id="fPhone" value="' + sv(o.customerPhone) + '"></div>' +
@@ -886,30 +988,45 @@
       '<div><label>Site contact name *</label><input type="text" id="fSc" value="' + sv(o.siteContact) + '"></div>' +
       '<div><label>Site contact phone *</label><input type="tel" id="fScp" value="' + sv(o.siteContactPhone) + '"></div></div></div>' +
       '<div class="panel"><h2>Requirement and terms</h2><div class="grid2">' +
-      '<div><label>Toilets requested *</label><input type="number" min="1" id="fToilets" value="' + sv(c.toilets) + '"></div>' +
+      (imp ? '' : '<div><label>Toilets requested *</label><input type="number" min="1" id="fToilets" value="' + sv(c.toilets) + '"></div>') +
       '<div><label>Billing *</label><select id="fMode">' + HOME.modes.map(function (x) { return '<option' + (x === (m.mode || c.billingMode) ? ' selected' : '') + '>' + esc(x) + '</option>'; }).join('') + '</select></div>' +
       '<div id="fRateBox"><label id="fRateLab">Rate per toilet ₹</label><input type="number" min="0" id="fRate" value="' + sv(m.rate || '') + '"></div>' +
       '<div><label>Agreed order value ₹ *</label><input type="number" min="1" id="fValue" value="' + sv(m.orderValue || '') + '"><div class="hint" id="fValHint"></div></div>' +
-      '<div><label>Overrun rate ₹ per item per day</label><input type="number" min="0" id="fOver" value="' + sv(m.overrunRate || '') + '"><div class="hint">Charged for days past the planned end.</div></div><div></div>' +
-      '<div><label>Installation needed on *</label><input type="date" id="fStart" value="' + sv(o.plannedStartYmd) + '"></div>' +
-      '<div><label>Planned end *</label><input type="date" id="fEnd" value="' + sv(o.plannedEndYmd) + '"></div></div>' +
+      '<div><label>Overrun rate ₹ per toilet per day</label><input type="number" min="0" id="fOver" value="' + sv(m.overrunRate || '') + '"><div class="hint">Charged for days past the planned end.</div></div><div></div>' +
+      (imp ? '' : '<div><label>Installation needed on *</label><input type="date" id="fStart" value="' + sv(o.plannedStartYmd) + '"></div>') +
+      '<div><label>Planned end *</label><input type="date" id="fEnd" value="' + sv(o.plannedEndYmd) + '"></div>' +
+      '<div id="fAutoBox"><label>Bill the rent automatically</label><select id="fAuto"><option value="">No – as per the schedule below</option>' +
+        HOME.autoBill.map(function (x) { return '<option' + (x === c.autoBill ? ' selected' : '') + '>' + esc(x) + '</option>'; }).join('') + '</select>' +
+        '<div class="hint">For long rentals: at the end of each period the system raises the rent owed (after the advance) and tells you and Accounts.</div></div></div>' +
       '<label>Requirement details</label><textarea id="fReq" placeholder="e.g. 20 toilets for a 3-day festival, water tank with each, power available on site">' + sv(c.requirement) + '</textarea></div>' +
       '<div class="panel"><h2>Payment</h2><div class="grid2">' +
-      '<div><label>Advance received ₹ *</label><input type="number" min="1" id="fAdv" value="' + sv(adv.received || '') + '"><div class="hint" id="fAdvHint"></div></div>' +
-      '<div><label>Advance UTR / bank reference *</label><input type="text" id="fUtr" value="' + sv(adv.utr) + '"></div>' +
+      '<div><label>Advance received ₹' + (imp ? ' (if any still to verify)' : ' *') + '</label><input type="number" min="' + (imp ? 0 : 1) + '" id="fAdv" value="' + sv(adv.received || '') + '"><div class="hint" id="fAdvHint"></div></div>' +
+      '<div><label>Advance UTR / bank reference' + (imp ? '' : ' *') + '</label><input type="text" id="fUtr" value="' + sv(adv.utr) + '"></div>' +
       (HOME.settings.depositOn ? '<div><label>Security deposit ₹</label><input type="number" min="0" id="fDep" value="' + sv(dep.received || '') + '"></div><div><label>Deposit UTR</label><input type="text" id="fDepUtr" value="' + sv(dep.utr) + '"></div>' : '') +
       '</div><h3>Rest of the payment, as agreed with the customer</h3><div class="hint">Add each instalment with its date – or when it falls due (on installation, on off-hire, before pickup). Reminders follow this list.</div>' +
       '<div id="fSched">' + (sched.length ? sched.map(function (p, i) { return schedRow(i, { amount: p.amount, dueDate: p.dueDateYmd, trigger: p.trigger }); }).join('') : schedRow(0)) + '</div>' +
       '<button type="button" class="btn light" id="fSchAdd" style="margin-top:8px;">+ Add an instalment</button></div>' +
-      '<div class="panel"><label style="margin-top:0;">Agreement / customer PO (optional)</label><input type="file" id="fFile" accept="application/pdf,image/*">' + (o.agreementUrl ? '<div class="hint"><a href="' + esc(o.agreementUrl) + '" target="_blank">Current file</a> – choose a new one only to replace it.</div>' : '') +
+      '<div class="panel">' + (imp ? '' : '<label style="margin-top:0;">Agreement / customer PO (optional)</label><input type="file" id="fFile" accept="application/pdf,image/*">' + (o.agreementUrl ? '<div class="hint"><a href="' + esc(o.agreementUrl) + '" target="_blank">Current file</a> – choose a new one only to replace it.</div>' : '')) +
       '<label>Remarks</label><input type="text" id="fRemarks" value="' + sv(o.remarks) + '">' +
       (e ? '<label>What did you change?</label><input type="text" id="fChange" placeholder="e.g. corrected the UTR">' : '') +
-      '<button type="button" class="btn green block" id="fSave">' + (e ? 'Save and send to Accounts' : 'Log rental – send to Accounts') + '</button><div class="err" id="fErr"></div></div>';
+      '<button type="button" class="btn green block" id="fSave">' + (imp ? 'Add rental – already on site' : e ? 'Save and send to Accounts' : 'Log rental – send to Accounts') + '</button><div class="err" id="fErr"></div></div>';
     $('sheetBody').innerHTML = h;
     $('sheet').classList.add('show');
     var file = fileField('fFile', null, 'fErr');
+    if (imp) {
+      var cfgWire2 = function () {
+        Array.prototype.forEach.call(document.querySelectorAll('[data-cfg]'), function (row) {
+          row.querySelector('[data-cat]').onchange = function () { row.querySelector('[data-type]').innerHTML = typeOptions(this.value); };
+          row.querySelector('[data-cfgdel]').onclick = function () { row.parentNode.removeChild(row); };
+        });
+      };
+      cfgWire2();
+      $('cfgAdd').addEventListener('click', function () { var box = $('cfgRows'); box.insertAdjacentHTML('beforeend', configRow(box.children.length + 1)); cfgWire2(); });
+    }
     var mode = function () {
       var x = val('fMode'), t = x !== 'Per event';
+      $('fAutoBox').style.display = t ? '' : 'none';
+      if (!t) $('fAuto').value = '';
       $('fRateBox').style.visibility = t ? 'visible' : 'hidden';
       $('fRateLab').textContent = 'Rate per toilet ' + x.replace('Per ', 'per ') + ' ₹ *';
     };
@@ -940,12 +1057,23 @@
         siteAddress: val('fSite'), sitePincode: val('fPin'), siteDistrict: val('fDist'), siteState: val('fState'), siteContact: val('fSc'), siteContactPhone: val('fScp'),
         toilets: val('fToilets'), requirement: val('fReq'), billingMode: val('fMode'), rate: val('fRate'), orderValue: val('fValue'), overrunRate: val('fOver'),
         plannedStart: val('fStart'), plannedEnd: val('fEnd'), advanceAmount: val('fAdv'), advanceUtr: val('fUtr'),
-        depositAmount: val('fDep'), depositUtr: val('fDepUtr'), remarks: val('fRemarks'), agreement: file(),
+        depositAmount: val('fDep'), depositUtr: val('fDepUtr'), remarks: val('fRemarks'), agreement: file(), autoBill: val('fAuto'),
         schedule: Array.prototype.map.call(document.querySelectorAll('[data-sch]'), function (r) {
           return { amount: r.querySelector('[data-amt]').value, dueDate: r.querySelector('[data-date]').value, trigger: r.querySelector('[data-trig]').value };
         })
       };
       if (e) { f.rentalId = c.rentalId; f.changeNote = val('fChange'); }
+      if (imp) {
+        f.creCode = val('fCre'); f.installedOn = val('fInst');
+        f.lines = Array.prototype.map.call(document.querySelectorAll('[data-cfg]'), function (row) {
+          return { category: row.querySelector('[data-cat]').value, type: row.querySelector('[data-type]').value, quantity: row.querySelector('[data-qty]').value };
+        }).filter(function (l) { return Number(l.quantity) > 0; });
+        run('importRentalOnSite', [f], this, 'fErr', function (r) {
+          toast(r.rentalId + ' added – ' + r.count + ' items on hire (' + r.first + ' to ' + r.last + ').');
+          openRental(r.rentalId); load();
+        });
+        return;
+      }
       run(e ? 'updateRental' : 'submitRental', [f], this, 'fErr', function (r) {
         toast(e ? 'Saved – back with Accounts.' : r.rentalId + ' logged – Accounts will verify the advance.');
         openRental(r.rentalId); load();
@@ -965,6 +1093,7 @@
   $('q').addEventListener('keydown', function (e) { if (e.key === 'Enter') find(); });
   $('refreshBtn').addEventListener('click', function () { OVERVIEW = null; load(); });
   $('newBtn').addEventListener('click', function () { DETAIL = null; openIntake(null); });
+  $('importBtn').addEventListener('click', function () { DETAIL = null; openIntake(null, 'import'); });
   window.ICF_RELOAD = load; // tiles and lists only -- an open rental is left as it is
   window.ICF_CLEAR = function () { HOME = null; DETAIL = null; OVERVIEW = null; SEARCH = null; seenAlerts = {}; $('list').innerHTML = ''; $('tiles').innerHTML = ''; $('sheet').classList.remove('show'); };
   load();

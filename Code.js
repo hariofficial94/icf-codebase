@@ -2832,10 +2832,14 @@ function apiMap_() {
     var extra7 = docsApiMap_();
     for (var k7 in extra7) map[k7] = extra7[k7];
   }
-  // Rentals (Oct 2026) -- defined in Rental.gs / RentalFleet.gs.
+  // Rentals (Oct 2026) -- defined in Rental.gs / RentalFleet.gs; round 2 in RentalExtras.gs.
   if (typeof rentalApiMap_ === 'function') {
     var extra8 = rentalApiMap_();
     for (var k8 in extra8) map[k8] = extra8[k8];
+  }
+  if (typeof rentalExtrasApiMap_ === 'function') {
+    var extra9 = rentalExtrasApiMap_();
+    for (var k9 in extra9) map[k9] = extra9[k9];
   }
   return map;
 }
@@ -2904,6 +2908,7 @@ function activityDetail_(fnName, a, result) {
       if (!d && typeof gateActivityDetail_ === 'function') d = gateActivityDetail_(fnName, a, result);
       if (!d && typeof docsActivityDetail_ === 'function') d = docsActivityDetail_(fnName, a, result);
       if (!d && typeof rentalActivityDetail_ === 'function') d = rentalActivityDetail_(fnName, a, result);
+      if (!d && typeof rentalExtrasActivityDetail_ === 'function') d = rentalExtrasActivityDetail_(fnName, a, result);
       return d;
   }
 }
