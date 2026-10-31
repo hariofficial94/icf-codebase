@@ -234,7 +234,12 @@ function opsCard_(o, nowMs, startMs, limitHours) {
     clearedNote: String(o.get('Cleared For Gate Pass') || ''),
     payHoldNote: String(o.get('Payment Hold Note') || ''),
     customerSaysPaid: !!String(o.get('Customer Says Paid') || '').trim(),
-    paymentPending: false
+    paymentPending: false,
+    // Order types (Oct 2026): Flipkart's ship-by date is the deadline; DACC goes via the named transporter.
+    orderType: normalizeOrderType_(o.get('Order Type')),
+    shipBy: opsFmtDate_(o.get('Ship By Date')),
+    daysToShip: computeDaysUntilDate(o.get('Ship By Date')),
+    daccTransporter: String(o.get('DACC Transporter') || '')
   };
 }
 
@@ -298,6 +303,10 @@ function getOpsQueue_() {
       out.standby.push(opsCard_(o, now, 0, 0));
     }
   });
+  // Flipkart (Oct 2026): due at the Flipkart office on the ship-by date, whatever the hours say.
+  out.newOrders.concat(out.inHand).forEach(function (c) {
+    if (c.orderType === ORDER_TYPE_FLIPKART && c.daysToShip !== null && c.daysToShip <= 0) c.overdue = true;
+  });
   // High priority first, then whatever has waited longest.
   var byUrgency = function (a, b) {
     if (a.priority !== b.priority) return PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority];
@@ -348,7 +357,8 @@ function getOpsOrder_(query) {
     'Wrapper PO PDF URL', 'Vehicle No.', 'Site Readiness Confirmed', 'Gate Pass Requested By', 'Vehicle Confirmed Timestamp',
     'Gate Pass No.', 'Dispatch Timestamp', 'Courier / Transport Name', 'Tracking / Consignment No.',
     'Postal Receipt URL', 'Delivery Status', 'Payment Terms Type', 'Total Order Value', 'Advance Received',
-    'Payment Hold From', 'Payment Hold Note', 'Cleared For Gate Pass', 'Customer Says Paid', 'CRM PO URL', 'Customer PO URL', 'CRM PO Printed'
+    'Payment Hold From', 'Payment Hold Note', 'Cleared For Gate Pass', 'Customer Says Paid', 'CRM PO URL', 'Customer PO URL', 'CRM PO Printed',
+    'Order Type', 'Ship By Date', 'DACC Transporter'
   ]);
   var id = String(f['Tracker ID']);
   var acked = opsIsAcked_(f['Received by Ops Timestamp'], f['Ops Cutover']);
@@ -395,6 +405,10 @@ function getOpsOrder_(query) {
     docs: acked ? { crmUrl: String(f['CRM PO URL'] || ''), customerUrl: String(f['Customer PO URL'] || ''),
       crmPrintedBy: String(f['CRM PO Printed'] || '').split(' | ')[0].split(',')[0] } : null,
     products: getOrderLineItems_(id),
+    orderType: normalizeOrderType_(f['Order Type']),
+    shipBy: opsFmtDate_(f['Ship By Date']),
+    daysToShip: computeDaysUntilDate(f['Ship By Date']),
+    daccTransporter: String(f['DACC Transporter'] || ''),
     standby: (typeof standbyInfoForOrder_ === 'function') ? standbyInfoForOrder_(id, status) : null,
     pendingRequest: (typeof pendingRequestFor_ === 'function') ? pendingRequestFor_(id) : null
   };
@@ -457,7 +471,7 @@ function opsBuildPo_(sheet, row) {
   var f = getRowFields(sheet, row, ['Tracker ID', 'Date Logged', 'Institution / Customer', 'CRE Name', 'Total Order Value',
     'Advance Received', 'Customer Requested Delivery Date', 'Priority Level', 'Payment Terms Type', 'State', 'District',
     'Pincode', 'Dispatch Type', 'Verified By', 'Verified Date', 'Verification Code', 'Bank Reference / UTR',
-    'Picked Up By', 'Received by Ops Timestamp', 'Ops Cutover']);
+    'Picked Up By', 'Received by Ops Timestamp', 'Ops Cutover', 'Order Type', 'DACC Transporter']);
   var id = String(f['Tracker ID']);
   var total = Number(f['Total Order Value']) || 0, advance = Number(f['Advance Received']) || 0;
   var pct = total > 0 ? Math.round((advance / total) * 1000) / 10 : 0;
@@ -470,7 +484,8 @@ function opsBuildPo_(sheet, row) {
       verificationCode: String(f['Verification Code'] || ''),
       utr: String(f['Bank Reference / UTR'] || ''),
       pickedUpBy: String(f['Picked Up By'] || '') || (String(f['Ops Cutover'] || '').toUpperCase() === 'Y' ? 'With Ops at go-live' : ''),
-      pickedUpAt: pickedAt
+      pickedUpAt: pickedAt,
+      dacc: normalizeOrderType_(f['Order Type']) === ORDER_TYPE_DACC ? (String(f['DACC Transporter'] || '') || 'the transporter') : ''
     });
   setRowFields(sheet, row, { 'Wrapper PO PDF URL': url });
   return url;
@@ -549,6 +564,7 @@ function getGatePassQueue_() {
     var balance = computeBalanceDue(o.get('Total Order Value'), o.get('Advance Received'));
     var approved = balance > 0 && terms === 'End Customer' ? isPaymentExceptionApproved_(id, PX_DISPATCH) : false;
     var pending = (typeof pendingRequestFor_ === 'function') ? pendingRequestFor_(id) : null;
+    var dacc = normalizeOrderType_(o.get('Order Type')) === ORDER_TYPE_DACC; // Oct 2026: the balance is paid at the transporter's warehouse
     items[id.toLowerCase()] = {
       trackerId: id,
       institution: String(o.get('Institution / Customer') || ''),
@@ -560,7 +576,11 @@ function getGatePassQueue_() {
       requestedAtMs: opsMs_(o.get('Vehicle Confirmed Timestamp')),
       paymentTerms: terms,
       balanceDue: balance,
-      blocked: terms === 'End Customer' && balance > 0 && !approved,
+      blocked: terms === 'End Customer' && balance > 0 && !approved && !dacc,
+      dacc: dacc,
+      daccTransporter: dacc ? String(o.get('DACC Transporter') || '') : '',
+      daccNote: dacc ? 'DACC order \u2013 book with ' + (String(o.get('DACC Transporter') || '') || 'the transporter') + ' as DACC. ' +
+        (balance > 0 ? '\u20b9' + formatAmount(balance) + ' is collected at the transporter\u2019s warehouse before release \u2013 it doesn\u2019t block the gate pass.' : 'Fully paid.') : '',
       approvedBalanceNote: approved ? 'Dispatch with \u20b9' + formatAmount(balance) + ' due was approved \u2013 the gate pass carries the note.' : '',
       poBalanceNote: terms === 'PO Customer' && balance > 0 ? '\u20b9' + formatAmount(balance) + ' balance allowed under the customer\u2019s own PO \u2013 noted on the gate pass.' : '',
       pending: pending ? pending.label + ' (waiting for ' + pending.waitingFor + ')' : '',
@@ -661,8 +681,9 @@ function recordPosting_(form) {
   var row = resolveTrackerId(sheet, String(form.trackerId || ''));
   if (row === -1) throw new Error('Order not found.');
   var f = getRowFields(sheet, row, ['Tracker ID', 'Status', 'Dispatch Type', 'Payment Terms Type', 'Total Order Value',
-    'Advance Received', 'Received by Ops Timestamp', 'Ops Cutover', 'Sent to Ops Timestamp']);
+    'Advance Received', 'Received by Ops Timestamp', 'Ops Cutover', 'Sent to Ops Timestamp', 'Order Type']);
   var trackerId = String(f['Tracker ID']);
+  var isFlipkart = normalizeOrderType_(f['Order Type']) === ORDER_TYPE_FLIPKART; // handed over at the Flipkart office (Oct 2026)
   if (normalizeDispatchType_(f['Dispatch Type']) !== DISPATCH_COURIER) {
     throw new Error('This is a vehicle order – request the gate pass instead.');
   }
@@ -697,7 +718,7 @@ function recordPosting_(form) {
   try {
     if (getRowFields(sheet, row, ['Status'])['Status'] !== 'Sent to Ops') throw new Error('This order changed while the photo was uploading. Look it up again.');
     setRowFields(sheet, row, {
-      'Transport Mode': 'Post / Courier',
+      'Transport Mode': isFlipkart ? 'Flipkart (handed over at the Flipkart office)' : 'Post / Courier',
       'Courier / Transport Name': courierName,
       'Dispatch Timestamp': postedAt,
       'Status': STATUS_POSTED,
@@ -710,7 +731,7 @@ function recordPosting_(form) {
   } finally {
     lock.releaseLock();
   }
-  return { trackerId: trackerId, status: STATUS_POSTED, receiptUrl: receiptUrl, courierName: courierName, trackingNo: trackingNo };
+  return { trackerId: trackerId, status: STATUS_POSTED, receiptUrl: receiptUrl, courierName: courierName, trackingNo: trackingNo, flipkart: isFlipkart };
 }
 
 // ================================================================
@@ -1244,6 +1265,8 @@ function opsApprovedDispatchSet_() {
 function opsBlockedFromValues_(id, terms, total, advance, approvedSet) {
   if (String(terms || 'End Customer') !== 'End Customer') return false;
   if (computeBalanceDue(total, advance) <= 0) return false;
+  // DACC (Oct 2026, OrderTypes.gs): the balance is collected at the transporter's warehouse.
+  if (typeof isDaccOrderId_ === 'function' && isDaccOrderId_(id)) return false;
   var key = String(id || '').toLowerCase();
   return !(approvedSet ? approvedSet[key] : isPaymentExceptionApproved_(String(id), PX_DISPATCH));
 }

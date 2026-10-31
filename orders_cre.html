@@ -1,0 +1,312 @@
+<!--
+  DACC, Flipkart and returns on the CRE page (Oct 2026). Pulled in by
+  cre_beta.html with <?!= include('orders_cre'); ?> as the LAST line before
+  </body>, after the page's own script (it uses window.ICF_CRE from there).
+    - Order drawer: the DACC steps (goods at the warehouse -> release the DACC),
+      Flipkart hand-over details, and "Goods coming back?" to raise a return.
+    - Requests view: the Returns list, with "Informed the customer" to close one.
+  Server side: OrderTypes.gs and Returns.gs.
+-->
+<style>
+  .ot-steps { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0 4px; }
+  .ot-step { font-size: 11.5px; font-weight: 600; padding: 3px 9px; border-radius: 11px; background: var(--grey-bg); color: var(--grey); }
+  .ot-step.on { background: var(--blue-bg); color: var(--blue); }
+  .ot-step.done { background: var(--teal-bg); color: var(--teal); }
+  .ot-days { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .ot-days.red { color: var(--red); }
+  .rt-lines { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 6px; }
+  .rt-lines th { text-align: left; font-size: 11px; font-weight: 600; color: var(--text-3); padding: 4px 6px; border-bottom: 1px solid var(--border); }
+  .rt-lines td { padding: 6px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  .rt-lines input { width: 72px; }
+  .rt-card { padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius); margin-top: 8px; background: var(--surface); }
+  .rt-card .rt-top { display: flex; justify-content: space-between; gap: 8px; align-items: flex-start; }
+  .rt-card .rt-id { font-weight: 600; font-size: 13px; }
+  .rt-card .rt-sub { font-size: 12px; color: var(--text-2); margin-top: 3px; }
+  .rt-card .rt-l { font-size: 12.5px; margin-top: 6px; }
+</style>
+<script>
+(function () {
+  'use strict';
+  var C = window.ICF_CRE;
+  if (!C) { if (window.ICF_BETA_ERR) window.ICF_BETA_ERR('orders_cre: the CRE page helpers are missing.'); return; }
+  var $ = C.$, esc = C.esc, inr = C.inr2;
+  function errText(e) { return C.errText(e); }
+  function todayYmd() { var d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 10); }
+  function pill(text, tone) { return '<span class="pill t-' + tone + '"><span class="dot"></span>' + esc(text) + '</span>'; }
+  function reopen(id) { C.refreshAfterAction(); loadReturns(); C.openOrder(id, true); }
+
+  // =====================================================================
+  // Drawer
+  // =====================================================================
+  window.ICF_ORDER_EXTRAS = function (order) {
+    var canAct = !(order.access && order.access.canAct === false);
+    renderOrderType(order, canAct);
+    renderReturns(order, canAct);
+  };
+
+  // ---------- DACC / Flipkart ----------
+  function renderOrderType(order, canAct) {
+    var box = $('secOrderType'); if (!box) return;
+    var info = order.orderTypeInfo || {};
+    if (order.orderType === 'DACC' && info.dacc) { box.style.display = ''; box.innerHTML = daccHtml(order, info.dacc, canAct); bindDacc(order, info.dacc); return; }
+    if (order.orderType === 'Flipkart') { box.style.display = ''; box.innerHTML = flipkartHtml(order, info); return; }
+    box.style.display = 'none'; box.innerHTML = '';
+  }
+
+  function daccSteps(stage) {
+    var order = ['not-dispatched', 'in-transit', 'at-warehouse', 'released', 'delivered'];
+    var labels = ['Dispatch', 'In transit', 'At the warehouse', 'DACC released', 'Delivered'];
+    var at = order.indexOf(stage);
+    if (stage === 'returned') return '<div class="ot-steps"><span class="ot-step done">Dispatch</span><span class="ot-step done">At the warehouse</span><span class="ot-step on">Rejected – returned</span></div>';
+    return '<div class="ot-steps">' + labels.map(function (l, i) {
+      return '<span class="ot-step' + (i < at ? ' done' : i === at ? ' on' : '') + '">' + esc(l) + '</span>';
+    }).join('') + '</div>';
+  }
+
+  function daccHtml(o, d, canAct) {
+    var t = d.transporter || 'the transporter';
+    var contact = [d.transporterPhone ? 'Phone ' + d.transporterPhone : '', d.transporterEmail ? 'Email ' + d.transporterEmail : ''].filter(Boolean).join(' · ');
+    var h = '<div class="dr-sec-title">DACC – ' + esc(t) + '</div>' + daccSteps(d.stage);
+    var meta = '<div class="hint">' + [d.consignmentNo ? 'Consignment no. ' + esc(d.consignmentNo) : '', contact ? esc(contact) : '', d.warehouse ? 'Warehouse: ' + esc(d.warehouse) : ''].filter(Boolean).join('<br>') + '</div>';
+    if (d.stage === 'not-dispatched' || d.stage === 'cancelled') {
+      return h + '<div class="act-card grey"><div class="msg">The goods go by ' + esc(t) + ', booked as DACC. Once they leave ICF, mark here when they reach the transporter’s warehouse near the customer. ' +
+        (d.balanceDue > 0 ? 'The balance of <b>' + inr(d.balanceDue) + '</b> is collected there – it won’t stop Ops at the gate.' : 'It’s fully paid.') + '</div></div>';
+    }
+    if (d.stage === 'in-transit') {
+      return h + '<div class="act-card blue"><h4>On the way to ' + esc(t) + '’s warehouse</h4>' +
+        '<div class="msg">When the transporter (or the customer) tells you the goods have arrived, record it – the transporter keeps them free for ' + d.freeDays + ' days from then.</div>' + meta +
+        (canAct ? '<div class="field row2"><div><label class="lbl" for="daccArrOn">Reached the warehouse on</label><input class="inp" type="date" id="daccArrOn" max="' + todayYmd() + '" value="' + todayYmd() + '"></div>' +
+          '<div><label class="lbl" for="daccWh">Warehouse / branch<span class="opt">(optional)</span></label><input class="inp" type="text" id="daccWh" placeholder="e.g. Safe Express, Hosur"></div></div>' +
+          '<div class="act-actions"><button class="btn primary" type="button" id="daccArrBtn">Goods are at the warehouse</button></div><div class="err" id="daccErr"></div>' : '') +
+        '</div>';
+    }
+    if (d.stage === 'at-warehouse') {
+      var red = d.daysLeft !== null && d.daysLeft <= 1;
+      var daysText = d.daysLeft > 0 ? d.daysLeft + ' free day' + (d.daysLeft === 1 ? '' : 's') + ' left' : 'Free days over – the transporter will be calling';
+      var subject = 'Cancel DACC – please deliver' + (d.consignmentNo ? ' – consignment ' + d.consignmentNo : '') + ' – ' + o.institution;
+      var body = 'Dear ' + t + ',\n\nThe customer ' + o.institution + ' has paid ICF in full for the goods booked under DACC' +
+        (d.consignmentNo ? ' (consignment no. ' + d.consignmentNo + ')' : '') + '. Please cancel the DACC and complete the delivery to the consignee.\n\nThank you,\n' + ((window.ICF_STAFF || {}).name || '') + '\nICF Group';
+      var mailto = 'mailto:' + String(d.transporterEmail || '').replace(/[^\w.@+,;-]/g, '') + '?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(body);
+      h += '<div class="act-card ' + (red ? 'red' : 'amber') + '"><h4>At ' + esc(t) + '’s warehouse since ' + esc(d.arrivedAt) + '</h4>' +
+        '<div class="ot-days' + (red ? ' red' : '') + '">' + esc(daysText) + '</div>' + meta;
+      if (d.balanceDue > 0) {
+        h += '<div class="msg" style="margin-top:8px;">Waiting for the customer to inspect and pay <b>' + inr(d.balanceDue) + '</b>. When they pay, use <b>“Customer has paid – tell Accounts”</b> above. Once Accounts records it, you release the DACC here.</div>';
+      } else if (canAct) {
+        h += '<div class="sub-h">Paid in full – release the DACC</div>' +
+          '<div class="msg">Email ' + esc(t) + ' to cancel the DACC and deliver. ' + (d.transporterEmail ? '<a href="' + esc(mailto) + '">Open a ready-made email</a>.' : 'No email is on file for this transporter – ask the admin to add it in the Transporters tab.') + '</div>' +
+          '<label class="check" style="margin-top:10px;"><input type="checkbox" id="daccEmailed"><span>I’ve emailed ' + esc(t) + ' to cancel the DACC and complete the delivery.</span></label>' +
+          '<div class="field"><input class="inp" type="text" id="daccNote" placeholder="Note (optional), e.g. emailed Hosur branch, cc customer"></div>' +
+          '<div class="act-actions"><button class="btn primary" type="button" id="daccRelBtn" disabled>DACC released</button></div><div class="err" id="daccErr"></div>';
+      }
+      if (canAct && o.returns && o.returns.canRaise) {
+        h += '<div class="sub-h">Customer rejected the goods?</div><div class="hint" style="margin-top:2px;">All or part of it – raise a return. Type in what they accepted, if anything.</div>' +
+          '<div class="act-actions"><button class="btn danger" type="button" id="daccRejectBtn">Customer rejected – raise a return</button></div>';
+      }
+      return h + '</div>';
+    }
+    if (d.stage === 'released') {
+      return h + '<div class="act-card teal"><div class="msg">DACC released ' + esc(d.releasedAt) + (d.releasedBy ? ' by ' + esc(d.releasedBy.replace(/\s*\([^)]*\)\s*$/, '')) : '') +
+        '. Confirm with the customer that it’s delivered, then mark it <b>Delivered</b> above.</div>' + meta + '</div>';
+    }
+    return h + '<div class="act-card grey"><div class="msg">' + esc(d.outcome || (d.stage === 'returned' ? 'Rejected – goods returned.' : 'Delivered.')) +
+      (d.releasedAt ? ' Released ' + esc(d.releasedAt) + '.' : '') + '</div>' + meta + '</div>';
+  }
+
+  function bindDacc(o, d) {
+    var arr = $('daccArrBtn');
+    if (arr) arr.addEventListener('click', function () {
+      var err = $('daccErr'); C.hideEl(err);
+      if (!$('daccArrOn').value) { C.showErr(err, 'Choose the date.'); return; }
+      C.busy(arr, 'Saving…');
+      authRun().withSuccessHandler(function () { reopen(o.trackerId); })
+        .withFailureHandler(function (e) { C.unbusy(arr); C.showErr(err, errText(e)); })
+        .daccMarkArrived({ trackerId: o.trackerId, arrivedOn: $('daccArrOn').value, warehouse: $('daccWh').value.trim() });
+    });
+    var chk = $('daccEmailed'), rel = $('daccRelBtn');
+    if (chk && rel) {
+      chk.addEventListener('change', function () { rel.disabled = !chk.checked; });
+      rel.addEventListener('click', function () {
+        var err = $('daccErr'); C.hideEl(err);
+        if (!window.confirm('Release the DACC for ' + o.trackerId + '?\n\nOnly if you have emailed ' + (d.transporter || 'the transporter') + ' to cancel it.')) return;
+        C.busy(rel, 'Saving…');
+        authRun().withSuccessHandler(function () { reopen(o.trackerId); })
+          .withFailureHandler(function (e) { C.unbusy(rel); C.showErr(err, errText(e)); })
+          .daccRelease({ trackerId: o.trackerId, emailed: true, note: $('daccNote').value.trim() });
+      });
+    }
+    var rej = $('daccRejectBtn');
+    if (rej) rej.addEventListener('click', function () { openReturnForm(o, 'DACC – rejected at inspection', 'Transporter'); });
+  }
+
+  function flipkartHtml(o, info) {
+    var h = '<div class="dr-sec-title">Flipkart</div>';
+    var due = info.daysToShip;
+    if (!C.isDispatched(o.status)) {
+      var late = due !== null && due < 0, today = due === 0;
+      return h + '<div class="act-card ' + (late ? 'red' : today ? 'amber' : 'blue') + '"><div class="msg">Paid through Flipkart – no Accounts step. Ops packs it and hands it over at the Flipkart office' +
+        (info.shipBy ? ' by <b>' + esc(info.shipBy) + '</b>' + (late ? ' – <b>' + (-due) + ' day' + (due === -1 ? '' : 's') + ' late</b>' : today ? ' – <b>today</b>' : '') : '') + '.</div></div>';
+    }
+    return h + '<div class="act-card teal"><div class="msg">Handed over at the Flipkart office' + (o.courierName && o.courierName !== 'Flipkart' ? ' (' + esc(o.courierName) + ')' : '') +
+      (o.trackingNo ? ' – shipment ' + esc(o.trackingNo) : '') + '. Mark it <b>Delivered</b> once the seller panel shows it delivered. If Flipkart sends it back, raise a return (“Flipkart return”).</div></div>';
+  }
+
+  // ---------- Returns ----------
+  function lineText(l) {
+    return l.qtyRequested + ' × ' + esc(l.product) + (l.qtyReceived !== null && l.qtyReceived !== undefined ? ' – ' + l.qtyReceived + ' in' : '') + (l.outcome ? ' → ' + esc(l.outcome) : '') + (l.note ? ' (' + esc(l.note) + ')' : '');
+  }
+  function money(r) {
+    var bits = [];
+    if (r.reduceBy) bits.push('Owed reduced by ' + inr(r.reduceBy));
+    if (r.resolution === 'Refund') bits.push('Refund ' + inr(r.resolutionAmount) + ' – ' + (r.refundStatus === 'Processed' ? 'paid, UTR ' + esc(r.refundUtr) : r.refundStatus === 'Processing' ? 'with Accounts, due ' + esc(r.refundDeadline) : 'once the goods are in'));
+    else if (r.resolution === 'Replacement order' || r.resolution === 'Credit on a future order') {
+      bits.push(esc(r.resolution) + ': credit ' + inr(r.resolutionAmount) + (r.creditUsedOn ? ', used on ' + esc(r.creditUsedOn) : '') + (r.creditLeft > 0 ? ' – <b>' + inr(r.creditLeft) + ' left</b>: log the new PO with “Apply return credit” = ' + esc(r.returnId) : ''));
+    } else if (r.resolution) bits.push(esc(r.resolution));
+    return bits.join('<br>');
+  }
+  function toneOf(r) {
+    return r.status === 'Pending' ? 'amber' : r.status === 'Declined' ? 'red' : r.status === 'Closed' || r.status === 'Withdrawn' ? 'grey' : r.status === 'Inspected' ? 'teal' : 'blue';
+  }
+  function returnCardHtml(r, mine) {
+    return '<div class="rt-card"><div class="rt-top"><div><div class="rt-id">' + esc(r.returnId) + ' – ' + esc(r.reason) + '</div>' +
+      '<div class="rt-sub">Raised by ' + esc(r.requestedByName) + ' ' + esc(r.requestedAt) + (r.comingBackBy ? ' · by ' + esc(r.comingBackBy) : '') + (r.expected ? ', expected ' + esc(r.expected) : '') + '</div></div>' +
+      pill(r.stageText, toneOf(r)) + '</div>' +
+      '<div class="rt-l">' + r.lines.map(lineText).join('<br>') + '</div>' +
+      (r.details ? '<div class="rt-sub">' + esc(r.details) + '</div>' : '') +
+      (money(r) ? '<div class="rt-l">' + money(r) + '</div>' : '') +
+      (r.adminNote ? '<div class="rt-sub">Admin: ' + esc(r.adminNote) + '</div>' : '') +
+      (r.status === 'Pending' && mine ? '<div class="act-actions"><button class="btn danger sm rt-wd" type="button" data-id="' + esc(r.returnId) + '">Withdraw request</button></div>' : '') +
+      '</div>';
+  }
+
+  var CURRENT = null;
+  function renderReturns(o, canAct) {
+    var box = $('secReturns'); if (!box) return;
+    var R = o.returns;
+    CURRENT = o;
+    if (!R || (!R.list.length && !(canAct && R.canRaise))) { box.style.display = 'none'; box.innerHTML = ''; return; }
+    var me = window.ICF_STAFF || {};
+    box.style.display = '';
+    box.innerHTML = '<div class="dr-sec-title">Returns</div>' +
+      R.list.map(function (r) { return returnCardHtml(r, me.code && (r.requestedBy === me.code || r.ownerCode === me.code || me.role === 'Admin')); }).join('') +
+      (canAct && R.canRaise ? '<button class="btn ghost sm" type="button" id="rtToggle" style="margin:8px 0 0 -10px;">&#8634;&nbsp; Goods coming back?</button><div id="rtFormBox"></div>' : '') +
+      '<div class="err" id="rtErr"></div>';
+    var tg = $('rtToggle');
+    if (tg) tg.addEventListener('click', function () { if ($('rtFormBox').innerHTML) $('rtFormBox').innerHTML = ''; else openReturnForm(o, '', ''); });
+    C.each(box.querySelectorAll('.rt-wd'), function (b) {
+      b.addEventListener('click', function () {
+        if (!window.confirm('Withdraw return request ' + b.getAttribute('data-id') + '?')) return;
+        C.busy(b, 'Withdrawing…');
+        authRun().withSuccessHandler(function () { reopen(o.trackerId); })
+          .withFailureHandler(function (e) { C.unbusy(b); C.showErr($('rtErr'), errText(e)); })
+          .withdrawReturn({ returnId: b.getAttribute('data-id') });
+      });
+    });
+  }
+
+  function opt(list, sel, blank) {
+    return (blank ? '<option value="">' + esc(blank) + '</option>' : '') + list.map(function (x) { return '<option value="' + esc(x) + '"' + (x === sel ? ' selected' : '') + '>' + esc(x) + '</option>'; }).join('');
+  }
+
+  function openReturnForm(o, reason, comingBack) {
+    var R = o.returns;
+    var fb = $('rtFormBox');
+    if (!fb) { // the DACC button: the Returns section may be scrolled away -- make sure the form exists
+      var box = $('secReturns'); if (!box) return;
+      renderReturns(o, true); fb = $('rtFormBox'); if (!fb) return;
+    }
+    if (!reason) reason = o.orderType === 'Flipkart' ? 'Flipkart return' : '';
+    if (!comingBack && o.orderType === 'Flipkart') comingBack = 'Courier / Flipkart';
+    var dacc = reason.indexOf('DACC') === 0;
+    var rows = R.returnable.map(function (l, i) {
+      return '<tr><td>' + esc(l.product) + '</td><td class="mono">' + l.ordered + (l.returned ? ' <span class="faint">(' + l.returned + ' already)</span>' : '') + '</td>' +
+        '<td><input class="inp mono rt-q" type="number" min="0" max="' + l.available + '" step="1" data-i="' + i + '" value="' + (dacc || R.returnable.length === 1 ? l.available : '') + '"' + (l.available ? '' : ' disabled') + '></td></tr>';
+    }).join('');
+    fb.innerHTML = '<div class="act-card amber" style="margin-top:8px;"><h4>Goods coming back to ICF</h4>' +
+      '<div class="msg">The admin approves it and settles the money; Sanju logs the goods in at the gate. ICF pays the return freight.</div>' +
+      '<div class="field"><label class="lbl" for="rtReason">Why?</label><select class="inp" id="rtReason">' + opt(R.reasons, reason, '– choose –') + '</select></div>' +
+      '<div class="field"><label class="lbl">What’s coming back</label><table class="rt-lines"><tr><th>Product</th><th>Ordered</th><th>Qty back</th></tr>' + rows + '</table></div>' +
+      '<div class="field"><label class="lbl" for="rtDetails" id="rtDetailsLbl">What happened</label><textarea class="inp" id="rtDetails" rows="2" placeholder="e.g. Two cabins dented in transit, photos on WhatsApp"></textarea></div>' +
+      '<div class="field row2"><div><label class="lbl" for="rtBy">Coming back by</label><select class="inp" id="rtBy">' + opt(R.comingBack, comingBack, '– choose –') + '</select></div>' +
+        '<div><label class="lbl" for="rtWhen">Expected at ICF<span class="opt">(optional)</span></label><input class="inp" type="date" id="rtWhen" min="' + esc(R.today) + '"></div></div>' +
+      '<div class="field"><label class="lbl" for="rtWant">What should the customer get?<span class="opt">(your suggestion – the admin decides)</span></label><select class="inp" id="rtWant">' +
+        opt(R.resolutions, dacc ? 'Refund' : '', '– no suggestion –') + '</select>' +
+        '<div class="hint">Received on this order so far: ' + inr(R.amountReceived) + (R.balanceDue > 0 ? '; still owed ' + inr(R.balanceDue) + ' – the admin can write off what was never paid for.' : '.') + '</div></div>' +
+      '<div class="act-actions"><button class="btn primary" type="button" id="rtSend">Send return request to admin</button><button class="btn ghost" type="button" id="rtCancel">Cancel</button></div>' +
+      '<div class="err" id="rtFormErr"></div></div>';
+    function relabel() {
+      var d = $('rtReason').value.indexOf('DACC') === 0;
+      $('rtDetailsLbl').textContent = d ? 'What happened – and what the customer accepted, if anything' : 'What happened';
+      $('rtDetails').placeholder = d ? 'e.g. Inspected at Hosur – took 3 of 5 cabins, rejected 2 (wrong colour)' : 'e.g. Two cabins dented in transit, photos on WhatsApp';
+    }
+    $('rtReason').addEventListener('change', relabel); relabel();
+    $('rtCancel').addEventListener('click', function () { fb.innerHTML = ''; });
+    $('rtSend').addEventListener('click', function () {
+      var btn = this, err = $('rtFormErr'); C.hideEl(err);
+      var lines = [];
+      C.each(fb.querySelectorAll('.rt-q'), function (inp) {
+        var q = parseInt(inp.value, 10);
+        if (q > 0) lines.push({ product: R.returnable[Number(inp.getAttribute('data-i'))].product, qty: q });
+      });
+      var form = { trackerId: o.trackerId, reason: $('rtReason').value, details: $('rtDetails').value.trim(), lines: lines,
+        comingBackBy: $('rtBy').value, expectedBy: $('rtWhen').value, proposedResolution: $('rtWant').value };
+      if (!form.reason) return C.showErr(err, 'Choose why the goods are coming back.');
+      if (!lines.length) return C.showErr(err, 'Enter how many of which product are coming back.');
+      if (form.details.length < 5) return C.showErr(err, 'Add a line on what happened.');
+      if (!form.comingBackBy) return C.showErr(err, 'Say how the goods are coming back.');
+      if (!window.confirm('Send a return request for ' + o.trackerId + '?\n\n' + lines.map(function (l) { return l.qty + ' x ' + l.product; }).join('\n'))) return;
+      C.busy(btn, 'Sending…');
+      authRun().withSuccessHandler(function () { reopen(o.trackerId); })
+        .withFailureHandler(function (e) { C.unbusy(btn); C.showErr(err, errText(e)); })
+        .requestReturn(form);
+    });
+    fb.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  // =====================================================================
+  // Requests view: Returns
+  // =====================================================================
+  var items = [];
+  function loadReturns() {
+    authRun()
+      .withSuccessHandler(function (list) { items = list || []; renderList(); })
+      .withFailureHandler(function () { if (!items.length) $('rtList').innerHTML = '<div class="card-box empty">Could not load the returns.</div>'; })
+      .getReturnsPanel();
+  }
+  window.ICF_RETURNS_LOAD = loadReturns;
+
+  function renderList() {
+    var ready = items.filter(function (it) { return it.canAck; }).length;
+    window.ICF_RETURNS_READY = ready;
+    var c = $('rtCount'); c.textContent = items.length; c.style.display = items.length ? 'inline-flex' : 'none';
+    C.updateReqBadge();
+    if (!items.length) { $('rtList').innerHTML = '<div class="card-box empty">No returns to follow up.</div>'; return; }
+    $('rtList').innerHTML = items.map(function (it) {
+      return '<div class="req" data-req="' + esc(it.returnId) + '">' +
+        '<div class="req-open" data-id="' + esc(it.trackerId) + '"><div style="display:flex; justify-content:space-between; gap:10px; align-items:flex-start;"><div>' +
+          '<div class="req-name">' + esc(it.institution) + '</div>' +
+          '<div class="req-sub">' + esc(it.trackerId) + ' · ' + esc(it.returnId) + ' · ' + esc(it.reason) + '</div></div>' +
+          pill(it.stageText, toneOf(it)) + '</div>' +
+          '<div class="req-sub" style="margin-top:6px;">' + it.lines.map(lineText).join(', ') + '</div>' +
+          (money(it) ? '<div class="req-sub" style="margin-top:4px;">' + money(it) + '</div>' : '') + '</div>' +
+        (it.canAck ? '<div class="req-ack"><label class="check"><input type="checkbox" class="rt-chk"> ' + esc(it.ackLabel) + '</label><button class="btn primary sm rt-ok" type="button" disabled>OK</button></div>' : '') +
+        '</div>';
+    }).join('');
+    C.each($('rtList').querySelectorAll('.req-open'), function (el) { el.addEventListener('click', function () { C.openOrder(el.getAttribute('data-id')); }); });
+    C.each($('rtList').querySelectorAll('.req'), function (item) {
+      var chk = item.querySelector('.rt-chk'), ok = item.querySelector('.rt-ok');
+      if (!chk) return;
+      chk.addEventListener('change', function () { ok.disabled = !chk.checked; });
+      ok.addEventListener('click', function () {
+        ok.disabled = true; chk.disabled = true; ok.textContent = '…';
+        authRun()
+          .withSuccessHandler(function () { loadReturns(); })
+          .withFailureHandler(function (e) { ok.disabled = false; chk.disabled = false; ok.textContent = 'OK'; window.alert('Could not save: ' + errText(e)); })
+          .acknowledgeReturn({ returnId: item.getAttribute('data-req') });
+      });
+    });
+  }
+  var refreshBtn = $('refreshReq');
+  if (refreshBtn) refreshBtn.addEventListener('click', loadReturns);
+  loadReturns();
+})();
+</script>

@@ -903,6 +903,12 @@ function sbSettingsSchema_() {
       rows.push(row);
     });
   }
+  // DACC (Oct 2026, OrderTypes.gs): numbers with their own ranges.
+  if (typeof ORDER_TYPE_SETTINGS_ROWS !== 'undefined') {
+    ORDER_TYPE_SETTINGS_ROWS.forEach(function (r) {
+      rows.push({ label: r[0], def: r[1], help: r[2], kind: 'number', group: 'DACC & Flipkart', min: r[3], max: r[4] });
+    });
+  }
   return rows;
 }
 
@@ -1040,6 +1046,7 @@ function saveSettings_(values) {
   cache.remove('ops_settings');
   cache.remove('gate_nudge_hours'); cache.remove('gate_overdue');
   cache.remove('rental_settings');
+  cache.remove('ordertype_settings');
   if (changes.length) logActivity_(me, 'Changed settings', '', changes.join('; ').slice(0, 45000));
   return { changed: changes.length, changes: changes };
 }

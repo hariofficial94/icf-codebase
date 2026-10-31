@@ -1,0 +1,168 @@
+<!--
+  Returned goods on the Gate page (Oct 2026). Pulled in by gate.html with
+  <?!= include('returns_gate'); ?> as the LAST line before </body>.
+  Sanju sees the returns an admin has approved, logs the goods in when they
+  arrive (count per product) and records what each one goes to: restock,
+  repair, scrap or another customer -- in one go, or the inspection later.
+  Server side: Returns.gs.
+-->
+<style>
+  .card.ret { border-left-color: #6b4c9a; }
+  .card.ret.late { border-left-color: #B00020; }
+  .rtag2 { display: inline-block; font-size: 11px; font-weight: 800; padding: 2px 8px; border-radius: 10px; background: #efe9f8; color: #6b4c9a; margin-left: 6px; vertical-align: middle; }
+  .rl { border-top: 1px solid #eee; padding: 10px 0 4px; margin-top: 8px; }
+  .rl .p { font-size: 15px; font-weight: 700; color: #222; }
+  .rl .q { font-size: 13px; color: #555; margin-top: 2px; }
+  .rl .row { display: flex; gap: 8px; margin-top: 8px; align-items: center; flex-wrap: wrap; }
+  .rl input[type=number] { width: 90px; padding: 11px; font-size: 18px; border: 1px solid #ccc; border-radius: 6px; text-align: center; }
+  .rl select { flex: 1 1 180px; padding: 11px; font-size: 15px; border: 1px solid #ccc; border-radius: 6px; background: #fff; }
+  .rl input.nt { width: 100%; margin-top: 6px; padding: 10px; font-size: 14px; border: 1px solid #ccc; border-radius: 6px; }
+  .rt-form { display: none; }
+  .rt-form.show { display: block; }
+  .card textarea { width: 100%; padding: 10px; font-size: 14px; border: 1px solid #ccc; border-radius: 6px; margin-top: 8px; font-family: inherit; }
+  .btn.light2 { background: #eef1f4; color: #1F3864; }
+</style>
+
+<div class="wrap" id="retWrap">
+  <h2>Returns – coming in<span class="count" id="retExpCount">0</span></h2>
+  <div id="retExp"><div class="empty">Loading...</div></div>
+  <h2>Returns – to inspect<span class="count" id="retInsCount">0</span></h2>
+  <div id="retIns"></div>
+  <h2>Returns – done today<span class="count" id="retDoneCount">0</span></h2>
+  <div id="retDone"></div>
+</div>
+
+<script>
+(function () {
+  function esc(t) { return String(t == null ? '' : t).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+  function errText(e) { return String(e && e.message || e).replace(/^(Error:\s*)+/, ''); }
+  function toast(msg, bad) {
+    var t = document.getElementById('toast');
+    if (!t) { window.alert(msg); return; }
+    t.textContent = msg; t.className = 'toast show' + (bad ? ' bad' : '');
+    clearTimeout(toast._t); toast._t = setTimeout(function () { t.className = 'toast'; }, 3500);
+  }
+  // Sits under the gate lists, inside the same column.
+  var mainWrap = document.querySelector('body > .wrap');
+  var mine = document.getElementById('retWrap');
+  if (mainWrap && mine && mainWrap !== mine) { while (mine.firstChild) mainWrap.appendChild(mine.firstChild); mine.parentNode.removeChild(mine); }
+
+  var D = { expected: [], toInspect: [], doneToday: [], outcomes: [] };
+  function q() { var el = document.getElementById('q'); return el ? el.value.trim().toLowerCase() : ''; }
+  function hit(r, s) { return !s || [r.returnId, r.trackerId, r.institution].join(' ').toLowerCase().indexOf(s) !== -1; }
+  function outcomeSel(cls) {
+    return '<select class="' + cls + '"><option value="">– what happens to it –</option>' + D.outcomes.map(function (o) { return '<option>' + esc(o) + '</option>'; }).join('') + '</select>';
+  }
+  function head(r) {
+    return '<div class="inst">' + esc(r.institution) + '<span class="rtag2">Return</span></div>' +
+      '<div class="meta">' + esc(r.returnId) + ' · order ' + esc(r.trackerId) + '<br>' + esc(r.reason) +
+      (r.comingBackBy ? ' · by ' + esc(r.comingBackBy) : '') + (r.expected ? ' · expected ' + esc(r.expected) : '') + '</div>';
+  }
+
+  function expCard(r) {
+    return '<div class="card ret' + (r.overdue ? ' late' : '') + '" data-id="' + esc(r.returnId) + '">' + head(r) +
+      (r.overdue ? '<div class="waited">Expected ' + esc(r.expected) + ' – not in yet</div>' : '') +
+      '<div class="meta" style="margin-top:6px;">' + r.lines.map(function (l) { return '<b>' + l.qtyRequested + ' × ' + esc(l.product) + '</b>'; }).join('<br>') + '</div>' +
+      '<div class="acts s1"><button type="button" class="btn go">Goods arrived – log them in</button></div>' +
+      '<div class="rt-form">' +
+        r.lines.map(function (l, i) {
+          return '<div class="rl" data-i="' + i + '"><div class="p">' + esc(l.product) + '</div><div class="q">Expected ' + l.qtyRequested + '</div>' +
+            '<div class="row"><input type="number" class="qty" min="0" max="' + l.qtyRequested + '" value="' + l.qtyRequested + '" inputmode="numeric"> ' + outcomeSel('oc') + '</div>' +
+            '<input type="text" class="nt" placeholder="Condition (optional), e.g. dent on the left panel"></div>';
+        }).join('') +
+        '<textarea class="note" rows="2" placeholder="Note (optional)"></textarea>' +
+        '<div class="acts"><button type="button" class="btn in">Logged in + inspected</button></div>' +
+        '<div class="acts"><button type="button" class="btn light2 later">Logged in – inspect later</button><button type="button" class="btn no">Cancel</button></div>' +
+        '<div class="err"></div>' +
+      '</div></div>';
+  }
+  function insCard(r) {
+    return '<div class="card ret" data-id="' + esc(r.returnId) + '">' + head(r) +
+      '<div class="meta" style="margin-top:6px;">In at the gate ' + esc(r.arrivedAt) + '</div>' +
+      r.lines.filter(function (l) { return l.qtyReceived > 0; }).map(function (l) {
+        return '<div class="rl" data-p="' + esc(l.product) + '"><div class="p">' + l.qtyReceived + ' × ' + esc(l.product) + '</div>' +
+          '<div class="row">' + outcomeSel('oc') + '</div><input type="text" class="nt" value="' + esc(l.note || '') + '" placeholder="Condition (optional)"></div>';
+      }).join('') +
+      '<textarea class="note" rows="2" placeholder="Note (optional)"></textarea>' +
+      '<div class="acts"><button type="button" class="btn ins">Save inspection</button></div><div class="err"></div></div>';
+  }
+  function doneCard(r) {
+    return '<div class="card done">' + head(r) + '<div class="meta" style="margin-top:6px;">' +
+      r.lines.map(function (l) { return (l.qtyReceived || 0) + ' of ' + l.qtyRequested + ' × ' + esc(l.product) + (l.outcome ? ' → <b>' + esc(l.outcome) + '</b>' : ''); }).join('<br>') + '</div></div>';
+  }
+
+  function render() {
+    var s = q();
+    var e = D.expected.filter(function (r) { return hit(r, s); }), i = D.toInspect.filter(function (r) { return hit(r, s); }), d = D.doneToday.filter(function (r) { return hit(r, s); });
+    document.getElementById('retExpCount').textContent = D.expected.length;
+    document.getElementById('retInsCount').textContent = D.toInspect.length;
+    document.getElementById('retDoneCount').textContent = D.doneToday.length;
+    document.getElementById('retExp').innerHTML = e.length ? e.map(expCard).join('') : '<div class="empty">No returns expected.</div>';
+    document.getElementById('retIns').innerHTML = i.length ? i.map(insCard).join('') : '<div class="empty">Nothing waiting for inspection.</div>';
+    document.getElementById('retDone').innerHTML = d.length ? d.map(doneCard).join('') : '<div class="empty">None today.</div>';
+    bind();
+  }
+
+  function showErr(el, e) { var x = el.querySelector('.err'); x.textContent = errText(e); x.className = 'err show'; }
+
+  function bind() {
+    Array.prototype.forEach.call(document.querySelectorAll('#retExp .card'), function (el) {
+      var r = D.expected.filter(function (x) { return x.returnId === el.getAttribute('data-id'); })[0];
+      var s1 = el.querySelector('.s1'), form = el.querySelector('.rt-form');
+      el.querySelector('.go').addEventListener('click', function () { s1.style.display = 'none'; form.classList.add('show'); });
+      el.querySelector('.no').addEventListener('click', function () { form.classList.remove('show'); s1.style.display = 'flex'; });
+      function send(inspectNow, btn) {
+        var lines = Array.prototype.map.call(el.querySelectorAll('.rl'), function (rl) {
+          var l = r.lines[Number(rl.getAttribute('data-i'))];
+          return { product: l.product, qtyReceived: rl.querySelector('.qty').value, outcome: rl.querySelector('.oc').value, note: rl.querySelector('.nt').value.trim() };
+        });
+        if (inspectNow) {
+          var missing = lines.filter(function (l) { return Number(l.qtyReceived) > 0 && !l.outcome; })[0];
+          if (missing) return showErr(el, 'Choose what happens to ' + missing.product + '.');
+        }
+        var label = btn.textContent;
+        btn.disabled = true; btn.textContent = 'Saving...';
+        authRun()
+          .withSuccessHandler(function (res) {
+            toast('Return ' + res.returnId + ' logged in' + (res.inspected ? ' and inspected' : '') + '.' + (res.short ? ' Less than expected – the CRE is told.' : '') + (res.fullReturn ? ' Whole order back.' : ''));
+            load();
+          })
+          .withFailureHandler(function (e) { btn.disabled = false; btn.textContent = label; showErr(el, e); })
+          .logReturnArrival({ returnId: r.returnId, lines: lines, note: el.querySelector('.note').value.trim(), inspectNow: inspectNow });
+      }
+      el.querySelector('.in').addEventListener('click', function () { send(true, this); });
+      el.querySelector('.later').addEventListener('click', function () { send(false, this); });
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('#retIns .card'), function (el) {
+      el.querySelector('.ins').addEventListener('click', function () {
+        var btn = this;
+        var lines = Array.prototype.map.call(el.querySelectorAll('.rl'), function (rl) {
+          return { product: rl.getAttribute('data-p'), outcome: rl.querySelector('.oc').value, note: rl.querySelector('.nt').value.trim() };
+        });
+        var missing = lines.filter(function (l) { return !l.outcome; })[0];
+        if (missing) return showErr(el, 'Choose what happens to ' + missing.product + '.');
+        btn.disabled = true; btn.textContent = 'Saving...';
+        authRun()
+          .withSuccessHandler(function () { toast('Inspection saved.'); load(); })
+          .withFailureHandler(function (e) { btn.disabled = false; btn.textContent = 'Save inspection'; showErr(el, e); })
+          .recordReturnInspection({ returnId: el.getAttribute('data-id'), lines: lines, note: el.querySelector('.note').value.trim() });
+      });
+    });
+  }
+
+  function load() {
+    authRun()
+      .withSuccessHandler(function (d) { D = d || D; render(); })
+      .withFailureHandler(function (e) { document.getElementById('retExp').innerHTML = '<div class="empty">Could not load returns: ' + esc(errText(e)) + '</div>'; })
+      .getReturnsGate();
+  }
+  var qEl = document.getElementById('q');
+  if (qEl) qEl.addEventListener('input', render);
+  var prevReload = window.ICF_RELOAD;
+  window.ICF_RELOAD = function () { if (typeof prevReload === 'function') prevReload(); load(); };
+  var rb = document.getElementById('refreshBtn');
+  if (rb) rb.addEventListener('click', load);
+  setInterval(function () { if (!document.hidden && window.ICF_STAFF) load(); }, 120000);
+  load();
+})();
+</script>

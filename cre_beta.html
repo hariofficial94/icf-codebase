@@ -118,6 +118,8 @@
     .chip.high { color: var(--red); border-color: var(--red-bd); }
     .chip.medium { color: var(--amber); border-color: var(--amber-bd); }
     .chip.courier { color: var(--blue); border-color: rgba(106,168,247,0.35); }
+    .chip.dacc { color: #a88be0; border-color: rgba(168,139,224,0.4); }
+    .chip.flipkart { color: #f0b429; border-color: rgba(240,180,41,0.45); }
     .chip.cover { color: var(--amber); border-color: var(--amber-bd); text-transform: none; letter-spacing: 0; }
     .count { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; font-size: 10.5px; font-weight: 700; background: var(--surface-3); color: var(--text-2); }
     .count.hot { background: var(--red); color: #fff; }
@@ -726,7 +728,7 @@
       <div class="page-head">
         <div>
           <h1 class="page-title">Requests</h1>
-          <div class="page-sub">Things you’ve asked the admin for, and cancellations you’re following up.</div>
+          <div class="page-sub">Things you’ve asked the admin for, and cancellations and returns you’re following up.</div>
         </div>
         <button class="btn" type="button" id="refreshReq">&#8635; Refresh</button>
       </div>
@@ -752,6 +754,11 @@
           <div class="panel-sub">Your cancellation requests and where each refund stands. Once a refund is processed, tell the customer, tick the box and press OK.</div>
           <div class="req-list" id="cxList"><div class="loading">Loading…</div></div>
         </div>
+      </div>
+      <div style="margin-top:32px;">
+        <div class="panel-title"><h3>Returns <span class="count" id="rtCount" style="display:none;">0</span></h3></div>
+        <div class="panel-sub">Goods coming back to ICF that you raised or own. Raise a return from the order itself (open it, “Goods coming back?”). When it’s done, tell the customer, tick the box and press OK.</div>
+        <div class="req-list" id="rtList"><div class="loading">Loading…</div></div>
       </div>
     </section>
 
@@ -807,7 +814,22 @@
 
           <div class="po-sec">
             <div class="po-sec-head"><span class="po-num">4</span><h3>Payment</h3></div>
-            <div class="field"><label class="lbl" for="paymentTermsType">Payment Terms<span class="rq">*</span></label>
+            <div class="field"><label class="lbl" for="orderType">Order type<span class="rq">*</span></label>
+              <select class="inp" id="orderType">
+                <option value="Standard">Standard</option>
+                <option value="DACC">DACC – goods held at the transporter until the customer pays</option>
+                <option value="Flipkart">Flipkart order</option>
+              </select>
+              <div class="hint" id="orderTypeHint">A normal order.</div></div>
+            <div class="field" id="daccBox" style="display:none;">
+              <label class="lbl" for="daccTransporter">Transporter (booked as DACC)<span class="rq">*</span></label>
+              <select class="inp" id="daccTransporter"><option value="">Loading…</option></select>
+              <div class="hint" id="daccHint">The customer pays an advance now and the balance at the transporter’s warehouse after inspecting the goods.</div></div>
+            <div class="field" id="flipkartBox" style="display:none;">
+              <label class="lbl" for="shipByDate">Flipkart ship-by date<span class="rq">*</span></label>
+              <input class="inp" type="date" id="shipByDate" style="max-width:220px;">
+              <div class="hint">From the order in the seller panel. Ops must hand it over at the Flipkart office by this date. Flipkart collects the payment, so Accounts doesn’t verify this order – it goes straight to Ops.</div></div>
+            <div class="field" id="termsBox"><label class="lbl" for="paymentTermsType">Payment Terms<span class="rq">*</span></label>
               <select class="inp" id="paymentTermsType" required>
                 <option value="End Customer">End Customer – full payment required before dispatch</option>
                 <option value="PO Customer">Dealer / Institution with own PO – partial payment allowed</option>
@@ -826,6 +848,15 @@
                 <label class="lbl" for="balAfterReason">Why? (the admin decides)</label>
                 <input class="inp" type="text" id="balAfterReason" placeholder="e.g. Known to Sambhu, pays the balance on installation"></div>
               <div class="hint" style="margin-left:24px;">Only tick this if it’s agreed with the customer. If approved, the order won’t stop at dispatch for the balance.</div>
+            </div>
+            <div class="field" id="creditBox">
+              <label class="lbl" for="returnCreditId">Apply return credit<span class="opt">(optional)</span></label>
+              <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                <input class="inp" type="text" id="returnCreditId" placeholder="Return ID, e.g. RT-261031-AB12" style="max-width:260px;" autocomplete="off">
+                <button class="btn sm" type="button" id="creditFind">Find credits</button>
+              </div>
+              <div class="hint">For a replacement, or a later order from a customer who returned goods. The credit counts as already paid – enter only <b>new</b> money as the advance.</div>
+              <div id="creditOut"></div>
             </div>
           </div>
 
@@ -858,6 +889,7 @@
             <div class="sum-row"><span class="k">Quotation</span><span class="v" id="sumQ">–</span></div>
             <div class="sum-row"><span class="k">Customer</span><span class="v" id="sumCust">–</span></div>
             <div class="sum-row"><span class="k">Products</span><span class="v" id="sumProd">–</span></div>
+            <div class="sum-row"><span class="k">Type</span><span class="v" id="sumType">Standard</span></div>
             <div class="sum-row"><span class="k">Terms</span><span class="v" id="sumTerms">End Customer</span></div>
             <div class="sum-row"><span class="k">Total</span><span class="v" id="sumTotal">–</span></div>
             <div class="sum-row"><span class="k">Advance</span><span class="v" id="sumAdv">–</span></div>
@@ -1506,13 +1538,16 @@
       $('drId').textContent = order.trackerId;
       $('drTitle').textContent = order.institution || '–';
       $('drTags').innerHTML = pillHtml(st) + priChip(order.priority) +
-        (order.dispatchType === 'Courier' ? '<span class="chip courier">Courier</span>' : '') +
+        (order.dispatchType === 'Courier' && order.orderType !== 'Flipkart' ? '<span class="chip courier">Courier</span>' : '') +
+        (order.orderType === 'DACC' ? '<span class="chip dacc">DACC</span>' : order.orderType === 'Flipkart' ? '<span class="chip flipkart">Flipkart</span>' : '') +
         '<span class="chip">' + esc(order.paymentTermsType || '') + '</span>' +
         (!canAct ? '<span class="chip cover">' + esc((order.ownerName || 'Another CRE') + '’s order') + '</span>' : '');
 
       var h = '';
       // ---- 1. What to do now ----
       h += '<div class="dr-sec" id="secAction">' + actionSectionHtml(order, access) + '</div>';
+      // DACC / Flipkart steps (Oct 2026) -- filled by orders_cre.html
+      h += '<div class="dr-sec" id="secOrderType" style="display:none;"></div>';
       if (canAct && access.note) h += '<div class="note info" style="margin-top:10px;">' + esc(access.note) + '</div>';
       // ---- 2. Customer has paid? ----
       var saysPaid = canAct && order.status !== 'Cancelled' && order.status !== 'Ready - Payment Pending' && (order.status === 'Logged' || Number(order.balanceDue) > 0);
@@ -1537,7 +1572,12 @@
         ['Workflow stage', order.status],
         ['Dispatch type', order.dispatchType === 'Courier' ? 'Courier (packet by post)' : 'Vehicle'],
         ['Delivery status', order.deliveryStatus],
+        ['Order type', order.orderType && order.orderType !== 'Standard' ? order.orderType + (order.orderType === 'DACC' && order.orderTypeInfo && order.orderTypeInfo.dacc ? ' via ' + order.orderTypeInfo.dacc.transporter : '') +
+          (order.orderType === 'Flipkart' && order.orderTypeInfo && order.orderTypeInfo.shipBy ? ' – ship by ' + order.orderTypeInfo.shipBy : '') : ''],
         ['Payment terms', order.paymentTermsType],
+        ['Return credit used', order.returnCredit ? inr2(order.returnCredit) + ' from ' + order.returnCreditRef : ''],
+        ['Original order value', order.orderTypeInfo && order.orderTypeInfo.originalValue ? inr2(order.orderTypeInfo.originalValue) + ' (reduced for a return)' : ''],
+        ['Linked orders', order.linkedTrackerId || ''],
         ['Balance due', inr2(order.balanceDue)]
       ].filter(function (r) { return r[1] !== '' && r[1] != null; });
       h += '<div class="dr-sec"><div class="dr-sec-title">Details</div><div class="kv">' +
@@ -1551,6 +1591,8 @@
       h += '<div class="dr-sec"><div class="dr-sec-title">Order timeline</div><div id="drTimeline" class="tl"><div class="faint">Loading…</div></div></div>';
       // ---- 7. Cancellation ----
       h += '<div class="dr-sec" id="secCancel"></div>';
+      // ---- 8. Returns (Oct 2026) -- filled by orders_cre.html ----
+      h += '<div class="dr-sec" id="secReturns" style="display:none;"></div>';
       drBody.innerHTML = h;
 
       bindActionSection(order, access);
@@ -1564,6 +1606,7 @@
       });
       if (order.docs) ICF_DOCS.bind($('creDocs'), order.trackerId, function () { openOrder(order.trackerId, true); });
       renderCancelSection(order);
+      if (typeof window.ICF_ORDER_EXTRAS === 'function') { try { window.ICF_ORDER_EXTRAS(order); } catch (e) { if (window.ICF_BETA_ERR) window.ICF_BETA_ERR('Order extras: ' + e.message); } }
       loadDrawerProducts(order.trackerId);
       loadDrawerTimeline(order.trackerId);
     }
@@ -1797,7 +1840,7 @@
         ? '<div class="hint">An earlier request was declined by ' + esc(cx.decidedBy) + (cx.adminNote ? ': “' + esc(cx.adminNote) + '”' : '') + '.</div>' : '';
       box.innerHTML = '<button class="btn ghost sm" type="button" id="cxToggle" style="color:var(--red); margin-left:-10px;">&#10006;&nbsp; Customer wants to cancel this order?</button>' + declined +
         '<div id="cxForm" class="act-card red" style="display:none; margin-top:8px;">' +
-          '<div class="msg">Received so far: <b>' + inr(o.advanceAmount) + '</b>. The admin decides, and if a refund is due, sets the amount and the date Accounts must pay by.</div>' +
+          '<div class="msg">Received so far: <b>' + inr((Number(o.advanceAmount) || 0) + (Number(o.returnCredit) || 0)) + '</b>. The admin decides, and if a refund is due, sets the amount and the date Accounts must pay by.</div>' +
           '<div class="field"><label class="lbl" for="cxReason">Reason the customer gave</label>' +
           '<textarea class="inp" id="cxReason" rows="2" placeholder="e.g. Customer bought locally, wants the advance back"></textarea></div>' +
           '<div class="act-actions"><button class="btn danger" type="button" id="cxSubmit">Send cancellation request to admin</button></div>' +
@@ -1939,7 +1982,7 @@
     // Requests (was Awaiting approval + Cancellations & refunds panes)
     // =====================================================================
     function updateReqBadge() {
-      var ready = approvals.filter(function (it) { return it.status !== 'Pending'; }).length + cxItems.filter(function (it) { return it.canAck; }).length;
+      var ready = approvals.filter(function (it) { return it.status !== 'Pending'; }).length + cxItems.filter(function (it) { return it.canAck; }).length + (window.ICF_RETURNS_READY || 0);
       $('railReqCount').textContent = ready; $('railReqCount').style.display = ready ? 'inline-flex' : 'none';
     }
     function loadApprovals() {
@@ -2097,13 +2140,17 @@
       $('sumCust').textContent = $('institution').value.trim() || '–';
       var items = collectLineItems();
       $('sumProd').textContent = items.length ? items.length + ' line' + (items.length === 1 ? '' : 's') + ' · ' + items.reduce(function (s, i) { return s + i.quantity; }, 0) + ' units' : '–';
-      $('sumTerms').textContent = $('paymentTermsType').value;
+      var otype = $('orderType').value;
+      if (otype === 'Flipkart' && total > 0) { advanceInput.value = String(total); adv = total; }
+      $('sumType').textContent = otype === 'DACC' ? 'DACC' + ($('daccTransporter').value ? ' – ' + $('daccTransporter').value : '') : otype;
+      $('sumTerms').textContent = otype === 'Flipkart' ? 'Paid via Flipkart' : $('paymentTermsType').value;
+      if (creditPicked && !isNaN(adv)) adv = adv + Math.min(creditPicked.creditLeft, Math.max(0, (total || 0) - adv));
       $('sumTotal').textContent = total > 0 ? inr2(total) : '–';
-      $('sumAdv').textContent = !isNaN(adv) && advanceInput.value !== '' ? inr2(adv) : '–';
+      $('sumAdv').textContent = !isNaN(adv) && advanceInput.value !== '' ? inr2(adv) + (creditPicked ? ' (incl. credit)' : '') : '–';
       $('sumBal').textContent = total > 0 && !isNaN(adv) ? inr2(Math.max(0, total - adv)) : '–';
       if (total > 0 && !isNaN(adv)) {
         var pct = Math.round((adv / total) * 1000) / 10;
-        $('pctPreview').textContent = 'Advance = ' + pct + '% of total';
+        $('pctPreview').textContent = 'Advance = ' + pct + '% of total' + (otype === 'DACC' && pct < daccMinPct ? ' – DACC needs at least ' + daccMinPct + '%' : '');
         $('pctFill').style.width = Math.max(0, Math.min(100, pct)) + '%';
       } else {
         $('pctPreview').textContent = 'Advance % appears once total and advance are in.';
@@ -2120,7 +2167,7 @@
     // "Balance to be paid after delivery": end customer, some advance, some balance.
     function updateBalAfter() {
       var total = parseFloat(totalInput.value), adv = parseFloat(advanceInput.value);
-      var show = $('paymentTermsType').value === 'End Customer' && adv > 0 && total > adv;
+      var show = $('paymentTermsType').value === 'End Customer' && adv > 0 && total > adv && $('orderType').value === 'Standard';
       $('balAfterBox').style.display = show ? 'block' : 'none';
       if (!show) $('balAfter').checked = false;
       $('balAfterReasonBox').style.display = $('balAfter').checked ? 'block' : 'none';
@@ -2138,6 +2185,86 @@
     }
     $('paymentTermsType').addEventListener('change', updateCustomerPoLabel);
     updateCustomerPoLabel();
+
+    // ---- Order type: Standard / DACC / Flipkart (Oct 2026, OrderTypes.gs) ----
+    var daccMinPct = 50, creditPicked = null;
+    var LBL = {
+      tracker: document.querySelector('label[for=trackerId]').innerHTML,
+      inst: document.querySelector('label[for=institution]').innerHTML,
+      crm: document.querySelector('label[for=crmPoFile]').innerHTML
+    };
+    function loadOrderTypeOptions() {
+      authRun()
+        .withSuccessHandler(function (o) {
+          o = o || {};
+          daccMinPct = o.daccMinPct || 50;
+          var list = o.transporters || [];
+          var cur = $('daccTransporter').value;
+          $('daccTransporter').innerHTML = list.length
+            ? (list.length > 1 ? '<option value="">– choose –</option>' : '') + list.map(function (t) { return '<option value="' + esc(t.name) + '">' + esc(t.name) + '</option>'; }).join('')
+            : '<option value="">No transporters set up – ask the admin</option>';
+          if (cur) $('daccTransporter').value = cur;
+          $('shipByDate').min = o.today || '';
+          updateOrderType();
+        })
+        .withFailureHandler(function () { $('daccTransporter').innerHTML = '<option value="">Could not load – refresh the page</option>'; })
+        .getOrderTypeOptions();
+    }
+    function updateOrderType() {
+      var t = $('orderType').value, fk = t === 'Flipkart', dacc = t === 'DACC';
+      $('daccBox').style.display = dacc ? 'block' : 'none';
+      $('flipkartBox').style.display = fk ? 'block' : 'none';
+      $('termsBox').style.display = fk ? 'none' : 'block';
+      $('creditBox').style.display = fk ? 'none' : 'block';
+      advanceInput.parentNode.style.display = fk ? 'none' : '';
+      var poOpt = $('paymentTermsType').querySelector('option[value="PO Customer"]');
+      poOpt.disabled = dacc;
+      if (dacc && $('paymentTermsType').value !== 'End Customer') { $('paymentTermsType').value = 'End Customer'; updateCustomerPoLabel(); }
+      document.querySelector('label[for=trackerId]').innerHTML = fk ? 'Flipkart Order ID<span class="rq">*</span>' : LBL.tracker;
+      $('trackerId').placeholder = fk ? 'e.g. OD123456789012345678' : 'e.g. ICESPL-123-26-27';
+      document.querySelector('label[for=institution]').innerHTML = fk ? 'Buyer name (from Flipkart)<span class="rq">*</span>' : LBL.inst;
+      document.querySelector('label[for=crmPoFile]').innerHTML = fk ? 'Flipkart order / label<span class="opt">(optional)</span>' : LBL.crm;
+      $('orderTypeHint').textContent = fk ? 'Bio Bacteria sold on Flipkart: paid through Flipkart, no Accounts verification, Ops hands it over at the Flipkart office.'
+        : dacc ? 'For a customer who wants to see the goods before paying in full. At least ' + daccMinPct + '% now; the rest at the transporter’s warehouse. Ops never gets stopped for the balance.'
+        : 'A normal order.';
+      $('daccHint').textContent = 'The customer pays at least ' + daccMinPct + '% now and the balance at the transporter’s warehouse after inspecting. You mark when it reaches the warehouse, and release the DACC (email the transporter) once Accounts records the balance.';
+      if (fk || dacc) { $('balAfter').checked = false; }
+      if (fk) clearCredit();
+      updateBalAfter(); updateSummary();
+    }
+    $('orderType').addEventListener('change', updateOrderType);
+    $('daccTransporter').addEventListener('change', updateSummary);
+
+    // Return credit: type the RT- id, or find the open credits by customer name.
+    function clearCredit() { creditPicked = null; $('returnCreditId').value = ''; $('creditOut').innerHTML = ''; }
+    function showCredit(c) {
+      creditPicked = c;
+      $('returnCreditId').value = c.returnId;
+      $('creditOut').innerHTML = '<div class="note info">Credit <b>' + inr2(c.creditLeft) + '</b> from return ' + esc(c.returnId) + ' (order ' + esc(c.trackerId) + ', ' + esc(c.institution) + ') ' +
+        'will be counted as paid. <a href="#" id="creditClear">Remove</a></div>';
+      $('creditClear').addEventListener('click', function (e) { e.preventDefault(); clearCredit(); updateSummary(); });
+      updateSummary();
+    }
+    function findCredits() {
+      var q = $('returnCreditId').value.trim() || $('institution').value.trim();
+      $('creditOut').innerHTML = '<div class="hint">Looking…</div>';
+      authRun()
+        .withSuccessHandler(function (list) {
+          list = list || [];
+          var exact = list.filter(function (c) { return c.returnId.toLowerCase() === q.toLowerCase(); })[0];
+          if (exact) return showCredit(exact);
+          if (!list.length) { creditPicked = null; $('creditOut').innerHTML = '<div class="note">No open return credit matches “' + esc(q) + '”.</div>'; updateSummary(); return; }
+          $('creditOut').innerHTML = '<div class="card-box" style="padding:6px; margin-top:6px;">' + list.map(function (c, i) {
+            return '<div class="sp-row" data-i="' + i + '" style="cursor:pointer; padding:7px 8px;"><b>' + esc(c.returnId) + '</b> – ' + esc(c.institution) +
+              ' <span class="muted">(' + esc(c.trackerId) + ', ' + esc(c.resolution) + ')</span> <span class="mono">' + inr2(c.creditLeft) + '</span></div>';
+          }).join('') + '</div>';
+          each($('creditOut').querySelectorAll('.sp-row'), function (r) { r.addEventListener('click', function () { showCredit(list[Number(r.getAttribute('data-i'))]); }); });
+        })
+        .withFailureHandler(function (e) { $('creditOut').innerHTML = '<div class="note bad">' + esc(errText(e)) + '</div>'; })
+        .getReturnCredits(q);
+    }
+    $('creditFind').addEventListener('click', findCredits);
+    $('returnCreditId').addEventListener('change', function () { if ($('returnCreditId').value.trim()) findCredits(); else { clearCredit(); updateSummary(); } });
 
     function fileKey(f) { return f ? [f.name, f.size, f.lastModified].join('|') : ''; }
     function stageDoc(kind, inputId, done) {
@@ -2222,7 +2349,11 @@
       hideEl(errorBox); hideEl(productError);
       var lineItems = collectLineItems();
       if (!lineItems.length) { showErr(productError, 'Add at least one product with a quantity.'); productError.scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
-      if (!$('crmPoFile').files[0]) { showErr(errorBox, 'Attach the CRM PO (PDF or photo).'); return; }
+      var otypeNow = $('orderType').value;
+      if (otypeNow !== 'Flipkart' && !$('crmPoFile').files[0]) { showErr(errorBox, 'Attach the CRM PO (PDF or photo).'); return; }
+      if (otypeNow === 'Flipkart' && !$('shipByDate').value) { showErr(errorBox, 'Enter Flipkart’s ship-by date.'); return; }
+      if (otypeNow === 'DACC' && !$('daccTransporter').value) { showErr(errorBox, 'Choose the transporter the DACC is booked with.'); return; }
+      if ($('returnCreditId').value.trim() && !creditPicked) { showErr(errorBox, 'Press “Find credits” to check the return credit, or clear it.'); return; }
       if ($('paymentTermsType').value === 'PO Customer' && !$('customerPoFile').files[0]) { showErr(errorBox, 'Attach the customer’s PO – it’s required for a PO Customer order.'); return; }
 
       submitBtn.disabled = true; submitBtn.textContent = 'Uploading CRM PO…';
@@ -2242,8 +2373,13 @@
         pincode: pincodeInput.value.trim(),
         state: stateInput.value.trim(),
         district: districtInput.value.trim(),
-        lineItems: lineItems
+        lineItems: lineItems,
+        orderType: otypeNow,
+        daccTransporter: otypeNow === 'DACC' ? $('daccTransporter').value : '',
+        shipByDate: otypeNow === 'Flipkart' ? $('shipByDate').value : '',
+        returnCreditId: otypeNow !== 'Flipkart' && creditPicked ? creditPicked.returnId : ''
       };
+      if (otypeNow === 'Flipkart') formData.advanceReceived = totalInput.value;
       var fail = function (msg) { showErr(errorBox, 'Error: ' + msg); submitBtn.disabled = false; submitBtn.textContent = 'Generate Internal PO'; };
       stageDoc('crm', 'crmPoFile', function (err1, crmId) {
         if (err1) return fail(err1);
@@ -2257,7 +2393,10 @@
               lastLogged = result.trackerId;
               $('resultTrackerId').textContent = result.trackerId;
               $('resultPct').textContent = 'Advance: ' + result.advancePct + '% of total order value' + (result.priority !== 'Normal' ? '  —  Priority: ' + String(result.priority).toUpperCase() : '');
-              $('resultDispatch').textContent = (result.dispatchType === 'Courier' ? 'Courier order – goes to Ops for posting after payment verification. ' : '') +
+              $('resultDispatch').textContent = (result.orderType === 'Flipkart' ? 'Flipkart order – sent straight to Ops; hand-over due by ' + result.shipBy + (result.shipLate ? ' (already past – tell Ops now)' : '') + '. '
+                  : result.dispatchType === 'Courier' ? 'Courier order – goes to Ops for posting after payment verification. ' : '') +
+                (result.orderType === 'DACC' ? 'DACC via ' + result.daccTransporter + ' – the balance is collected at the transporter’s warehouse. ' : '') +
+                (result.returnCredit ? 'Return credit ' + inr2(result.returnCredit) + ' from ' + result.returnCreditRef + ' counted as paid. ' : '') +
                 (result.balanceAfter ? (result.balanceAfter.error ? 'Balance after delivery: could not ask the admin (' + result.balanceAfter.error + ').'
                   : 'Balance after delivery: sent to the admin for approval (' + result.balanceAfter.requestId + ').') : '') +
                 (result.docsWarning ? ' ' + result.docsWarning : '');
@@ -2276,7 +2415,7 @@
       stagedDocs = {};
       updateCustomerPoLabel();
       pincodeHint.textContent = 'Enter the 6-digit pincode and State/District fill in automatically.'; pincodeHint.style.color = '';
-      resetProductLines(); updateBalAfter();
+      resetProductLines(); clearCredit(); updateOrderType(); updateBalAfter();
       $('submitBtn').disabled = false; $('submitBtn').textContent = 'Generate Internal PO';
       hideEl($('errorBox')); hideEl(productError);
       updateSummary();
@@ -2290,7 +2429,9 @@
     // =====================================================================
     function loadAll() {
       loadCreSummary(); loadMyOrders(); loadActionList(); loadPendingPayments(); loadApprovals(); loadCancellations();
+      if (window.ICF_RETURNS_LOAD) window.ICF_RETURNS_LOAD();
     }
+    loadOrderTypeOptions();
     $('refreshAll').addEventListener('click', loadAll);
     renderGlance();
     if (typeof window.authRun !== 'function' && window.ICF_BETA_ERR) window.ICF_BETA_ERR('authRun is not defined: the shared sign-in code (auth) did not load on this page.');
@@ -2303,6 +2444,9 @@
     // when you come back to the tab, and after a new sign-in. Only lists and
     // tiles reload -- the open drawer and a half-typed PO are left alone.
     window.ICF_RELOAD = loadAll;
+    // Shared with orders_cre.html (DACC, Flipkart, returns -- Oct 2026).
+    window.ICF_CRE = { openOrder: openOrder, refreshAfterAction: refreshAfterAction, updateReqBadge: updateReqBadge, esc: esc, inr2: inr2,
+      busy: busy, unbusy: unbusy, showErr: showErr, hideEl: hideEl, errText: errText, isDispatched: isDispatched, $: $, each: each };
     // ICF_CLEAR: on Sign out, wipe everything personal from the page.
     window.ICF_CLEAR = function () {
       closeDrawer();
@@ -2312,7 +2456,8 @@
       renderGlance(); renderActions();
       $('payList').innerHTML = '<div class="loading">Loading…</div>'; $('paySide').innerHTML = '';
       $('apprList').innerHTML = '<div class="loading">Loading…</div>'; $('cxList').innerHTML = '<div class="loading">Loading…</div>';
-      ['railPayCount', 'railReqCount', 'apprCount', 'cxCount'].forEach(function (id) { $(id).style.display = 'none'; });
+      ['railPayCount', 'railReqCount', 'apprCount', 'cxCount', 'rtCount'].forEach(function (id) { $(id).style.display = 'none'; });
+      $('rtList').innerHTML = '<div class="loading">Loading…</div>'; window.ICF_RETURNS_READY = 0;
       findInput.value = ''; findPop.innerHTML = ''; findPop.classList.remove('show');
       $('poDone').style.display = 'none'; $('poForm').style.display = '';
       userMenu.classList.remove('show');
@@ -2320,5 +2465,6 @@
     };
   })();
   </script>
+  <?!= include('orders_cre'); ?>
 </body>
 </html>

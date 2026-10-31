@@ -375,21 +375,26 @@ function cxCloseOtherRequests_(trackerId, me) {
 // ---------------- 3. Accounts processes the refund ----------------
 /** Accounts pane: refunds still to pay, most urgent first. */
 function getRefundsToProcess_() {
+  // Return refunds (Oct 2026, Returns.gs) are paid from the same pane.
+  var returns = [];
+  if (typeof rtRefundsToProcess_ === 'function') { try { returns = rtRefundsToProcess_(); } catch (e) { Logger.log('return refunds: ' + e); } }
   return readCancellations_().filter(function (r) { return r.status === 'Approved' && r.refundStatus === CX_REFUND_PROCESSING; })
     .map(function (r) {
       return {
-        requestId: r.requestId, trackerId: r.trackerId, institution: r.institution, refundAmount: r.refundAmount,
+        requestId: r.requestId, kind: 'Cancellation', trackerId: r.trackerId, institution: r.institution, refundAmount: r.refundAmount,
         amountReceived: r.amountReceived, deadline: r.refundDeadlineYmd ? fmtYmd_(r.refundDeadlineYmd) : '',
         daysLeft: cxDaysUntil_(r.refundDeadlineYmd), approvedBy: r.decidedBy, approvedAt: cxFmt_(r.decidedAtMs),
         adminNote: r.adminNote, cre: r.requestedByName
       };
     })
+    .concat(returns)
     .sort(function (a, b) { return (a.daysLeft === null ? 9999 : a.daysLeft) - (b.daysLeft === null ? 9999 : b.daysLeft); });
 }
 
 /** Accounts: form = { requestId, utr, note } */
 function markRefundProcessed_(form) {
   form = form || {};
+  if (String(form.requestId || '').indexOf('RT-') === 0 && typeof rtMarkRefundProcessed_ === 'function') return rtMarkRefundProcessed_(form);
   var me = CURRENT_STAFF_;
   var utr = String(form.utr || '').trim();
   if (utr.length < 6) throw new Error('Enter the UTR / bank reference of the refund.');
@@ -476,6 +481,26 @@ function getRefundsReport_() {
     }
   }
   var staff = getStaffMap_(false);
+  // Return refunds (Oct 2026, Returns.gs) are listed with the rest.
+  var returnRefunds = [];
+  if (typeof readReturns_ === 'function') {
+    try {
+      returnRefunds = readReturns_().filter(function (r) { return r.resolution === 'Refund' && r.status !== 'Pending' && r.status !== 'Declined' && r.status !== 'Withdrawn'; })
+        .reverse().map(function (r) {
+          var o = info[r.trackerId.toLowerCase()] || {};
+          return {
+            requestId: r.returnId, trackerId: r.trackerId, institution: r.institution,
+            cre: ((staff[r.ownerCode] || {}).name) || r.requestedByName,
+            paymentTerms: o.terms || '', dateLoggedMs: o.loggedMs || null, orderValue: r.orderValue,
+            refundAmount: r.resolutionAmount, refundStatus: r.refundStatus,
+            deadline: r.refundDeadlineYmd ? fmtYmd_(r.refundDeadlineYmd) : '', daysLeft: r.refundDeadlineYmd ? cxDaysUntil_(r.refundDeadlineYmd) : null,
+            approvedBy: r.decidedBy, approvedAt: cxFmt_(r.decidedAtMs, 'dd-MMM-yyyy'),
+            processedBy: r.refundProcessedBy, processedAt: cxFmt_(r.refundProcessedAtMs, 'dd-MMM-yyyy'), utr: r.refundUtr,
+            informed: !!r.informedAtMs, kind: 'Return'
+          };
+        });
+    } catch (e) { Logger.log('refunds report: returns ' + e); }
+  }
   return readCancellations_().filter(function (r) { return r.status === 'Approved' && r.refundStatus && r.refundStatus !== CX_REFUND_NONE; })
     .reverse().map(function (r) {
       var o = info[r.trackerId.toLowerCase()] || {};
@@ -487,9 +512,9 @@ function getRefundsReport_() {
         deadline: r.refundDeadlineYmd ? fmtYmd_(r.refundDeadlineYmd) : '', daysLeft: cxDaysUntil_(r.refundDeadlineYmd),
         approvedBy: r.decidedBy, approvedAt: cxFmt_(r.decidedAtMs, 'dd-MMM-yyyy'),
         processedBy: r.refundProcessedBy, processedAt: cxFmt_(r.refundProcessedAtMs, 'dd-MMM-yyyy'), utr: r.refundUtr,
-        informed: !!r.informedAtMs
+        informed: !!r.informedAtMs, kind: 'Cancellation'
       };
-    });
+    }).concat(returnRefunds);
 }
 
 // ---------------- Hooks used by other files ----------------

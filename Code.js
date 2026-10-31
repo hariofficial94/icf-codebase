@@ -279,7 +279,10 @@ var HEADERS = [
   'Gate Pass Issued Timestamp', 'Gate Out Timestamp', 'Gate Out By', 'CRM PO URL', 'Customer PO URL',
   'CRM PO Printed',
   // Payment follow-up (Oct 2026): the CRE's next call date for a pending balance. Header cells are filled in automatically.
-  'Payment Follow-up Date', 'Payment Follow-up Note'
+  'Payment Follow-up Date', 'Payment Follow-up Note',
+  // Order types (Oct 2026): DACC and Flipkart -- see OrderTypes.js. Return credit -- see Returns.js. Header cells are filled in automatically.
+  'Order Type', 'DACC Transporter', 'DACC Arrived At', 'DACC Warehouse', 'DACC Outcome', 'DACC Released At', 'DACC Released By',
+  'DACC Alerts Sent', 'Ship By Date', 'Flipkart Alerts Sent', 'Return Credit Applied', 'Return Credit Ref', 'Original Order Value'
 ];
 
 var DISPATCH_VEHICLE = 'Vehicle';
@@ -890,11 +893,18 @@ function submitOrder_(form) {
   var paymentTermsType = form.paymentTermsType === 'PO Customer' ? 'PO Customer' : 'End Customer';
   var dispatchType = determineDispatchType_(lineItems);
 
+  // Order type (Oct 2026, OrderTypes.gs): Standard, DACC or Flipkart. A
+  // Flipkart order is paid through Flipkart, skips Accounts and is handed
+  // over at the Flipkart office; DACC waits at the transporter's warehouse.
+  var ot = (typeof otIntakeCheck_ === 'function') ? otIntakeCheck_(form, lineItems, paymentTermsType, dispatchType) : null;
+  if (ot && ot.paymentTermsType) paymentTermsType = ot.paymentTermsType;
+  if (ot && ot.dispatchType) dispatchType = ot.dispatchType;
+
   // CRM PO / customer PO (Oct 2026, Documents.gs): uploaded by the page just
   // before this call; checked here before anything is written.
   if (typeof docsStagedFile_ === 'function') {
-    if (!form.crmPoFileId) throw new Error('Attach the CRM PO (PDF or photo) – Accounts checks the address, products and amounts on it before verifying.');
-    docsStagedFile_(form.crmPoFileId, 'crm', CURRENT_STAFF_);
+    if (!form.crmPoFileId && !(ot && ot.crmPoOptional)) throw new Error('Attach the CRM PO (PDF or photo) – Accounts checks the address, products and amounts on it before verifying.');
+    if (form.crmPoFileId) docsStagedFile_(form.crmPoFileId, 'crm', CURRENT_STAFF_);
     if (paymentTermsType === 'PO Customer' && !form.customerPoFileId) throw new Error('Attach the customer’s PO – it’s required for a PO Customer order.');
     if (form.customerPoFileId) docsStagedFile_(form.customerPoFileId, 'customer', CURRENT_STAFF_);
   }
@@ -922,6 +932,16 @@ function submitOrder_(form) {
       'Enter only this order\u2019s share (up to \u20b9' + formatAmount(total) + ') and tell Accounts about the extra \u20b9' +
       formatAmount(Math.round((advance - total) * 100) / 100) + ' \u2013 they record it when verifying.');
   }
+  // Return credit (Oct 2026, Returns.gs): money the customer already paid on a
+  // returned order, carried onto this one (a replacement, or a later order).
+  // It counts as received; the advance typed by the CRE is only new money.
+  var credit = null;
+  if (String(form.returnCreditId || '').trim()) {
+    if (typeof rtCheckCredit_ !== 'function') throw new Error('Return credits aren\u2019t set up yet.');
+    credit = rtCheckCredit_(form.returnCreditId, total, advance);
+    advance = Math.round((advance + credit.amount) * 100) / 100;
+  }
+  if (typeof otIntakeAmounts_ === 'function') advance = otIntakeAmounts_(ot, total, advance);
   var advancePct = total > 0 ? Math.round((advance / total) * 1000) / 10 : 0;
   var balanceAfterReason = '';
   if (form.balanceAfterDelivery) {
@@ -960,6 +980,13 @@ function submitOrder_(form) {
   set('Pincode', (form.pincode || '').trim());
   set('Dispatch Type', dispatchType);
   set('CRE Code', CURRENT_STAFF_ ? CURRENT_STAFF_.code : '');
+  var otFields = (typeof otIntakeRowFields_ === 'function') ? otIntakeRowFields_(ot, CURRENT_STAFF_, total) : {};
+  Object.keys(otFields).forEach(function (k) { set(k, otFields[k]); });
+  if (credit) {
+    set('Return Credit Applied', credit.amount);
+    set('Return Credit Ref', credit.returnId);
+    set('Linked Tracker ID', credit.originalTrackerId);
+  }
 
   // If the advance received at intake already covers the full order value,
   // the order is fully paid from day one -- stamp it now, since
@@ -977,6 +1004,9 @@ function submitOrder_(form) {
   var newRow = getLastOrderRow_(sheet) + 1;
   if (newRow > sheet.getMaxRows()) sheet.insertRowsAfter(sheet.getMaxRows(), 50);
   sheet.getRange(newRow, 1, 1, row.length).setValues([row]);
+  if (otFields['Verification Code']) sheet.getRange(newRow, getHeaderIndex('Verification Code')).setNumberFormat('@').setValue(otFields['Verification Code']);
+  // The credit is used up by this order -- still under the lock, so two CREs can't spend the same credit.
+  if (credit) rtConsumeCredit_(credit.returnId, trackerId, credit.amount);
   SpreadsheetApp.flush();
   lock.releaseLock(); // the row is written -- the PDF below doesn't need to hold up other CREs
 
@@ -999,7 +1029,7 @@ function submitOrder_(form) {
   var docsWarning = '';
   if (typeof docsAttach_ === 'function') {
     try {
-      docsAttach_(sheet, newRow, trackerId, 'crm', form.crmPoFileId, CURRENT_STAFF_);
+      if (form.crmPoFileId) docsAttach_(sheet, newRow, trackerId, 'crm', form.crmPoFileId, CURRENT_STAFF_);
       if (form.customerPoFileId) docsAttach_(sheet, newRow, trackerId, 'customer', form.customerPoFileId, CURRENT_STAFF_);
     } catch (e) {
       docsWarning = 'The order is logged, but a PO file could not be attached (' + e.message + '). Upload it from Look Up an Enquiry – Accounts can’t verify until it’s there.';
@@ -1020,7 +1050,9 @@ function submitOrder_(form) {
   // Ops login (Oct 2026): no PDF at intake any more -- nobody prints here. The
   // Wrapper PO is generated when Ops picks the order up, with the payment
   // verification and pick-up filled in by the system (opsBuildPo_, Ops.gs).
-  return { trackerId: trackerId, advancePct: advancePct, priority: priority, dispatchType: dispatchType, balanceAfter: balanceAfter, docsWarning: docsWarning };
+  return { trackerId: trackerId, advancePct: advancePct, priority: priority, dispatchType: dispatchType, balanceAfter: balanceAfter, docsWarning: docsWarning,
+           orderType: ot ? ot.type : 'Standard', shipBy: ot && ot.shipByYmd ? fmtYmd_(ot.shipByYmd) : '', shipLate: !!(ot && ot.shipLate),
+           daccTransporter: ot && ot.transporter ? ot.transporter : '', returnCredit: credit ? credit.amount : 0, returnCreditRef: credit ? credit.returnId : '' };
 }
 
 /** Writes the AJ (verification-to-pickup) and AK (total cycle) formulas into one row. */
@@ -1183,7 +1215,9 @@ function generateWrapperPdf(trackerId, dateLogged, institution, creName, total, 
     ['Customer Requested Delivery Date', deliveryDateStr],
     ['Priority Level', priority],
     ['Dispatch Type', isCourier ? 'Courier / Post (packet)' : 'Vehicle'],
-    ['Payment Terms', paymentTermsType === 'PO Customer' ? 'PO Customer – partial/deferred payment allowed' : 'End Customer – full payment required before dispatch']
+    ['Payment Terms', paymentTermsType === 'PO Customer' ? 'PO Customer – partial/deferred payment allowed'
+      : paymentTermsType === 'Flipkart' ? 'Flipkart order – paid through Flipkart; hand over at the Flipkart office'
+      : 'End Customer – full payment required before dispatch' + (sys && sys.dacc ? ' (DACC: balance collected at ' + sys.dacc + '’s warehouse before release)' : '')]
   ]);
 
   appendSectionTable(body, '2. Order Items', (lineItems && lineItems.length ? lineItems : [{ product: 'No products on record', quantity: '' }]).map(function (it) {
@@ -1453,6 +1487,11 @@ function getCREActionItems_() {
   // Gate login (Oct 2026): a vehicle still waiting at the gate isn't the CRE's yet.
   var issuedVals = sheet.getRange(2, getHeaderIndex('Gate Pass Issued Timestamp'), numRows, 1).getValues();
   var gateOutVals = sheet.getRange(2, getHeaderIndex('Gate Out Timestamp'), numRows, 1).getValues();
+  // Order types (Oct 2026): DACC orders have their own steps after dispatch.
+  var typeVals = sheet.getRange(2, getHeaderIndex('Order Type'), numRows, 1).getValues();
+  var daccArrVals = sheet.getRange(2, getHeaderIndex('DACC Arrived At'), numRows, 1).getValues();
+  var daccRelVals = sheet.getRange(2, getHeaderIndex('DACC Released At'), numRows, 1).getValues();
+  var otCfg = getOrderTypeSettings_();
   var owners = readOrderOwners_(sheet, numRows);
   var scope = creScope_();
 
@@ -1478,6 +1517,18 @@ function getCREActionItems_() {
     }
 
     var daysUntil = computeDaysUntilDate(deliveryDateVals[i][0]);
+    var orderType = normalizeOrderType_(typeVals[i][0]);
+    var daccUrgent = false;
+    if (orderType === ORDER_TYPE_DACC && isDispatchedStatus_(status)) {
+      if (daccRelVals[i][0] instanceof Date) actionLabel = 'DACC released \u2013 confirm delivery';
+      else if (daccArrVals[i][0] instanceof Date) {
+        var dd = daccDaysSince_(daccArrVals[i][0]), dl = otCfg.daccFreeDays - dd;
+        actionLabel = 'DACC at warehouse \u2013 ' + (dl > 0 ? dl + ' free day' + (dl === 1 ? '' : 's') + ' left' : 'free days over');
+        daccUrgent = dl <= otCfg.daccRemindBefore;
+      } else actionLabel = 'DACC \u2013 mark when it reaches the warehouse';
+    } else if (orderType === ORDER_TYPE_FLIPKART && isDispatchedStatus_(status)) {
+      actionLabel = 'Flipkart \u2013 ' + actionLabel;
+    }
     results.push({
       trackerId: idVals[i][0],
       institution: instVals[i][0],
@@ -1486,7 +1537,8 @@ function getCREActionItems_() {
       dispatchType: dispatchType,
       accessNote: access && access !== 'owner' ? access : '',
       daysUntilDelivery: daysUntil,
-      isUrgent: (daysUntil !== null && daysUntil <= 3)
+      orderType: orderType,
+      isUrgent: daccUrgent || (daysUntil !== null && daysUntil <= 3)
     });
     if (results.length >= 50) break;
   }
@@ -1652,7 +1704,7 @@ function getAccountsSummary_() {
       // Blocking: a courier order held for its balance, or a gate pass Ops asked for on an unpaid end-customer order.
       if (status === STATUS_HOLD_BALANCE || (typeof STATUS_READY_PAY !== 'undefined' && status === STATUS_READY_PAY)) urgentPayments++;
       else if (status === 'Vehicle Confirmed' && (termsVals[i][0] || 'End Customer') === 'End Customer' &&
-               !isPaymentExceptionApproved_(String(idVals[i][0]), PX_DISPATCH)) urgentPayments++;
+               !isDaccOrderId_(idVals[i][0]) && !isPaymentExceptionApproved_(String(idVals[i][0]), PX_DISPATCH)) urgentPayments++;
     }
 
     var lp = lastPaymentVals[i][0];
@@ -1881,7 +1933,10 @@ function lookupOrder_(trackerId) {
     'Verified Date', 'Received by Ops Timestamp', 'Picked Up By', 'Ops Cutover', 'Gate Pass Requested By',
     'Vehicle Confirmed Timestamp', 'Postal Receipt URL', 'Customer Email', 'Customer Updates Consent',
     'Payment Hold From', 'Payment Hold Note', 'Cleared For Gate Pass', 'Customer Says Paid', 'Balance After Delivery',
-    'Gate Pass Issued Timestamp', 'Gate Out Timestamp', 'Gate Out By', 'CRM PO URL', 'Customer PO URL', 'CRM PO Printed', 'Date Logged'
+    'Gate Pass Issued Timestamp', 'Gate Out Timestamp', 'Gate Out By', 'CRM PO URL', 'Customer PO URL', 'CRM PO Printed', 'Date Logged',
+    // Order types + returns (Oct 2026)
+    'Order Type', 'DACC Transporter', 'DACC Arrived At', 'DACC Warehouse', 'DACC Outcome', 'DACC Released At', 'DACC Released By',
+    'Ship By Date', 'Return Credit Applied', 'Return Credit Ref', 'Original Order Value', 'Dispatch Timestamp', 'Linked Tracker ID'
   ]);
   var ownerCode = resolveOwnerCode_(raw['CRE Code'], raw['CRE Name']);
   var ownerStaff = getStaffMap_(false)[ownerCode];
@@ -1942,7 +1997,14 @@ function lookupOrder_(trackerId) {
     ownerCode: ownerCode,
     ownerName: ownerStaff ? ownerStaff.name : String(raw['CRE Name'] || ''),
     access: describeAccess_(ownerCode, raw['Tracker ID'] || trackerId),
-    advanceAmount: advance,
+    // The CASH part of the advance: Accounts checks this against the bank. A return credit (Oct 2026) is added on top.
+    advanceAmount: Math.max(0, Math.round((advance - (Number(raw['Return Credit Applied']) || 0)) * 100) / 100),
+    returnCredit: Number(raw['Return Credit Applied']) || 0,
+    returnCreditRef: String(raw['Return Credit Ref'] || ''),
+    linkedTrackerId: String(raw['Linked Tracker ID'] || ''),
+    orderType: normalizeOrderType_(raw['Order Type']),
+    orderTypeInfo: (typeof otOrderInfo_ === 'function') ? (function () { try { return otOrderInfo_(raw['Tracker ID'] || trackerId, raw); } catch (e) { return null; } })() : null,
+    returns: (typeof rtInfoForOrder_ === 'function') ? (function () { try { return rtInfoForOrder_(raw['Tracker ID'] || trackerId, raw); } catch (e) { return null; } })() : null,
     paymentExceptions: {
       verify: summarizePaymentException_(latestPaymentException_(raw['Tracker ID'] || trackerId, PX_VERIFY)),
       dispatch: summarizePaymentException_(latestPaymentException_(raw['Tracker ID'] || trackerId, PX_DISPATCH)),
@@ -2057,7 +2119,8 @@ function submitVerification_(form) {
   if (row === -1) throw new Error('Tracker ID not found.');
   if (typeof assertNoPendingRequest_ === 'function') assertNoPendingRequest_(sheet, row); // locked while a request waits (Oct 2026)
 
-  var current = getRowFields(sheet, row, ['Status', 'Dispatch Type', 'Payment Terms Type', 'Total Order Value', 'Advance Received']);
+  var current = getRowFields(sheet, row, ['Status', 'Dispatch Type', 'Payment Terms Type', 'Total Order Value', 'Advance Received',
+    'Order Type', 'Return Credit Applied', 'Return Credit Ref']);
   if (current['Status'] !== 'Logged') {
     throw new Error('This order is already at status "' + current['Status'] + '" \u2013 it may already be verified.');
   }
@@ -2083,13 +2146,17 @@ function submitVerification_(form) {
   //   Advance 0, End Customer     -> only with an Admin-approved payment
   //                                  exception (see PAYMENT EXCEPTIONS).
   var terms = current['Payment Terms Type'] || 'End Customer';
-  var loggedAdvance = Number(current['Advance Received']) || 0;
+  // Return credit (Oct 2026, Returns.gs): part of the logged advance is credit
+  // from a returned order -- nothing for the bank to show. Accounts confirms
+  // only the NEW money; the credit is added back on top.
+  var credit = Math.round((Number(current['Return Credit Applied']) || 0) * 100) / 100;
+  var loggedAdvance = Math.max(0, Math.round(((Number(current['Advance Received']) || 0) - credit) * 100) / 100);
   var totalValue = Number(current['Total Order Value']) || 0;
   var hasAmount = !(form.amountReceived === undefined || form.amountReceived === null || String(form.amountReceived).trim() === '');
   var advanceAmt = hasAmount ? Number(form.amountReceived) : loggedAdvance;
   if (isNaN(advanceAmt) || advanceAmt < 0) throw new Error('Enter the amount received as a number (0 if nothing has come in).');
   advanceAmt = Math.round(advanceAmt * 100) / 100;
-  if (totalValue > 0 && advanceAmt > totalValue) throw new Error('The amount received (\u20b9' + formatAmount(advanceAmt) + ') is more than the order value (\u20b9' + formatAmount(totalValue) + '). ' +
+  if (totalValue > 0 && advanceAmt + credit > totalValue + BALANCE_DUE_TOLERANCE) throw new Error((credit ? 'With the return credit of \u20b9' + formatAmount(credit) + ', t' : 'T') + 'he amount received (\u20b9' + formatAmount(advanceAmt) + ') is more than the order value (\u20b9' + formatAmount(totalValue) + '). ' +
     'If the customer really paid extra, send it to an admin as a payment with excess \u2013 the extra is kept off the order.');
   if (loggedAdvance > 0 && advanceAmt !== loggedAdvance) {
     throw new Error('The CRE logged an advance of \u20b9' + formatAmount(loggedAdvance) + '. Changing it to \u20b9' + formatAmount(advanceAmt) +
@@ -2098,8 +2165,12 @@ function submitVerification_(form) {
   var newPaymentRecorded = loggedAdvance === 0 && advanceAmt > 0;
   var bankReference = String(form.bankReference || '').trim();
   var verifyException = null;
+  var creditRef = String(current['Return Credit Ref'] || '');
   if (advanceAmt > 0) {
     if (!bankReference) throw new Error('Enter the Bank Reference / UTR No. for the advance received.');
+    if (credit > 0) bankReference += ' + return credit \u20b9' + formatAmount(credit) + ' (' + creditRef + ')';
+  } else if (credit > 0) {
+    bankReference = 'Return credit \u20b9' + formatAmount(credit) + ' from ' + creditRef; // paid from a returned order -- nothing at the bank
   } else if (terms === 'PO Customer') {
     bankReference = 'N/A \u2013 PO customer, no advance';
   } else {
@@ -2113,7 +2184,15 @@ function submitVerification_(form) {
   var code = generateVerificationCode();
   var now = new Date();
   var dispatchType = normalizeDispatchType_(current['Dispatch Type']);
-  var balanceDue = computeBalanceDue(totalValue, advanceAmt);
+  var balanceDue = computeBalanceDue(totalValue, advanceAmt + credit);
+  // DACC (Oct 2026, OrderTypes.gs): the minimum share must really have come in.
+  if (normalizeOrderType_(current['Order Type']) === ORDER_TYPE_DACC && totalValue > 0) {
+    var daccMin = getOrderTypeSettings_().daccMinPct;
+    if ((advanceAmt + credit) / totalValue * 100 + 0.05 < daccMin) {
+      throw new Error('This is a DACC order: at least ' + daccMin + '% (\u20b9' + formatAmount(Math.ceil(totalValue * daccMin) / 100) + ') must be received before it goes to Ops. ' +
+        'Ask the CRE to collect the rest, or to cancel it and log it as a standard order.');
+    }
+  }
 
   // Courier orders have no gate pass stage to stop an unpaid End Customer
   // order later -- Ops posts the packet straight after this. So the
@@ -2135,18 +2214,18 @@ function submitVerification_(form) {
   };
   if (advanceAmt > 0) fields['Last Payment Timestamp'] = now; // no payment, no payment timestamp
   if (newPaymentRecorded) {
-    fields['Advance Received'] = advanceAmt;
+    fields['Advance Received'] = Math.round((advanceAmt + credit) * 100) / 100;
     if (balanceDue <= 0) fields['Balance Fully Paid Timestamp'] = now;
   }
   if (!holdForBalance) fields['Sent to Ops Timestamp'] = now;
   setRowFields(sheet, row, fields);
-  if (newPaymentRecorded) writeAdvancePct_(sheet, row, advanceAmt, totalValue);
+  if (newPaymentRecorded) writeAdvancePct_(sheet, row, advanceAmt + credit, totalValue);
   // Stored as text so a code like "70141742" isn't turned into a number.
   sheet.getRange(row, getHeaderIndex('Verification Code')).setNumberFormat('@').setValue(code);
 
   return { trackerId: trackerId, verificationCode: code, dispatchType: dispatchType, heldForBalance: holdForBalance, balanceDue: balanceDue,
-           noAdvance: advanceAmt <= 0, approvedBy: verifyException ? verifyException.decidedBy : '',
-           newPaymentRecorded: newPaymentRecorded, advanceAmount: advanceAmt };
+           noAdvance: advanceAmt <= 0 && !credit, approvedBy: verifyException ? verifyException.decidedBy : '',
+           newPaymentRecorded: newPaymentRecorded, advanceAmount: advanceAmt, returnCredit: credit };
 }
 
 // ================================================================
@@ -2248,8 +2327,9 @@ function submitDispatch_(form) {
 
   var data = getRowFields(sheet, row, [
     'Institution / Customer', 'Vehicle No.', 'Tracker ID', 'Site Readiness Confirmed',
-    'Status', 'Payment Terms Type', 'Total Order Value', 'Advance Received'
+    'Status', 'Payment Terms Type', 'Total Order Value', 'Advance Received', 'Order Type', 'DACC Transporter'
   ]);
+  var isDacc = normalizeOrderType_(data['Order Type']) === ORDER_TYPE_DACC;
   assertNotOnStandby_(data['Status']);
   if (typeof assertNoPendingRequest_ === 'function') assertNoPendingRequest_(sheet, row); // locked while a request waits (Oct 2026)
   // Ops login (Oct 2026): a gate pass is issued only once Ops has asked for it
@@ -2272,7 +2352,9 @@ function submitDispatch_(form) {
   // the separate PO on file is for -- but the Gate Pass carries a visible note
   // so whoever handles it knows this is an authorized exception, not an oversight.
   var dispatchException = null;
-  if (paymentTermsType === 'End Customer' && balanceDue > 0) {
+  // DACC (Oct 2026): the balance is paid at the transporter's warehouse after
+  // the customer inspects -- the goods are held there until ICF releases them.
+  if (paymentTermsType === 'End Customer' && balanceDue > 0 && !isDacc) {
     dispatchException = latestPaymentException_(data['Tracker ID'], PX_DISPATCH);
     if (!dispatchException || dispatchException.status !== 'Approved') {
       throw new Error(
@@ -2291,8 +2373,8 @@ function submitDispatch_(form) {
   var gateFields = {
     'E-way Bill No.': form.ewayBillNo,
     'Gate Pass No.': gatePassNo,
-    'Transport Mode': form.transportMode || '',
-    'Courier / Transport Name': form.courierName || '',
+    'Transport Mode': form.transportMode || (isDacc ? 'Transporter (DACC)' : ''),
+    'Courier / Transport Name': form.courierName || (isDacc ? String(data['DACC Transporter'] || '') : ''),
     'Tracking / Consignment No.': form.trackingNo || '',
     'Gate Pass Issued Timestamp': now,
     'Status': 'Gate-Verified',
@@ -2302,7 +2384,8 @@ function submitDispatch_(form) {
   if (!(typeof gateIsLive_ === 'function' && gateIsLive_())) gateFields['Dispatch Timestamp'] = now;
   setRowFields(sheet, row, gateFields);
 
-  var pdfUrl = generateGatePassPdf(trackerId, gatePassNo, data['Institution / Customer'], form.ewayBillNo, data['Vehicle No.'], form.itemDescription, form.itemQty, now, paymentTermsType, balanceDue, dispatchException);
+  var pdfUrl = generateGatePassPdf(trackerId, gatePassNo, data['Institution / Customer'], form.ewayBillNo, data['Vehicle No.'], form.itemDescription, form.itemQty, now, paymentTermsType, balanceDue, dispatchException,
+    isDacc ? { transporter: form.courierName || String(data['DACC Transporter'] || ''), consignmentNo: form.trackingNo || '' } : null);
 
   // Saved so the PDF can be reprinted later from the Look Up screen without
   // regenerating it -- see the AR/AS note in the column layout comment above.
@@ -2311,7 +2394,7 @@ function submitDispatch_(form) {
   return { trackerId: trackerId, gatePassNo: gatePassNo, pdfUrl: pdfUrl };
 }
 
-function generateGatePassPdf(trackerId, gatePassNo, institution, ewayBillNo, vehicleNo, itemDescription, itemQty, date, paymentTermsType, balanceDue, dispatchException) {
+function generateGatePassPdf(trackerId, gatePassNo, institution, ewayBillNo, vehicleNo, itemDescription, itemQty, date, paymentTermsType, balanceDue, dispatchException, dacc) {
   var folder = getOrCreateFolder(GATE_PASS_FOLDER_NAME);
   var safeName = sanitizeForFilename(trackerId);
   var doc = DocumentApp.create('Gate Pass - ' + safeName);
@@ -2336,6 +2419,14 @@ function generateGatePassPdf(trackerId, gatePassNo, institution, ewayBillNo, veh
     note.editAsText().setBold(true).setFontSize(10).setForegroundColor('#B06E00');
     note.setSpacingAfter(10);
   }
+  if (dacc) {
+    var dNote = body.appendParagraph(
+      'DACC CONSIGNMENT: book with ' + (dacc.transporter || 'the transporter') + ' as Delivery Against Consignor\u2019s Copy. The goods are held at the transporter\u2019s ' +
+      'warehouse and delivered only on ICF\u2019s written release. ' + (balanceDue > 0 ? 'Balance of \u20b9' + formatAmount(balanceDue) + ' is collected before release.' : 'Fully paid.')
+    );
+    dNote.editAsText().setBold(true).setFontSize(10).setForegroundColor('#6b4c9a');
+    dNote.setSpacingAfter(10);
+  }
   if (dispatchException && balanceDue > 0) {
     var exNote = body.appendParagraph(
       'NOTE: Balance payment of \u20b9' + formatAmount(balanceDue) + ' is pending. Dispatch before full payment approved by ' +
@@ -2355,7 +2446,7 @@ function generateGatePassPdf(trackerId, gatePassNo, institution, ewayBillNo, veh
   appendSectionTable(body, '2. Billing & Vehicle Details', [
     ['E-way Bill No.', ewayBillNo],
     ['Vehicle No.', vehicleNo]
-  ]);
+  ].concat(dacc ? [['Transporter (DACC booking)', dacc.transporter || ''], ['Consignment / LR No.', dacc.consignmentNo || '(fill by hand)']] : []));
 
   appendSectionTable(body, '3. Item Verification (cross-check against physical load before exit)', [
     ['Item Description', itemDescription || ''],
@@ -2407,6 +2498,12 @@ function submitDeliveryUpdate_(form) {
   if (row === -1) throw new Error('Tracker ID not found.');
   requireCanAct_(sheet, row);
   var currentStatus = getRowFields(sheet, row, ['Status'])['Status'];
+  if (form.deliveryStatus === 'Delivered') {
+    var dg = getRowFields(sheet, row, ['Order Type', 'DACC Released At']);
+    if (normalizeOrderType_(dg['Order Type']) === ORDER_TYPE_DACC && !(dg['DACC Released At'] instanceof Date)) {
+      throw new Error('This is a DACC order: the goods stay at the transporter until you release the DACC (balance paid and verified, transporter emailed). Do that first, then mark it delivered.');
+    }
+  }
   if (!isDispatchedStatus_(currentStatus)) {
     throw new Error('This order has not been dispatched yet (stage: "' + currentStatus + '") \u2013 delivery status can only be updated after dispatch.');
   }
@@ -2861,6 +2958,15 @@ function apiMap_() {
     var extra9 = rentalExtrasApiMap_();
     for (var k9 in extra9) map[k9] = extra9[k9];
   }
+  // DACC + Flipkart order types (Oct 2026) -- OrderTypes.gs; returns -- Returns.gs.
+  if (typeof orderTypesApiMap_ === 'function') {
+    var extra10 = orderTypesApiMap_();
+    for (var k10 in extra10) map[k10] = extra10[k10];
+  }
+  if (typeof returnsApiMap_ === 'function') {
+    var extra11 = returnsApiMap_();
+    for (var k11 in extra11) map[k11] = extra11[k11];
+  }
   return map;
 }
 
@@ -2907,7 +3013,8 @@ function currentStaffName_() {
 function activityDetail_(fnName, a, result) {
   a = a || {}; result = result || {};
   switch (fnName) {
-    case 'submitOrder': return (a.institution || '') + ' \u2013 ' + (result.dispatchType || '');
+    case 'submitOrder': return (a.institution || '') + ' \u2013 ' + (result.dispatchType || '') + (result.orderType && result.orderType !== 'Standard' ? ', ' + result.orderType : '') +
+      (result.returnCreditRef ? ', return credit Rs. ' + result.returnCredit + ' from ' + result.returnCreditRef : '');
     case 'recordBalancePayment': return 'Rs. ' + (a.amountReceived || '') + ', UTR ' + (a.bankReference || '') + (result.releasedToOps ? ' \u2013 released to Ops' : '');
     case 'submitPickupAndVehicle': return 'Vehicle ' + (a.vehicleNo || '') + ', site ready ' + (a.siteReadiness || '');
     case 'submitDispatch': return (result.gatePassNo || '') + ', e-way ' + (a.ewayBillNo || '');
@@ -2929,6 +3036,8 @@ function activityDetail_(fnName, a, result) {
       if (!d && typeof docsActivityDetail_ === 'function') d = docsActivityDetail_(fnName, a, result);
       if (!d && typeof rentalActivityDetail_ === 'function') d = rentalActivityDetail_(fnName, a, result);
       if (!d && typeof rentalExtrasActivityDetail_ === 'function') d = rentalExtrasActivityDetail_(fnName, a, result);
+      if (!d && typeof orderTypesActivityDetail_ === 'function') d = orderTypesActivityDetail_(fnName, a, result);
+      if (!d && typeof returnsActivityDetail_ === 'function') d = returnsActivityDetail_(fnName, a, result);
       return d;
   }
 }
@@ -4000,6 +4109,9 @@ function getApprovalSummary_() {
   var sb = (typeof readStandby_ === 'function') ? readStandby_().filter(function (r) { return r.status === 'Pending'; }) : [];
   // Cancellation requests (Oct 2026) count with the rest.
   var cx = (typeof cxPendingCount_ === 'function') ? cxPendingCount_() : [];
+  // Return requests (Oct 2026, Returns.gs) count with the rest.
+  var rt = (typeof rtPendingList_ === 'function') ? rtPendingList_() : [];
+  cx = cx.concat(rt);
   var oldest = null;
   px.concat(ar, sb, cx).forEach(function (r) {
     if (r.requestedAtMs && (oldest === null || r.requestedAtMs < oldest)) oldest = r.requestedAtMs;
@@ -4016,7 +4128,8 @@ function getApprovalSummary_() {
     payments: px.length,
     access: ar.length,
     standby: sb.length,
-    cancellations: cx.length,
+    cancellations: cx.length - rt.length,
+    returns: rt.length,
     total: px.length + ar.length + sb.length + cx.length,
     overdue: overdue, // past the target in OFFICE time -- a request left overnight isn't overdue at 9:30
     // Gate nudge (Oct 2026): vehicles with a gate pass not marked out in time. Shown as its own badge.
@@ -4376,6 +4489,13 @@ function checkApprovalAlerts() {
     // Rentals (Oct 2026): verification, acknowledgement, end dates, overrun, payments, pickup, inspection, settlement.
     if (typeof rentalSweep_ === 'function') {
       try { sent += rentalSweep_(now, staffMap, cfg); } catch (e) { Logger.log('Rental sweep failed: ' + e); }
+    }
+    // DACC free days and Flipkart ship-by dates (Oct 2026, OrderTypes.gs).
+    if (typeof daccSweep_ === 'function') {
+      try { sent += daccSweep_(now, staffMap, cfg); } catch (e) { Logger.log('DACC sweep failed: ' + e); }
+    }
+    if (typeof flipkartSweep_ === 'function') {
+      try { sent += flipkartSweep_(now, staffMap, cfg); } catch (e) { Logger.log('Flipkart sweep failed: ' + e); }
     }
     return sent;
   } finally {

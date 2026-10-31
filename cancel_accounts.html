@@ -36,7 +36,7 @@
   panel.innerHTML =
     '<div class="side-panel-header"><h3>Refunds to process<span class="cx-count" id="cxAccCount">0</span></h3>' +
     '<button class="refresh-btn" id="cxAccRefresh" type="button">&#8635; Refresh</button></div>' +
-    '<div class="field-hint" style="margin-top:0; margin-bottom:8px;">Cancelled orders the admin has asked you to refund, most urgent first. Pay it, then enter the UTR here – the CRE is told straight away.</div>' +
+    '<div class="field-hint" style="margin-top:0; margin-bottom:8px;">Cancelled orders and returns the admin has asked you to refund, most urgent first. Pay it, then enter the UTR here – the CRE is told straight away.</div>' +
     '<div id="cxAccList" class="pending-empty">Loading...</div>';
   // Left column, under "Awaiting approval" (falls back to the right column if the layout changes).
   var leftCol = document.querySelector('.left-col') || document.querySelector('.side-col');
@@ -54,7 +54,7 @@
       var due = r.daysLeft === null ? '' : late ? (-r.daysLeft) + ' day' + (r.daysLeft === -1 ? '' : 's') + ' late'
         : r.daysLeft === 0 ? 'due today' : r.daysLeft + ' day' + (r.daysLeft === 1 ? '' : 's') + ' left';
       return '<div class="cx-ref' + (late ? ' late' : '') + '" data-req="' + esc(r.requestId) + '">' +
-        '<div class="cx-top"><div><div class="cx-inst">' + esc(r.institution) + '</div><div class="cx-sub">' + esc(r.trackerId) + '</div></div>' +
+        '<div class="cx-top"><div><div class="cx-inst">' + esc(r.institution) + '</div><div class="cx-sub">' + esc(r.trackerId) + ' &middot; ' + esc(r.kind === 'Return' ? 'Return ' + r.requestId : 'Cancelled order') + '</div></div>' +
         '<div class="cx-amt">' + inr(r.refundAmount) + '</div></div>' +
         '<div class="cx-due">Refund by ' + esc(r.deadline) + ' – ' + due + '</div>' +
         '<div class="cx-sub">Approved by ' + esc(r.approvedBy) + ' on ' + esc(r.approvedAt) + ' &middot; received ' + inr(r.amountReceived) + ' &middot; CRE ' + esc(r.cre) + '</div>' +

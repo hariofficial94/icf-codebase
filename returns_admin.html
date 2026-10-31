@@ -1,0 +1,181 @@
+<!--
+  Product returns on the Admin page (Oct 2026). Pulled in by admin.html with
+  <?!= include('returns_admin'); ?> after cancel_admin. Adds one card: return
+  requests to decide (and settle the money), returns still open, and recent
+  decisions. Server side: Returns.gs.
+-->
+<style>
+  .rt-adm { border-left: 4px solid #6b4c9a; }
+  .rt-adm h2 { color: #6b4c9a; }
+  .rt-adm .rt-grid { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; margin-top: 10px; }
+  .rt-adm .rt-grid > div { display: flex; flex-direction: column; }
+  .rt-adm .rt-grid label { margin: 0 0 4px 0; font-size: 12px; }
+  .rt-adm .rt-grid input[type=number] { width: 150px; }
+  .rt-adm .rt-grid select { width: 220px; }
+  .rt-adm .rt-lines { font-size: 13px; margin-top: 8px; }
+  .rt-adm .rt-money { font-size: 12px; color: #555; margin-top: 6px; }
+  .rt-adm .rt-money b { color: #1F3864; }
+  .rt-adm .rt-help { font-size: 11.5px; color: #777; margin-top: 3px; max-width: 520px; }
+  .rt-adm .rt-chk { display: flex; gap: 6px; align-items: center; font-size: 13px; font-weight: 600; margin-top: 10px; }
+  .rt-adm .rt-chk input { width: auto; margin: 0; }
+  .status.Pending { background: #fff1dc; color: #9a5b00; }
+  .status.Arrived, .status.Inspected { background: #e3edf8; color: #1F5FA8; }
+  .status.Closed { background: #e3f1dc; color: #2c5a1e; }
+</style>
+<script>
+(function () {
+  function esc(t) { return String(t == null ? '' : t).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+  function inr(n) { return '₹' + Math.round(Number(n) || 0).toLocaleString('en-IN'); }
+  var focusId = String(window.ICF_REQ_ID || '');
+  var DATA = null;
+
+  var card = document.createElement('div');
+  card.className = 'card rt-adm';
+  card.innerHTML =
+    '<h2>Returns</h2>' +
+    '<div class="subtitle">Goods coming back to ICF. Approving tells Sanju to expect them at the gate. Settle the money here: write off what the customer never paid for, and say what they get for what they did pay. ICF bears the return freight.</div>' +
+    '<div id="rtPending" class="empty">Loading...</div>' +
+    '<h2 style="margin-top:18px;">Open returns</h2>' +
+    '<div class="table-scroll" id="rtOpen"></div>' +
+    '<details><summary>Recent decisions</summary><div class="table-scroll" id="rtRecent"></div></details>' +
+    '<div class="actions"><button type="button" class="secondary" id="rtRefreshAdmin">&#8635; Refresh returns</button></div>';
+  var after = document.querySelector('.cx-card') || document.querySelector('.wrap > .card');
+  if (after && after.parentNode) after.parentNode.insertBefore(card, after.nextSibling);
+
+  function lineList(r) {
+    return r.lines.map(function (l) {
+      return esc(l.qtyRequested) + ' × ' + esc(l.product) + (l.qtyReceived !== null && l.qtyReceived !== undefined ? ' (' + l.qtyReceived + ' in' + (l.outcome ? ' → ' + esc(l.outcome) : '') + ')' : '');
+    }).join('<br>');
+  }
+  function writeOffReason(r) { return /^DACC|^Balance not paid|^Customer refused/.test(r.reason); }
+
+  function render(d) {
+    DATA = d;
+    var pending = d.pending.slice().sort(function (a, b) { return (b.returnId === focusId) - (a.returnId === focusId); });
+    var box = document.getElementById('rtPending');
+    if (!pending.length) {
+      box.className = 'empty';
+      box.textContent = focusId.indexOf('RT-') === 0 ? 'Return ' + focusId + ' has already been decided. Nothing waiting now.' : 'No return requests waiting.';
+    } else {
+      box.className = '';
+      box.innerHTML = pending.map(function (r) {
+        var writeOff = writeOffReason(r) && r.balanceNow > 0 ? r.balanceNow : 0;
+        var res = r.proposedResolution || (r.amountReceivedNow > 0 ? 'Refund' : 'Nothing due');
+        return '<div class="req' + (r.returnId === focusId ? ' focus' : '') + '" data-id="' + esc(r.returnId) + '" data-recv="' + r.amountReceivedNow + '" data-bal="' + r.balanceNow + '">' +
+          '<div class="req-top"><div>' +
+            '<div class="req-title">Return – ' + esc(r.trackerId) + (r.orderType && r.orderType !== 'Standard' ? ' (' + esc(r.orderType) + ')' : '') + '</div>' +
+            '<div class="req-meta">' + esc(r.institution) + ' – CRE: ' + esc(r.ownerName) + '</div>' +
+            '<div class="req-meta">Asked by ' + esc(r.requestedByName) + ' – ' + esc(r.reason) + ' – coming back by ' + esc(r.comingBackBy) + (r.expected ? ', expected ' + esc(r.expected) : '') + '</div>' +
+          '</div><div class="req-when">' + esc(r.requestedAt) + '</div></div>' +
+          '<div class="req-reason">' + esc(r.details) + '</div>' +
+          '<div class="rt-lines"><b>Coming back:</b><br>' + lineList(r) + '</div>' +
+          '<div class="rt-money">Order value now <b>' + inr(r.orderValueNow) + '</b> &middot; received <b>' + inr(r.amountReceivedNow) + '</b> &middot; still owed <b>' + inr(r.balanceNow) + '</b>' +
+            (r.proposedResolution ? ' &middot; CRE suggests <b>' + esc(r.proposedResolution) + '</b>' : '') + '</div>' +
+          '<div class="rt-grid">' +
+            '<div><label>Value of the goods coming back (₹)</label><input type="number" class="rt-goods" min="0" placeholder="for the record"></div>' +
+            '<div><label>Reduce what the customer owes by (₹)</label><input type="number" class="rt-reduce" min="0" max="' + r.balanceNow + '" value="' + (writeOff || '') + '"' + (r.balanceNow > 0 ? '' : ' disabled placeholder="nothing owed"') + '></div>' +
+          '</div>' +
+          '<div class="rt-help">Writes off the part of the balance the customer never paid for (e.g. rejected DACC goods). The order’s value goes down and the CRE stops chasing it. Leave blank if nothing is written off.</div>' +
+          '<div class="rt-grid">' +
+            '<div><label>For what they’ve paid, the customer gets</label><select class="rt-res">' + d.resolutions.map(function (x) { return '<option' + (x === res ? ' selected' : '') + '>' + esc(x) + '</option>'; }).join('') + '</select></div>' +
+            '<div class="rt-amt-box"><label class="rt-amt-lbl">Amount (₹)</label><input type="number" class="rt-amt" min="1" max="' + r.amountReceivedNow + '"></div>' +
+            '<div class="rt-days-box"><label>Accounts refunds within (days of goods in)</label><input type="number" class="rt-days" min="1" max="60" value="7"></div>' +
+          '</div>' +
+          '<label class="rt-chk rt-now-box"><input type="checkbox" class="rt-now"> Refund now – don’t wait for the goods to reach the gate</label>' +
+          '<div class="rt-help rt-res-help"></div>' +
+          '<div class="rt-grid"><div style="flex:1 1 260px;"><label>Note (needed to decline)</label><input type="text" class="rt-note" style="width:100%;" placeholder="e.g. Deduct ₹2,000 for repainting"></div></div>' +
+          '<div class="actions"><button type="button" class="approve">Approve return</button><button type="button" class="decline">Decline</button></div>' +
+          '<div class="msg"></div></div>';
+      }).join('');
+      Array.prototype.forEach.call(box.querySelectorAll('.req'), function (el) {
+        var sel = el.querySelector('.rt-res');
+        var sync = function () {
+          var v = sel.value, recv = Number(el.getAttribute('data-recv')) || 0;
+          el.querySelector('.rt-amt-box').style.display = v === 'Nothing due' ? 'none' : '';
+          el.querySelector('.rt-days-box').style.display = v === 'Refund' ? '' : 'none';
+          el.querySelector('.rt-now-box').style.display = v === 'Refund' ? '' : 'none';
+          el.querySelector('.rt-amt-lbl').textContent = v === 'Refund' ? 'Refund amount (₹)' : 'Credit amount (₹)';
+          var amt = el.querySelector('.rt-amt');
+          if (!amt.value && v !== 'Nothing due') amt.value = recv || '';
+          el.querySelector('.rt-res-help').textContent = v === 'Refund' ? 'Accounts gets it once Sanju logs the goods in (or now, if ticked), due within the days you set.'
+            : v === 'Replacement order' ? 'The CRE logs the replacement as a NEW PO and applies this return’s credit to it. The original order stays as it is. A price difference is a normal balance on the new order; unused credit stays for later.'
+            : v === 'Credit on a future order' ? 'The credit stays on this return until the CRE applies it to the customer’s next PO.'
+            : 'Nothing goes back to the customer (e.g. goods retrieved for non-payment and the advance is kept, or a free repair).';
+        };
+        sel.addEventListener('change', function () { el.querySelector('.rt-amt').value = ''; sync(); });
+        sync();
+        el.querySelector('.approve').addEventListener('click', function () { decide(el, true); });
+        el.querySelector('.decline').addEventListener('click', function () { decide(el, false); });
+      });
+    }
+
+    document.getElementById('rtOpen').innerHTML = d.open.length
+      ? '<table><tr><th>Return</th><th>Where it is</th><th>Money</th></tr>' + d.open.map(function (r) {
+          return '<tr><td>' + esc(r.returnId) + '<div class="sub">' + esc(r.trackerId) + ' – ' + esc(r.institution) + '<br>' + esc(r.reason) + '</div></td>' +
+            '<td><span class="status ' + esc(r.status) + '">' + esc(r.status) + '</span><div class="sub">' + esc(r.stageText) + '<br>' + lineList(r) + '</div></td>' +
+            '<td>' + esc(r.resolution) + (r.resolutionAmount ? ' ' + inr(r.resolutionAmount) : '') +
+              '<div class="sub">' + (r.reduceBy ? 'owed reduced by ' + inr(r.reduceBy) + '<br>' : '') +
+              (r.refundStatus && r.refundStatus !== 'Not required' ? 'Refund: ' + esc(r.refundStatus) + (r.refundDeadline ? ', due ' + esc(r.refundDeadline) : '') : '') +
+              (r.creditLeft > 0 ? 'Credit left ' + inr(r.creditLeft) : '') + '</div></td></tr>';
+        }).join('') + '</table>'
+      : '<div class="empty">No returns open.</div>';
+
+    document.getElementById('rtRecent').innerHTML = d.recent.length
+      ? '<table><tr><th>Return</th><th>Decision</th><th>Money</th></tr>' + d.recent.map(function (r) {
+          return '<tr><td>' + esc(r.returnId) + '<div class="sub">' + esc(r.trackerId) + ' – ' + esc(r.institution) + ' – ' + esc(r.requestedAt) + '</div></td>' +
+            '<td><span class="status ' + esc(r.status) + '">' + esc(r.status) + '</span><div class="sub">' + esc(r.decidedBy) + (r.adminNote ? ' – ' + esc(r.adminNote) : '') + '</div></td>' +
+            '<td>' + esc(r.resolution || '–') + (r.resolutionAmount ? ' ' + inr(r.resolutionAmount) : '') + (r.refundUtr ? '<div class="sub">UTR ' + esc(r.refundUtr) + '</div>' : '') + '</td></tr>';
+        }).join('') + '</table>'
+      : '<div class="empty">None yet.</div>';
+  }
+
+  function decide(el, approve) {
+    var m = el.querySelector('.msg');
+    var showErr = function (t) { m.textContent = t; m.className = 'msg show err'; };
+    var note = el.querySelector('.rt-note').value.trim();
+    var res = el.querySelector('.rt-res').value;
+    var amt = Number(el.querySelector('.rt-amt').value) || 0;
+    var reduce = Number(el.querySelector('.rt-reduce').value) || 0;
+    var recv = Number(el.getAttribute('data-recv')) || 0, bal = Number(el.getAttribute('data-bal')) || 0;
+    var now = el.querySelector('.rt-now').checked;
+    var days = Number(el.querySelector('.rt-days').value) || 0;
+    if (!approve && !note) return showErr('Add a note so the CRE knows why it’s declined.');
+    if (approve) {
+      if (reduce > bal + 0.5) return showErr('The customer owes only ' + inr(bal) + '.');
+      if (res !== 'Nothing due' && !(amt > 0)) return showErr('Enter the amount, or choose “Nothing due”.');
+      if (res !== 'Nothing due' && amt > recv + 0.5) return showErr('It can’t be more than the ' + inr(recv) + ' received.');
+      if (res === 'Refund' && !now && !(days >= 1 && days <= 60)) return showErr('Refund within 1 to 60 days.');
+      var summary = (reduce ? 'Write off ' + inr(reduce) + ' of the balance.\n' : '') + (res === 'Nothing due' ? 'Nothing back to the customer.' : res + ': ' + inr(amt) + '.');
+      if (!window.confirm('Approve this return?\n\n' + summary)) return;
+    }
+    var btns = el.querySelectorAll('button');
+    Array.prototype.forEach.call(btns, function (b) { b.disabled = true; });
+    authRun()
+      .withSuccessHandler(function (r) {
+        m.textContent = r.declined ? 'Declined. The CRE has been told.' : 'Approved. The CRE and the gate have been told' + (r.refundNow ? ', and Accounts has the refund.' : '.');
+        m.className = 'msg show ok';
+        setTimeout(load, 1500);
+        if (window.ICF_REFRESH_APPROVALS) window.ICF_REFRESH_APPROVALS();
+      })
+      .withFailureHandler(function (e) {
+        Array.prototype.forEach.call(btns, function (b) { b.disabled = false; });
+        showErr('Error: ' + e.message);
+      })
+      .decideReturn({ returnId: el.getAttribute('data-id'), approve: approve, note: note,
+        goodsValue: el.querySelector('.rt-goods').value, reduceBy: reduce, resolution: res, amount: amt, refundDays: days, refundNow: now });
+  }
+
+  function load() {
+    authRun()
+      .withSuccessHandler(render)
+      .withFailureHandler(function (e) { var b = document.getElementById('rtPending'); b.className = 'empty'; b.textContent = 'Could not load returns: ' + e.message; })
+      .getReturnsAdmin();
+  }
+  document.getElementById('rtRefreshAdmin').addEventListener('click', load);
+  var mainRefresh = document.getElementById('refreshBtn');
+  if (mainRefresh) mainRefresh.addEventListener('click', load);
+  var prevReload = window.ICF_RELOAD;
+  window.ICF_RELOAD = function () { if (typeof prevReload === 'function') prevReload(); load(); };
+  load();
+})();
+</script>

@@ -61,6 +61,8 @@
     .badge.medium { background: #FFD43B; color: #5a4300; }
     .tag { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 9px; background: #e6f0fa; color: #2E74B5; margin-left: 6px; vertical-align: middle; }
     .tag.cut { background: #f1eefa; color: #6b4c9a; }
+    .tag.fk { background: #fff4d6; color: #8a6100; }
+    .tag.dacc { background: #f1eefa; color: #6b4c9a; }
     .card .acts { display: flex; gap: 8px; margin-top: 12px; }
     .btn { flex: 1; padding: 13px 12px; font-size: 15px; font-weight: 700; border-radius: 8px; border: none; cursor: pointer; background: #1F3864; color: #fff; }
     .btn.green { background: #2c7a3f; }
@@ -284,11 +286,14 @@
       else if (TAB === 'dispatchedToday') waitLine = (c.dispatchType === 'Courier' ? 'Posted ' : 'Gate pass issued ') + c.dispatchedAt + (c.gatePassNo ? ' – ' + c.gatePassNo : (c.trackingNo ? ' – tracking ' + c.trackingNo : ''));
       return '<div class="card' + (c.priority === 'High' ? ' high' : c.priority === 'Medium' ? ' medium' : '') + (c.overdue ? ' overdue' : '') + '" data-id="' + esc(c.trackerId) + '">' +
         '<div class="row1"><div><div class="inst">' + esc(c.institution) +
-        (c.dispatchType === 'Courier' ? '<span class="tag">Courier</span>' : '') + (c.cutover ? '<span class="tag cut">Go-live</span>' : '') +
+        (c.orderType === 'Flipkart' ? '<span class="tag fk">Flipkart</span>' : c.dispatchType === 'Courier' ? '<span class="tag">Courier</span>' : '') +
+        (c.orderType === 'DACC' ? '<span class="tag dacc">DACC</span>' : '') + (c.cutover ? '<span class="tag cut">Go-live</span>' : '') +
         (c.paymentPending && TAB !== 'gatePass' ? '<span class="tag pay">Payment pending</span>' : '') + '</div>' +
         '<div class="id">' + esc(c.trackerId) + '</div></div>' +
         '<span class="badge' + (c.priority === 'High' ? ' high' : c.priority === 'Medium' ? ' medium' : '') + '">' + (c.priority === 'Normal' ? 'Normal' : c.priority.toUpperCase()) + '</span></div>' +
-        '<div class="meta">' + [c.location, c.requestedDelivery ? 'Wanted by ' + c.requestedDelivery + (dueText(c.daysUntilDelivery) ? ' (' + dueText(c.daysUntilDelivery) + ')' : '') : '', c.creName ? 'CRE: ' + c.creName : '']
+        '<div class="meta">' + [c.location, c.orderType === 'Flipkart' && c.shipBy ? 'Hand over at Flipkart by ' + c.shipBy + (dueText(c.daysToShip) ? ' (' + dueText(c.daysToShip) + ')' : '')
+          : c.requestedDelivery ? 'Wanted by ' + c.requestedDelivery + (dueText(c.daysUntilDelivery) ? ' (' + dueText(c.daysUntilDelivery) + ')' : '') : '',
+          c.orderType === 'DACC' && c.daccTransporter ? 'DACC via ' + c.daccTransporter : '', c.creName ? 'CRE: ' + c.creName : '']
           .filter(Boolean).map(esc).join('<br>') + '</div>' +
         (waitLine ? '<div class="wait"' + ({ late: 1, dispatchedToday: 1, cleared: 1 }[TAB] || (TAB === 'gatePass' && c.paymentPending) ? ' style="color:' + (TAB === 'late' || TAB === 'gatePass' ? '#B00020' : '#2c7a3f') + ';"' : '') + '>' + esc(waitLine) + '</div>' : '') +
         (TAB === 'newOrders' ? '<div class="acts"><button type="button" class="btn green ack">Acknowledge &amp; pick up</button></div>' : '') +
@@ -391,7 +396,14 @@
         h += '<div class="panel"><h2>Purchase orders</h2>' + ICF_DOCS.panel({ crmUrl: o.docs.crmUrl, customerUrl: o.docs.customerUrl, customerRequired: false }, { title: 'From the CRE' }).replace('docs-box', 'docs-box" style="margin-top:0;') + '</div>';
       }
       if (o.status === 'Sent to Ops' && o.acked && o.dispatchType !== 'Courier') h += gatePassForm(o);
-      if (o.status === 'Sent to Ops' && o.acked && o.dispatchType === 'Courier') h += postingForm(o);
+      if (o.status === 'Sent to Ops' && o.acked && o.dispatchType === 'Courier') h += o.orderType === 'Flipkart' ? flipkartForm(o) : postingForm(o);
+      if (o.orderType === 'Flipkart' && o.status === 'Sent to Ops') {
+        h = '<div class="status-line ' + (o.daysToShip !== null && o.daysToShip <= 0 ? 'bad' : 'warn') + '">Flipkart order – hand it over at the Flipkart office by <b>' + esc(o.shipBy || '–') + '</b>' +
+          (o.daysToShip === 0 ? ' (TODAY)' : o.daysToShip < 0 ? ' (' + (-o.daysToShip) + ' day' + (o.daysToShip === -1 ? '' : 's') + ' LATE)' : '') + '. Paid through Flipkart – nothing to collect.</div>' + h;
+      }
+      if (o.orderType === 'DACC' && (o.status === 'Sent to Ops' || o.status === 'Vehicle Confirmed' || o.status === 'On Hold - Site Not Ready')) {
+        h = '<div class="status-line">DACC order – it goes by ' + esc(o.daccTransporter || 'the transporter') + ', booked as DACC (Delivery Against Consignor’s Copy). The customer pays the balance at the transporter’s warehouse, so payment never holds up the gate pass.</div>' + h;
+      }
       if (o.status === 'On Hold - Site Not Ready') {
         h += '<div class="panel"><h2>Site ready?</h2><div class="hint" style="margin-top:0;">Vehicle ' + esc(o.vehicleNo || '–') + ' is on file. When the customer confirms the site, tap below – the gate pass request goes to Accounts.</div>' +
           '<div style="display:flex;margin-top:12px;"><button type="button" class="btn green" id="siteReadyBtn">Site is ready now – request gate pass</button></div><div class="err" id="siteErr"></div></div>';
@@ -401,7 +413,8 @@
       // Order details
       h += '<div class="panel"><h2>Order</h2>' + kv([
         ['Customer', o.institution], ['Phone', tel(o.phone), true], ['Location', o.location],
-        ['Wanted by', o.requestedDelivery], ['Priority', o.priority], ['Dispatch', o.dispatchType === 'Courier' ? 'Courier (packet by post)' : 'Vehicle'],
+        [o.orderType === 'Flipkart' ? 'Ship by (Flipkart)' : 'Wanted by', o.orderType === 'Flipkart' ? o.shipBy : o.requestedDelivery], ['Priority', o.priority],
+        ['Dispatch', o.orderType === 'Flipkart' ? 'Flipkart – hand over at the Flipkart office' : o.orderType === 'DACC' ? 'DACC via ' + (o.daccTransporter || 'transporter') : o.dispatchType === 'Courier' ? 'Courier (packet by post)' : 'Vehicle'],
         ['CRE', o.creName], ['CRE phone', tel(o.crePhone), true],
         ['Verified', o.verifiedAt], ['Picked up', o.cutover && !o.pickedUpAt ? 'With Ops at go-live' : (o.pickedUpAt ? o.pickedUpAt + (o.pickedUpBy ? ' by ' + o.pickedUpBy : '') : '')],
         ['Vehicle', o.vehicleNo], ['Gate pass asked', o.gatePassRequestedAt ? o.gatePassRequestedAt + (o.gatePassRequestedBy ? ' by ' + o.gatePassRequestedBy : '') : ''],
@@ -421,12 +434,12 @@
       switch (o.status) {
         case 'Logged': return 'Not verified by Accounts yet – don’t start on it.';
         case 'On Hold - Balance Due': return 'On hold: the customer still owes a balance. Accounts releases it to you once paid – don’t post it yet.';
-        case 'Sent to Ops': return o.acked ? (o.dispatchType === 'Courier' ? 'With you – post it and record the receipt.' : 'With you – request the gate pass when it’s ready to go.') : 'New – waiting for you to pick it up.';
+        case 'Sent to Ops': return o.acked ? (o.orderType === 'Flipkart' ? 'With you – pack it, hand it over at the Flipkart office and record the hand-over.' : o.dispatchType === 'Courier' ? 'With you – post it and record the receipt.' : 'With you – request the gate pass when it’s ready to go.') : 'New – waiting for you to pick it up.';
         case 'On Hold - Site Not Ready': return 'On hold: waiting for the customer’s site.';
         case 'Vehicle Confirmed': return o.paymentPending ? 'Gate pass blocked – the customer still has to pay. The CRE is collecting it.' : 'Gate pass requested' + (o.gatePassRequestedBy ? ' by ' + o.gatePassRequestedBy : '') + ' – with Accounts.';
         case 'Ready - Payment Pending': return 'Ready – waiting for the customer’s payment' + (o.payHoldSince ? ' since ' + o.payHoldSince : '') + '. The CRE is collecting it; your clock is paused.';
         case 'Gate-Verified': return o.dispatchedAt ? 'Dispatched ' + o.dispatchedAt + ' (gate pass ' + o.gatePassNo + ').' : 'Gate pass ' + o.gatePassNo + ' issued \u2013 waiting for the gate to mark the vehicle out.';
-        case 'Posted': return 'Posted' + (o.courierName ? ' via ' + o.courierName : '') + '. Delivery: ' + (o.deliveryStatus || 'In Transit') + '.';
+        case 'Posted': return (o.orderType === 'Flipkart' ? 'Handed over at the Flipkart office' + (o.trackingNo ? ' (shipment ' + o.trackingNo + ')' : '') : 'Posted' + (o.courierName ? ' via ' + o.courierName : '')) + '. Delivery: ' + (o.deliveryStatus || 'In Transit') + '.';
         case 'On Standby': return 'On standby (customer delay)' + (o.standby && o.standby.open ? ' until ' + o.standby.open.resume + ' – ' + o.standby.open.reason : '') + '.';
         case 'Cancelled': return 'Cancelled – nothing to do.';
         default: return 'Stage: ' + o.status;
@@ -465,6 +478,18 @@
         '<img class="photo-prev" id="pPrev" alt="Receipt preview">' +
         '<div class="hint">' + (o.receiptPhotoRequired ? 'The photo is required. ' : 'Add it if you can. ') + 'The CRE uses it to answer the customer.</div>' +
         '<div style="display:flex;margin-top:14px;"><button type="button" class="btn" id="pBtn">Save posting</button></div><div class="err" id="pErr"></div></div>';
+    }
+
+    // Flipkart (Oct 2026): the same step as posting, recorded as the hand-over at the Flipkart office.
+    function flipkartForm(o) {
+      return '<div class="panel"><h2>Handed over at Flipkart? Record it</h2>' +
+        '<input type="hidden" id="pCourier" value="Flipkart">' +
+        '<label for="pTracking">Flipkart shipment / tracking ID</label><input type="text" id="pTracking" autocapitalize="characters" value="' + esc(o.trackerId) + '">' +
+        '<div class="hint">From the shipping label. The Flipkart order ID is filled in – change it if the label shows a different shipment ID.</div>' +
+        '<label for="pAt">Date &amp; time handed over</label><input type="datetime-local" id="pAt" value="' + nowLocal() + '" max="' + nowLocal() + '">' +
+        '<label for="pPhoto">Photo of the hand-over slip / manifest (optional)</label><input type="file" id="pPhoto" accept="image/*,application/pdf" capture="environment">' +
+        '<img class="photo-prev" id="pPrev" alt="Slip preview">' +
+        '<div style="display:flex;margin-top:14px;"><button type="button" class="btn" id="pBtn">Save hand-over</button></div><div class="err" id="pErr"></div></div>';
     }
 
     function standbyForm(o) {
@@ -563,7 +588,7 @@
         if (!receipt && o.receiptPhotoRequired) return showErr('pErr', 'Add the photo of the postal receipt.');
         pBtn.disabled = true; pBtn.textContent = receipt ? 'Uploading...' : 'Saving...';
         authRun()
-          .withSuccessHandler(function () { toast('Posting saved. The CRE takes delivery follow-up from here.'); openOrder(o.trackerId); loadQueue(); })
+          .withSuccessHandler(function (r) { toast(r && r.flipkart ? 'Hand-over saved. The CRE follows delivery on the Flipkart seller panel.' : 'Posting saved. The CRE takes delivery follow-up from here.'); openOrder(o.trackerId); loadQueue(); })
           .withFailureHandler(function (e) { pBtn.disabled = false; pBtn.textContent = 'Save posting'; showErr('pErr', e.message); })
           .recordPosting({ trackerId: o.trackerId, courierName: courier, trackingNo: tracking, postedAt: at,
                            receipt: receipt ? { data: receipt.data, mimeType: receipt.mimeType, name: receipt.name } : null });

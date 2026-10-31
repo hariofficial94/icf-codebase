@@ -952,11 +952,13 @@
       amountInput.value = logged > 0 ? String(logged) : (isPO ? '0' : '');
       document.getElementById('bankReference').value = '';
       document.getElementById('resultVerify').classList.remove('show');
-      document.getElementById('amountHint').textContent = logged > 0
+      var creditNote = order.returnCredit > 0 ? ' Plus a return credit of \u20b9' + Number(order.returnCredit).toLocaleString('en-IN') + ' from ' + order.returnCreditRef + ' – already counted, not at the bank.' : '';
+      document.getElementById('amountHint').textContent = (logged > 0
         ? (corrected ? 'Advance on record: \u20b9' + logged.toLocaleString('en-IN') + ' (corrected by an admin).'
                      : 'The CRE logged \u20b9' + logged.toLocaleString('en-IN') + '. Change it only if the bank shows something different.')
         : (isPO ? 'No advance logged \u2013 PO customer. If the customer has paid anyway, enter the amount.'
-                : 'The CRE logged no advance. If the customer has paid since, enter the amount.');
+                : 'The CRE logged no advance. If the customer has paid since, enter the amount.')) + creditNote;
+      if (order.returnCredit > 0 && logged === 0) amountInput.value = '0';
       updateVerifyState();
     }
 
@@ -1007,6 +1009,10 @@
         return;
       }
       // Nothing received.
+      if (o.returnCredit > 0) {
+        box('ok-box', 'Paid from a return credit of ' + inr(o.returnCredit) + ' (' + escapeHtml(o.returnCreditRef) + ') \u2013 no UTR needed. Confirm to send this to Ops.');
+        return;
+      }
       if (o.paymentTermsType === 'PO Customer') {
         box('note-box', 'No advance \u2013 PO customer, so no UTR is needed. Confirm to send this to Ops.');
         return;

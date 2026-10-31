@@ -59,8 +59,9 @@
   </div>
 
   <script>
-    var GROUPS = ['Office hours', 'Approvers', 'Approval timings', 'Standby limits', 'Ops nudges', 'Dashboard targets', 'Rentals'];
+    var GROUPS = ['Office hours', 'Approvers', 'Approval timings', 'Standby limits', 'Ops nudges', 'Dashboard targets', 'Rentals', 'DACC & Flipkart'];
     var GROUP_NOTES = {
+      'DACC & Flipkart': 'DACC orders: the minimum advance, and how long the transporter keeps the goods before it starts calling. The transporters themselves are rows in the Transporters tab of the tracker sheet.',
       'Office hours': 'Reminder and escalation clocks only run during these hours. Standbys end at the next office opening on or after their resume date.',
       'Approvers': 'Who is reminded first, and who gets the escalation when a request is still waiting.',
       'Approval timings': 'Counted in office minutes. The escalation must come after the reminder.',
@@ -118,7 +119,7 @@
         if (!rows.length) return '';
         return '<div class="card" style="margin-bottom:18px;"><h2>' + esc(g) + '</h2><div class="subtitle">' + esc(GROUP_NOTES[g] || '') + '</div>' +
           rows.map(function (x) {
-            return '<div class="field" id="row' + x.i + '"><div><div class="lab">' + esc(x.r.label.replace(/^Standby( approval)?: /, '').replace(/^Rentals: /, '').replace(/^Dashboard target: /, '').replace(/ \(staff code\)$/, '')) + '</div>' +
+            return '<div class="field" id="row' + x.i + '"><div><div class="lab">' + esc(x.r.label.replace(/^Standby( approval)?: /, '').replace(/^Rentals: /, '').replace(/^DACC: /, '').replace(/^Dashboard target: /, '').replace(/ \(staff code\)$/, '')) + '</div>' +
               '<div class="help">' + esc(x.r.help) + (x.r.max ? ' (' + x.r.min + ' to ' + Number(x.r.max).toLocaleString('en-IN') + ')' : '') + '</div>' +
               (x.r.saved ? '' : '<div class="unsaved">Not in the sheet yet \u2013 using the default. Save to add it.</div>') +
               '</div><div>' + inputFor(x.r, x.i) + '</div></div>';
