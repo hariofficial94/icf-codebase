@@ -450,6 +450,27 @@
     .dir-item .acts .inp { height: 30px; width: 160px; }
     .dir-item .res { margin-top: 6px; font-size: 12px; }
 
+    /* Per-pane date filter */
+    .pc { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .pc .pc-custom { display: none; align-items: center; gap: 6px; }
+    .pc.custom .pc-custom { display: inline-flex; }
+    .pc .inp { height: 26px; width: 132px; font-size: 12px; padding: 0 8px; }
+    .pc-row { display: flex; justify-content: flex-end; margin: -4px 0 10px; }
+    .pane-tools { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; justify-content: flex-end; }
+    .live-tag { display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 9px; border-radius: 11px; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; color: var(--teal); background: var(--teal-bg); }
+    .live-tag::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+    .modal-head .head-tools { display: flex; align-items: center; gap: 10px; margin-left: auto; }
+    .sb-now { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 16px; align-items: start; padding-bottom: 14px; }
+    .sb-now .big { background: var(--bg-2); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; }
+    .sb-now .big .l { font-size: 12px; color: var(--text-2); }
+    .sb-now .big .v { font-size: 22px; font-weight: 700; margin-top: 3px; font-variant-numeric: tabular-nums; }
+    .sb-now .big .v.over { color: var(--red); }
+    .sb-now .big .s { font-size: 11.5px; color: var(--text-3); margin-top: 2px; }
+    .sb-hist-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; padding-top: 14px; border-top: 1px solid var(--border); margin-bottom: 10px; }
+    .sb-hist-head h4 { margin: 0; font-size: 13.5px; font-weight: 600; display: flex; align-items: center; gap: 7px; }
+    .sb-hist { max-height: 340px; overflow-y: auto; overscroll-behavior: contain; padding-right: 4px; }
+    .tag-ongoing { font-size: 10.5px; font-weight: 700; color: var(--amber); }
+
     /* Big pop-ups (lists, departments, a state) */
     .modal-box.wide { max-width: 1180px; }
     .modal-box.full { max-width: 1280px; min-height: calc(100vh - 100px); }
@@ -506,6 +527,7 @@
       .flow { column-gap: 10px; }
     }
     @media (max-width: 900px) {
+      .sb-now { grid-template-columns: 1fr; }
       .g-money, .g-2, .g-trend { grid-template-columns: 1fr; }
       .waiting { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .waiting .wl { grid-column: 1 / -1; }
@@ -582,20 +604,9 @@
     <div class="page-head">
       <div>
         <h1 class="page-title">Owner Dashboard</h1>
-        <div class="page-sub">A live, read-only view of the order tracker. Click any number to see the orders behind it; <button class="info" type="button" data-info="howto">i</button> explains what a figure means.</div>
+        <div class="page-sub">A live, read-only view of the order tracker. Panels marked <span class="live-tag">Live</span> show today; every other panel has its own date filter. Click any number for the orders behind it; <button class="info" type="button" data-info="howto">i</button> explains a figure.</div>
       </div>
       <div class="period-wrap">
-        <div class="seg" id="periodSeg">
-          <button type="button" data-period="30" class="on">Last 30 days</button>
-          <button type="button" data-period="90">Last 90 days</button>
-          <button type="button" data-period="all">All time</button>
-          <button type="button" data-period="custom">Custom</button>
-        </div>
-        <div class="custom-range" id="customRange">
-          <input class="inp" type="date" id="customFrom" title="From">
-          <input class="inp" type="date" id="customTo" title="To">
-          <button class="btn sm" type="button" id="customApply">Apply</button>
-        </div>
         <span class="updated" id="updated"></span>
         <button class="btn" type="button" id="refreshBtn">&#8635; Refresh</button>
       </div>
@@ -608,7 +619,7 @@
 
       <!-- 1. Money + right now -->
       <div class="section">
-        <div class="sec-head"><h2>Right now</h2><span class="sec-note">Every open order today – the period buttons don’t change this row.</span></div>
+        <div class="sec-head"><h2>Right now <span class="live-tag">Live</span></h2><span class="sec-note">Every open order today – dates don’t apply here.</span></div>
         <div class="grid g-money">
           <div class="card" id="moneyCard"></div>
           <div class="now-grid" id="nowGrid"></div>
@@ -617,7 +628,7 @@
 
       <!-- 2. Pipeline -->
       <div class="section">
-        <div class="sec-head"><h2>Order pipeline <button class="info" type="button" data-info="pipeline">i</button></h2>
+        <div class="sec-head"><h2>Order pipeline <button class="info" type="button" data-info="pipeline">i</button> <span class="live-tag">Live</span></h2>
           <span class="sec-note">Where every open order is now, in the order it moves. Click a stage for its orders.</span></div>
         <div class="flow" id="flow"></div>
         <div class="waiting" id="waiting"></div>
@@ -627,14 +638,14 @@
       <!-- 3. Departments -->
       <div class="section">
         <div class="sec-head"><h2>Departments <button class="info" type="button" data-info="depts">i</button></h2>
-          <span class="sec-note" id="deptNote"></span></div>
+          <div class="pane-tools"><span class="sec-note" id="deptNote"></span><div class="pc" id="pc-depts"></div></div></div>
         <div class="grid g-depts" id="depts"></div>
       </div>
 
       <!-- 4. Attention + standby -->
       <div class="section grid g-2">
         <div class="card">
-          <div class="card-head"><h3>Needs attention</h3></div>
+          <div class="card-head"><h3>Needs attention</h3><span class="live-tag">Live</span></div>
           <div class="tabs" id="attTabs">
             <button class="tab on" type="button" data-att="stuck">Stuck <span class="count" id="attStuck">0</span></button>
             <button class="tab" type="button" data-att="late">Past delivery date <span class="count" id="attLate">0</span></button>
@@ -644,19 +655,18 @@
           <div id="attList"></div>
         </div>
         <div class="card">
-          <div class="card-head"><h3>Standby – customer-side delays <button class="info" type="button" data-info="standby">i</button></h3><span class="sec-note" id="sbNote"></span></div>
-          <div class="mini" id="sbMini"></div>
-          <div class="grid g-2" style="gap:20px;">
-            <div><div class="dir-sub" style="margin-top:0;">Reasons (this period)</div><div id="sbReasons"></div></div>
-            <div><div class="dir-sub" style="margin-top:0;">On standby now</div><div id="sbActive"></div></div>
-          </div>
+          <div class="card-head"><h3>Standby – customer-side delays <button class="info" type="button" data-info="standby">i</button></h3></div>
+          <div class="dir-sub" style="margin-top:0; display:flex; align-items:center; gap:8px;">Now <span class="live-tag">Live</span></div>
+          <div class="sb-now"><div class="big" id="sbNowTile"></div><div id="sbActive"></div></div>
+          <div class="sb-hist-head"><h4>History <button class="info" type="button" data-info="standbyHist">i</button></h4><div class="pc" id="pc-sb"></div></div>
+          <div class="sb-hist" id="sbHist"></div>
         </div>
       </div>
 
       <!-- 5. Where sales come from -->
       <div class="section">
         <div class="sec-head"><h2>Where sales come from <button class="info" type="button" data-info="states">i</button></h2>
-          <div style="display:flex; gap:10px; align-items:center;"><span class="sec-note">Rank by</span>
+          <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;"><div class="pc" id="pc-states"></div><span class="sec-note">Rank by</span>
             <div class="seg sm" id="geoSeg"><button type="button" data-m="value" class="on">Value</button><button type="button" data-m="count">Orders</button></div></div></div>
         <div class="card lb" style="padding:6px 8px;" id="states"></div>
       </div>
@@ -669,11 +679,13 @@
               <div class="seg sm" id="trendMetric"><button type="button" data-m="value" class="on">Value</button><button type="button" data-m="count">Orders</button></div>
               <div class="seg sm" id="trendType"><button type="button" data-t="bar" class="on">Bar</button><button type="button" data-t="pie">Pie</button></div>
             </div></div>
+          <div class="pc-row"><div class="pc" id="pc-trend"></div></div>
           <div id="trend"></div>
         </div>
         <div class="card">
           <div class="card-head"><h3>By product <button class="info" type="button" data-info="products">i</button></h3>
             <div class="seg sm" id="prodSeg"><button type="button" data-m="units" class="on">Units</button><button type="button" data-m="orders">Orders</button></div></div>
+          <div class="pc-row"><div class="pc" id="pc-products"></div></div>
           <div id="products"><div class="empty">Loading…</div></div>
         </div>
       </div>
@@ -688,12 +700,12 @@
 
   <div class="modal" id="deptModal"><div class="modal-box wide">
     <div class="modal-head"><div><h3 id="deptTitle"></h3><div class="sub" id="deptSub"></div></div>
-      <button class="btn icon-btn ghost" type="button" data-close="deptModal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
+      <div class="head-tools"><div class="pc" id="pc-deptModal"></div><button class="btn icon-btn ghost" type="button" data-close="deptModal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div></div>
     <div class="modal-body" id="deptBody"></div></div></div>
 
   <div class="modal" id="stateModal"><div class="modal-box full">
     <div class="modal-head"><div><h3 id="stateTitle"></h3><div class="sub" id="stateSub"></div></div>
-      <button class="btn icon-btn ghost" type="button" data-close="stateModal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
+      <div class="head-tools"><div class="pc" id="pc-stateModal"></div><button class="btn icon-btn ghost" type="button" data-close="stateModal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div></div>
     <div class="modal-body" id="stateBody"></div></div></div>
 
   <div class="modal" id="orderModal" style="z-index:95;"><div class="modal-box" style="max-width:580px;">
@@ -739,6 +751,7 @@
     function fmtOffice(mins) {
       if (mins === null || mins === undefined || !isFinite(mins)) return '–';
       var dayLen = officeDayMins();
+      if (mins < 1) return '< 1 min';
       if (mins < 60) return Math.round(mins) + ' min';
       if (mins < dayLen) return (Math.round(mins / 6) / 10) + ' hrs';
       var d = Math.floor(mins / dayLen), r = Math.round((mins - d * dayLen) / 60);
@@ -769,7 +782,7 @@
     // =====================================================================
     var orders = [], lineItems = null, SB = { records: [], byId: {}, usage: null, pending: 0, withDirector: 0, loaded: false };
     var TARGETS = { accVerify: 4, opsPickup: 9, opsReady: 27, accGatePass: 2, gateOut: 6, onTimePct: 90, stuckDays: 3 };
-    var period = '30', customFrom = '', customTo = '', geoMetric = 'value', trendMetric = 'value', trendType = 'bar', prodMetric = 'units', attTab = 'stuck';
+    var geoMetric = 'value', trendMetric = 'value', trendType = 'bar', prodMetric = 'units', attTab = 'stuck';
     try {
       trendType = localStorage.getItem('icf_dash_beta_trend') || 'bar';
     } catch (e) {}
@@ -853,13 +866,23 @@
     }
 
     // ---------- Period ----------
-    function periodRange(p) {
+    // Every dated panel and pop-up has its own filter: ps = { p: '30' | '90' | 'all' | 'custom', from, to }.
+    function newPS(p) { return { p: p || '30', from: '', to: '' }; }
+    var PS = { depts: newPS(), sb: newPS(), states: newPS(), trend: newPS(), products: newPS(), deptModal: newPS(), stateModal: newPS() };
+    try {
+      var savedPS = JSON.parse(localStorage.getItem('icf_dash_beta_periods') || '{}');
+      ['depts', 'sb', 'states', 'trend', 'products'].forEach(function (k) { if (savedPS[k] && savedPS[k].p) PS[k] = savedPS[k]; });
+    } catch (e) {}
+    function savePS() {
+      try { localStorage.setItem('icf_dash_beta_periods', JSON.stringify({ depts: PS.depts, sb: PS.sb, states: PS.states, trend: PS.trend, products: PS.products })); } catch (e) {}
+    }
+    function periodRange(ps) {
       var now = Date.now();
-      if (p === 'all') return { from: null, to: null };
-      if (p === 'custom') {
-        return { from: customFrom ? new Date(customFrom + 'T00:00:00+05:30').getTime() : null, to: customTo ? new Date(customTo + 'T23:59:59+05:30').getTime() : null };
+      if (ps.p === 'all') return { from: null, to: null };
+      if (ps.p === 'custom') {
+        return { from: ps.from ? new Date(ps.from + 'T00:00:00+05:30').getTime() : null, to: ps.to ? new Date(ps.to + 'T23:59:59+05:30').getTime() : null };
       }
-      return { from: now - Number(p) * DAY, to: now };
+      return { from: now - Number(ps.p) * DAY, to: now };
     }
     function inRange(o, r) {
       if (r.from === null && r.to === null) return true;
@@ -872,13 +895,43 @@
       var to = r.to === null ? Date.now() : r.to, len = to - r.from;
       return { from: r.from - len, to: r.from - 1 };
     }
-    function periodText() {
-      if (period === 'all') return 'all time';
-      if (period === 'custom') return (customFrom ? fmtDay(new Date(customFrom + 'T00:00:00+05:30').getTime()) : 'the start') + ' – ' + (customTo ? fmtDay(new Date(customTo + 'T00:00:00+05:30').getTime()) : 'today');
-      return 'the last ' + period + ' days';
+    function periodText(ps) {
+      if (ps.p === 'all') return 'all time';
+      if (ps.p === 'custom') return (ps.from ? fmtDay(new Date(ps.from + 'T00:00:00+05:30').getTime()) : 'the start') + ' – ' + (ps.to ? fmtDay(new Date(ps.to + 'T00:00:00+05:30').getTime()) : 'today');
+      return 'the last ' + ps.p + ' days';
     }
-    function periodOrders() { var r = periodRange(period); return orders.filter(function (o) { return inRange(o, r); }); }
-    function prevOrders() { var p = prevRange(periodRange(period)); return p ? orders.filter(function (o) { return inRange(o, p); }) : null; }
+    function periodOrders(ps) { var r = periodRange(ps); return orders.filter(function (o) { return inRange(o, r); }); }
+    function prevOrders(ps) { var p = prevRange(periodRange(ps)); return p ? orders.filter(function (o) { return inRange(o, p); }) : null; }
+
+    // ---------- The date filter control (one per panel / pop-up; changes only that one) ----------
+    var PC_ON_CHANGE = {};
+    function renderPC(key) {
+      var el = $('pc-' + key); if (!el) return;
+      var ps = PS[key];
+      el.className = 'pc' + (ps.p === 'custom' ? ' custom' : '');
+      el.setAttribute('data-key', key);
+      el.innerHTML = '<div class="seg sm">' + [['30', '30 days'], ['90', '90 days'], ['all', 'All time'], ['custom', 'Custom']].map(function (x) {
+          return '<button type="button" data-p="' + x[0] + '"' + (ps.p === x[0] ? ' class="on"' : '') + '>' + x[1] + '</button>';
+        }).join('') + '</div>' +
+        '<span class="pc-custom"><input class="inp" type="date" data-f="from" value="' + esc(ps.from) + '" title="From">' +
+        '<input class="inp" type="date" data-f="to" value="' + esc(ps.to) + '" title="To"><button class="btn sm" type="button" data-apply="1">Apply</button></span>';
+    }
+    document.addEventListener('click', function (e) {
+      var t = e.target.closest ? e.target.closest('.pc [data-p], .pc [data-apply]') : null;
+      if (!t) return;
+      e.stopPropagation();
+      var box = t.closest('.pc'), key = box.getAttribute('data-key'), ps = PS[key];
+      if (t.hasAttribute('data-p')) {
+        ps.p = t.getAttribute('data-p'); renderPC(key);
+        if (ps.p === 'custom' && !ps.from && !ps.to) return; // wait for the dates
+      } else {
+        ps.from = box.querySelector('[data-f=from]').value; ps.to = box.querySelector('[data-f=to]').value;
+        if (!ps.from && !ps.to) return;
+        renderPC(key);
+      }
+      savePS();
+      if (orders.length && PC_ON_CHANGE[key]) PC_ON_CHANGE[key]();
+    }, true);
     function chgHtml(now, before, lowerIsBetter, unit) {
       if (now === null || before === null || before === undefined || !isFinite(before)) return '';
       if (before === 0) return now === 0 ? '<span class="chg flat">no change</span>' : '';
@@ -892,7 +945,7 @@
     // ⓘ explanations
     // =====================================================================
     var INFO = {
-      howto: ['How to read this page', 'The top row and the pipeline show every open order right now. Everything from Departments down follows the period buttons (last 30 days, etc.) and counts orders LOGGED in that period. Click a number to see the orders behind it, and an order to see its timeline.', 'Cancelled orders are left out everywhere.'],
+      howto: ['How to read this page', 'Panels marked Live (the top row, the pipeline, Needs attention, Standby now) show every open order today \u2013 dates don\u2019t apply to them. Every other panel has its own date filter (30 days, 90 days, All time, Custom) that changes only that panel and counts orders LOGGED in that time. A pop-up opens with the dates of the panel it came from and has its own filter too. Click a number to see the orders behind it, and an order to see its timeline.', 'Cancelled orders are left out everywhere. Each browser remembers the dates you last picked on each panel.'],
       outstanding: ['Outstanding balance', 'Money still owed on open orders: order value minus everything received so far. It is split into two parts that add up to the total, so nothing is counted twice.', 'Not yet dispatched is the normal case – for end customers it must be paid before the vehicle leaves. Already dispatched is the risk: the goods are with the customer and the money isn’t in.'],
       notDispatched: ['Not yet dispatched', 'Balance on open orders whose goods are still at the factory – including those at the gate with a gate pass but not yet out. End-customer orders can’t leave until this is paid.'],
       dispatched: ['Already dispatched', 'Balance on orders that have left the factory (or were posted by courier) and are not fully paid. Split by why it was allowed to leave unpaid.'],
@@ -913,7 +966,8 @@
       cycle: ['Average cycle time', 'Calendar time from payment verification to delivery, for orders that have been delivered. Standby time is left out. 24 hours or more shows as days and hours.'],
       collect: ['Collected after dispatch', 'Of this period’s orders that left with a balance, how many are now fully paid, and the average days from dispatch to the last payment.'],
       payWait: ['Customer payment wait', 'For orders that were ready but the end customer still had to pay: average calendar time from Ops marking them ready to the payment being recorded or dispatch approved. This is customer time, kept out of the Ops figures.'],
-      standby: ['Standby', 'Customer-side delays. Rate = share of this period’s verified orders that went on standby at least once. Days = total standby days for those orders. Reasons = why. Standby time is left out of every time figure on this page.'],
+      standby: ['Standby', 'Customer-side delays. \u201cNow\u201d (live) is what\u2019s on standby today, against the limits in Settings. \u201cHistory\u201d below it is separate, scrolls on its own and has its own date filter. Standby time is left out of every time figure on this page.'],
+      standbyHist: ['Standby history', 'Standbys that STARTED in the chosen dates, including any still running (marked \u201cstill on\u201d). Rate = orders that went on standby \u00f7 orders Accounts verified in the same dates. Days = total standby days; a running standby counts up to today.'],
       states: ['Where sales come from', 'States ranked by order value (or number of orders) logged in the selected period. Share = share of the period’s total. “vs before” compares with the same length of time just before. Balance due = what’s still owed on those orders today. Click a state for its full page: districts and pincodes, products, CREs, trend and every order.'],
       trend: ['Monthly trend', 'Orders logged per month in the selected period, as order value or number of orders. The pie shows each month’s share; with more than 12 months, the older ones are grouped as “Earlier”.'],
       products: ['By product', 'Units ordered (or number of orders containing the product) for orders logged in the period. There’s no value per product: line items record product and quantity only.']
@@ -1167,8 +1221,8 @@
       };
     }
     function renderDepts() {
-      var cur = periodOrders(), prev = prevOrders();
-      $('deptNote').textContent = 'Orders logged in ' + periodText() + '. Office time; targets from Settings.';
+      var cur = periodOrders(PS.depts), prev = prevOrders(PS.depts);
+      $('deptNote').textContent = 'Orders logged in ' + periodText(PS.depts) + ' · office time';
       var ss = salesStats(cur), sp = prev ? salesStats(prev) : null;
       var otOk = ss.onTimePct !== null && ss.onTimePct >= TARGETS.onTimePct;
       var sales = '<div class="card dept clickable" data-dept="sales"><div class="dh"><h3>Sales</h3>' + infoBtn('sales') + '</div><div class="who">CREs</div>' +
@@ -1192,16 +1246,19 @@
         deptCard('ops', 'Operations', 'Pick up and get ready', ['opsPickup', 'opsReady']) +
         deptCard('gate', 'Gate', 'Vehicles out', ['gateOut']);
       each($('depts').querySelectorAll('[data-dept]'), function (el) {
-        el.addEventListener('click', function () { openDept(el.getAttribute('data-dept')); });
+        el.addEventListener('click', function () { PS.deptModal = Object.assign({}, PS.depts); openDept(el.getAttribute('data-dept')); });
       });
     }
 
     // Department pop-up: per person and per order
+    var openDeptKey = null;
     function openDept(key) {
-      var cur = periodOrders();
+      openDeptKey = key;
+      renderPC('deptModal');
+      var cur = periodOrders(PS.deptModal);
       var titles = { sales: 'Sales – by CRE', accounts: 'Accounts', ops: 'Operations', gate: 'Gate' };
       $('deptTitle').textContent = titles[key];
-      $('deptSub').textContent = 'Orders logged in ' + periodText() + (key === 'sales' ? '' : ' · office time · standby and customer payment waits left out');
+      $('deptSub').textContent = 'Orders logged in ' + periodText(PS.deptModal) + (key === 'sales' ? '' : ' · office time · standby and customer payment waits left out');
       var html = '';
       if (key === 'sales') {
         var byCre = {};
@@ -1295,34 +1352,54 @@
     });
 
     function renderStandby() {
-      if (!SB.loaded) { $('sbMini').innerHTML = '<div style="grid-column:1/-1;"><div class="l">Standby data couldn’t be loaded.</div></div>'; $('sbReasons').innerHTML = ''; $('sbActive').innerHTML = ''; return; }
-      var cur = periodOrders();
-      var verified = cur.filter(function (o) { return o.verifiedDate; });
-      var ids = {}; cur.forEach(function (o) { ids[String(o.id).toLowerCase()] = true; });
-      var recs = SB.records.filter(function (r) { return ids[r.trackerId.toLowerCase()]; });
-      var withSb = {}; recs.forEach(function (r) { withSb[r.trackerId.toLowerCase()] = true; });
-      var rate = pct(Object.keys(withSb).length, verified.length);
-      var days = recs.reduce(function (s, r) { return s + ((r.endMs == null ? Date.now() : r.endMs) - r.startMs) / DAY; }, 0);
+      if (!SB.loaded) {
+        $('sbNowTile').innerHTML = '<div class="l">Standby data couldn\u2019t be loaded.</div>'; $('sbActive').innerHTML = ''; $('sbHist').innerHTML = ''; return;
+      }
+      // ---- Now (live) ----
       var u = SB.usage || { count: 0, value: 0, maxOrders: 0, maxValue: 0 };
-      $('sbNote').textContent = ids && period ? periodText() : '';
-      $('sbMini').innerHTML = [
-        ['On standby now', u.count + ' of ' + u.maxOrders, inr(u.value) + ' of ' + inr(u.maxValue) + ' held', u.count >= u.maxOrders || u.value >= u.maxValue],
-        ['Standby rate', rate === null ? '–' : rate + '%', Object.keys(withSb).length + ' of ' + verified.length + ' verified orders'],
-        ['Standby days', Math.round(days * 10) / 10, recs.length ? 'avg ' + Math.round(days / recs.length * 10) / 10 + ' per standby' : 'no standbys']
-      ].map(function (c) { return '<div><div class="l">' + c[0] + '</div><div class="v' + (c[3] ? ' over' : '') + '">' + c[1] + '</div><div class="s">' + esc(c[2]) + '</div></div>'; }).join('');
+      var active = SB.records.filter(function (r) { return r.active; }).sort(function (a, b) { return a.resumeYmd < b.resumeYmd ? -1 : 1; });
+      var over = u.count >= u.maxOrders || u.value >= u.maxValue;
+      $('sbNowTile').innerHTML = '<div class="l">On standby now</div><div class="v' + (over && u.count ? ' over' : '') + '">' + u.count + ' <span class="faint" style="font-size:13px;">of ' + u.maxOrders + '</span></div>' +
+        '<div class="s">' + inr(u.value) + ' held of ' + inr(u.maxValue) + (SB.pending + SB.withDirector ? ' \u00b7 ' + (SB.pending + SB.withDirector) + ' awaiting decision' : '') + '</div>';
+      $('sbActive').innerHTML = active.length ? active.map(function (r) {
+        return '<div class="li" data-id="' + esc(r.trackerId) + '"><div style="min-width:0;"><div class="a">' + esc(r.institution) + '</div><div class="b">' + esc(r.trackerId) + ' \u00b7 ' + esc(r.reason) + '</div></div>' +
+          '<div class="r">until ' + esc(r.resume) + '<div class="b">' + inr(r.orderValue) + '</div></div></div>';
+      }).join('') : '<div class="empty" style="padding:14px 8px;">Nothing on standby right now.</div>';
+      each($('sbActive').querySelectorAll('.li'), function (el) { el.addEventListener('click', function () { openOrder(el.getAttribute('data-id')); }); });
+      renderStandbyHistory();
+    }
+    // ---- History: standbys that STARTED in the chosen dates (its own filter) ----
+    function renderStandbyHistory() {
+      if (!SB.loaded) return;
+      var r = periodRange(PS.sb);
+      var recs = SB.records.filter(function (x) { return (r.from === null || x.startMs >= r.from) && (r.to === null || x.startMs <= r.to); })
+        .sort(function (a, b) { return b.startMs - a.startMs; });
+      var verified = orders.filter(function (o) { return o.verifiedDate && (r.from === null || o.verifiedDate >= r.from) && (r.to === null || o.verifiedDate <= r.to); });
+      var withSb = {}; recs.forEach(function (x) { withSb[x.trackerId.toLowerCase()] = true; });
+      var rate = pct(Object.keys(withSb).length, verified.length);
+      var dur = function (x) { return ((x.endMs == null ? Date.now() : x.endMs) - x.startMs) / DAY; };
+      var days = recs.reduce(function (t, x) { return t + dur(x); }, 0);
       var byReason = {};
-      recs.forEach(function (r) { byReason[r.reason] = (byReason[r.reason] || 0) + 1; });
+      recs.forEach(function (x) { byReason[x.reason] = (byReason[x.reason] || 0) + 1; });
       var reasons = Object.keys(byReason).sort(function (a, b) { return byReason[b] - byReason[a]; });
       var max = Math.max.apply(null, reasons.map(function (k) { return byReason[k]; }).concat([1]));
-      $('sbReasons').innerHTML = reasons.length ? reasons.map(function (k) {
-        return '<div class="hbar"><div class="t"><span>' + esc(k) + '</span><span>' + byReason[k] + '</span></div><div class="tr"><div class="sb" style="width:' + (byReason[k] / max * 100) + '%;"></div></div></div>';
-      }).join('') : '<div class="empty">No standbys for orders logged in this period.</div>';
-      var active = SB.records.filter(function (r) { return r.active; }).sort(function (a, b) { return a.resumeYmd < b.resumeYmd ? -1 : 1; });
-      $('sbActive').innerHTML = active.length ? active.map(function (r) {
-        return '<div class="li" data-id="' + esc(r.trackerId) + '"><div style="min-width:0;"><div class="a">' + esc(r.institution) + '</div><div class="b">' + esc(r.trackerId) + ' · ' + esc(r.reason) + '</div></div>' +
-          '<div class="r">until ' + esc(r.resume) + '<div class="b">' + inr(r.orderValue) + '</div></div></div>';
-      }).join('') : '<div class="empty">Nothing on standby right now.</div>';
-      each($('sbActive').querySelectorAll('.li'), function (el) { el.addEventListener('click', function () { openOrder(el.getAttribute('data-id')); }); });
+      var oneDay = function (ms) { return new Date(ms).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', timeZone: 'Asia/Kolkata' }); };
+      $('sbHist').innerHTML =
+        '<div class="mini">' + [
+          ['Standbys started', recs.length, 'in ' + periodText(PS.sb)],
+          ['Standby rate', rate === null ? '\u2013' : rate + '%', Object.keys(withSb).length + ' of ' + verified.length + ' orders verified then'],
+          ['Standby days', Math.round(days * 10) / 10, recs.length ? 'avg ' + Math.round(days / recs.length * 10) / 10 + ' per standby' : 'no standbys']
+        ].map(function (c) { return '<div><div class="l">' + c[0] + '</div><div class="v">' + c[1] + '</div><div class="s">' + esc(c[2]) + '</div></div>'; }).join('') + '</div>' +
+        (recs.length ?
+          '<div class="dir-sub" style="margin-top:0;">Reasons</div>' + reasons.map(function (k) {
+            return '<div class="hbar"><div class="t"><span>' + esc(k) + '</span><span>' + byReason[k] + '</span></div><div class="tr"><div class="sb" style="width:' + (byReason[k] / max * 100) + '%;"></div></div></div>';
+          }).join('') +
+          '<div class="dir-sub">Each standby</div>' + recs.map(function (x) {
+            return '<div class="li" data-id="' + esc(x.trackerId) + '"><div style="min-width:0;"><div class="a">' + esc(x.institution) + '</div><div class="b">' + esc(x.trackerId) + ' \u00b7 ' + esc(x.reason) + '</div></div>' +
+              '<div class="r">' + oneDay(x.startMs) + ' \u2013 ' + (x.active ? '<span class="tag-ongoing">still on</span>' : oneDay(x.endMs)) + '<div class="b">' + (Math.round(dur(x) * 10) / 10) + ' days</div></div></div>';
+          }).join('')
+          : '<div class="empty">No standbys started in ' + esc(periodText(PS.sb)) + '.</div>');
+      each($('sbHist').querySelectorAll('.li'), function (el) { el.addEventListener('click', function () { openOrder(el.getAttribute('data-id')); }); });
     }
 
     // =====================================================================
@@ -1336,7 +1413,7 @@
     function stateKey(o) { return o.state || 'Unspecified'; }
     var stateShowAll = false;
     function renderStates() {
-      var cur = periodOrders(), prev = prevOrders();
+      var cur = periodOrders(PS.states), prev = prevOrders(PS.states);
       var g = groupBy(cur, stateKey), gp = prev ? groupBy(prev, stateKey) : null;
       var totalV = sum(cur, function (o) { return o.total; }), totalN = cur.length;
       var rows = Object.keys(g).map(function (k) {
@@ -1358,23 +1435,26 @@
             '<td class="num">' + (ch || '<span class="faint">–</span>') + '</td><td class="num ' + (r.bal > 0 ? 't-amber-text' : '') + '">' + (r.bal > 0 ? inr(r.bal) : '–') + '</td></tr>';
         }).join('') + '</tbody></table></div>' +
         (rows.length > 10 ? '<div style="padding:6px 12px 10px;"><button class="btn sm ghost" type="button" id="statesMore">' + (stateShowAll ? 'Show top 10' : 'Show all ' + rows.length + ' states') + '</button></div>' : '');
-      each($('states').querySelectorAll('tr[data-state]'), function (tr) { tr.addEventListener('click', function () { openState(tr.getAttribute('data-state')); }); });
+      each($('states').querySelectorAll('tr[data-state]'), function (tr) { tr.addEventListener('click', function () { PS.stateModal = Object.assign({}, PS.states); openState(tr.getAttribute('data-state')); }); });
       var more = $('statesMore'); if (more) more.addEventListener('click', function () { stateShowAll = !stateShowAll; renderStates(); });
     }
     each($('geoSeg').querySelectorAll('button'), function (b) {
       b.addEventListener('click', function () { geoMetric = b.getAttribute('data-m'); each($('geoSeg').querySelectorAll('button'), function (x) { x.classList.toggle('on', x === b); }); renderStates(); });
     });
 
+    var openStateName = null;
     function openState(name) {
-      var cur = periodOrders().filter(function (o) { return stateKey(o) === name; });
-      var allCur = periodOrders(), prev = prevOrders();
+      openStateName = name;
+      renderPC('stateModal');
+      var cur = periodOrders(PS.stateModal).filter(function (o) { return stateKey(o) === name; });
+      var allCur = periodOrders(PS.stateModal), prev = prevOrders(PS.stateModal);
       var pl = prev ? prev.filter(function (o) { return stateKey(o) === name; }) : null;
       var v = sum(cur, function (o) { return o.total; }), totalV = sum(allCur, function (o) { return o.total; });
       var pv = pl ? sum(pl, function (o) { return o.total; }) : null;
       var bal = sum(cur, function (o) { return o.balanceDue > 0 ? o.balanceDue : 0; });
       var ss = salesStats(cur);
       $('stateTitle').textContent = name;
-      $('stateSub').textContent = 'Orders logged in ' + periodText();
+      $('stateSub').textContent = 'Orders logged in ' + periodText(PS.stateModal);
       var k = [
         ['Orders', cur.length, pl ? chgHtml(cur.length, pl.length, false) : ''],
         ['Order value', inr(v), pl ? chgHtml(v, pv, false) : ''],
@@ -1425,8 +1505,7 @@
       $('stateTrend').innerHTML = barChartSvg(monthSeries(cur, 'value'), 'value', 520, 170);
       $('stateOrders').innerHTML = orderTableHtml(cur.slice().sort(function (a, b) { return (b.dateLogged || 0) - (a.dateLogged || 0); }), {});
       bindOrderTable($('stateOrders'));
-      $('stateModal').classList.add('show');
-      $('stateModal').scrollTop = 0;
+      if (!$('stateModal').classList.contains('show')) { $('stateModal').classList.add('show'); $('stateModal').scrollTop = 0; }
     }
 
     // =====================================================================
@@ -1496,7 +1575,7 @@
         }).join('') + '</div></div>';
     }
     function renderTrend() {
-      var series = monthSeries(periodOrders(), trendMetric);
+      var series = monthSeries(periodOrders(PS.trend), trendMetric);
       var w = Math.max(320, Math.min(720, ($('trend').clientWidth || 600)));
       $('trend').innerHTML = trendType === 'pie' ? pieSvg(series, trendMetric) : barChartSvg(series, trendMetric, w, 220);
     }
@@ -1514,7 +1593,7 @@
 
     function renderProducts() {
       if (!lineItems) return;
-      var ids = {}; periodOrders().forEach(function (o) { ids[o.id] = true; });
+      var ids = {}; periodOrders(PS.products).forEach(function (o) { ids[o.id] = true; });
       var by = {};
       lineItems.forEach(function (li) {
         if (!ids[li.trackerId]) return;
@@ -1766,22 +1845,17 @@
       loadDirector();
     }
 
-    each($('periodSeg').querySelectorAll('button'), function (b) {
-      b.addEventListener('click', function () {
-        var p = b.getAttribute('data-period');
-        each($('periodSeg').querySelectorAll('button'), function (x) { x.classList.toggle('on', x === b); });
-        $('customRange').classList.toggle('show', p === 'custom');
-        if (p === 'custom' && !customFrom && !customTo) return;
-        period = p; stateShowAll = false;
-        if (orders.length) renderPeriod();
-      });
-    });
-    $('customApply').addEventListener('click', function () {
-      customFrom = $('customFrom').value; customTo = $('customTo').value;
-      if (!customFrom && !customTo) return;
-      period = 'custom';
-      if (orders.length) renderPeriod();
-    });
+    // What each date filter redraws -- only its own panel or pop-up.
+    PC_ON_CHANGE = {
+      depts: renderDepts,
+      sb: renderStandbyHistory,
+      states: function () { stateShowAll = false; renderStates(); },
+      trend: renderTrend,
+      products: renderProducts,
+      deptModal: function () { if (openDeptKey) openDept(openDeptKey); },
+      stateModal: function () { if (openStateName) openState(openStateName); }
+    };
+    ['depts', 'sb', 'states', 'trend', 'products'].forEach(renderPC);
     $('refreshBtn').addEventListener('click', loadAll);
     var resizeT = null;
     window.addEventListener('resize', function () { clearTimeout(resizeT); resizeT = setTimeout(function () { if (orders.length && trendType === 'bar') renderTrend(); }, 200); });
