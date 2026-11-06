@@ -67,6 +67,13 @@ var IND_VPROG_SHEET_NAME = 'Video Progress';
 var IND_VIDEO_HEADERS = ['Video ID', 'Title', 'Section', 'Order', 'YouTube Link', 'Minutes', 'Plan Item', 'For', 'Active'];
 var IND_VPROG_HEADERS = ['Staff Code', 'Video ID', 'First Opened', 'Last Opened', 'Opens', 'Max %', 'Watched At'];
 var IND_WATCHED_PCT = 90;
+// Training documents (Nov 2026): one row per document, its own title and link (Drive / Google Docs
+// links open in a preview pop-up on the CRE page; any other link opens in a new tab).
+var IND_DOCS_SHEET_NAME = 'Training Documents';
+var IND_DOC_HEADERS = ['Doc ID', 'Title', 'Section', 'Order', 'Link', 'Plan Item', 'For', 'Active'];
+var IND_SEED_DOCS = [
+  ['D1', 'Example \u2013 replace with the product catalogue (Drive link)', 'Products', 1, 'https://drive.google.com/file/d/XXXXXXXX/view', 'P1-04', 'All', 'N']
+];
 var IND_SEED_VIDEOS = [
   ['V01', 'Example \u2013 replace with Greeshma\u2019s first video', 'Company', 1, 'https://youtu.be/XXXXXXXXXXX', 10, 'P1-03', 'All', 'N']
 ];
@@ -181,6 +188,18 @@ function indTestsSheet_() { return indTab_(IND_TESTS_SHEET_NAME, IND_TEST_HEADER
 function indAnswersSheet_() { return indTab_(IND_ANSWERS_SHEET_NAME, IND_ANSWER_HEADERS); }
 function indVideosSheet_() { return indTab_(IND_VIDEOS_SHEET_NAME, IND_VIDEO_HEADERS, IND_SEED_VIDEOS); }
 function indVProgSheet_() { return indTab_(IND_VPROG_SHEET_NAME, IND_VPROG_HEADERS); }
+function indDocsSheet_() { return indTab_(IND_DOCS_SHEET_NAME, IND_DOC_HEADERS, IND_SEED_DOCS); }
+function indDocsFor_(isTrainee) {
+  return indRows_(indDocsSheet_(), IND_DOC_HEADERS)
+    .filter(function (r) { return String(r['Doc ID']).trim() && String(r['Link']).trim() && String(r['Active']).trim().toUpperCase() !== 'N'; })
+    .map(function (r) {
+      return { id: String(r['Doc ID']).trim(), title: String(r['Title'] || '').trim() || String(r['Doc ID']).trim(),
+        section: String(r['Section'] || 'General').trim() || 'General', order: Number(r['Order']) || 999,
+        link: String(r['Link']).trim(), planItem: String(r['Plan Item'] || '').trim(), forInduction: /induction/i.test(String(r['For'] || '')) };
+    })
+    .filter(function (d) { return isTrainee || !d.forInduction; })
+    .sort(function (a, b) { return a.order - b.order || (a.title < b.title ? -1 : 1); });
+}
 
 // ================================================================
 // Training videos
@@ -500,11 +519,13 @@ function indGetMine_() {
     // checklist's reading material as a read-only reference (Read / Watch items, or any item with
     // a link or videos). No ticking, no assessment.
     var libVideos = indVideosFor_(me.code, false);
+    var libDocs = indDocsFor_(false);
     var material = indPlan_().map(function (it) {
       it.videos = libVideos.filter(function (v) { return v.planItem === it.id; }).map(function (v) { return v.id; });
+      it.docs = libDocs.filter(function (d) { return d.planItem === it.id; }).map(function (d) { return d.id; });
       return it;
-    }).filter(function (it) { return /read|watch/i.test(it.type) || it.link || it.videos.length; });
-    return { enrolled: false, videos: libVideos, material: material, watchedPct: IND_WATCHED_PCT };
+    }).filter(function (it) { return /read|watch/i.test(it.type) || it.link || it.videos.length || it.docs.length; });
+    return { enrolled: false, videos: libVideos, docs: libDocs, material: material, watchedPct: IND_WATCHED_PCT };
   }
   indSweepExpired_(me.code);
   x = indTrainee_(me.code);
@@ -526,9 +547,13 @@ function indGetMine_() {
   var test = indTestState_(t, attempts);
   var bank = indBank_().filter(function (q) { return q.active; });
   var videos = indVideosFor_(me.code, true);
-  items.forEach(function (it) { it.videos = videos.filter(function (v) { return v.planItem === it.id; }).map(function (v) { return v.id; }); });
+  var docs = indDocsFor_(true);
+  items.forEach(function (it) {
+    it.videos = videos.filter(function (v) { return v.planItem === it.id; }).map(function (v) { return v.id; });
+    it.docs = docs.filter(function (d) { return d.planItem === it.id; }).map(function (d) { return d.id; });
+  });
   return {
-    enrolled: true, videos: videos, watchedPct: IND_WATCHED_PCT,
+    enrolled: true, videos: videos, docs: docs, watchedPct: IND_WATCHED_PCT,
     name: String(t['Staff Name'] || me.name),
     joinYmd: joinYmd, joinLabel: indFmt_(joinYmd),
     day: day, totalDays: IND_CFG.totalDays, phase: day <= IND_CFG.phase1Days ? 1 : 2,

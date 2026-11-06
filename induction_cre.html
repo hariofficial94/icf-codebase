@@ -107,6 +107,15 @@
   .ind-vthumb .prog div { height: 100%; background: var(--leaf-grad); }
   .ind-vcard .vt { padding: 10px 12px; font-size: 13px; font-weight: 600; line-height: 1.4; }
   .ind-vcard .vt small { display: block; font-weight: 500; color: var(--text-3); font-size: 11.5px; margin-top: 3px; }
+  .ind-vid { display: inline-block; font-size: 10.5px; font-weight: 700; letter-spacing: 0.04em; color: var(--leaf-ink); margin-right: 6px; }
+  .ind-docs { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; background: var(--surface); }
+  .ind-doc { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 11px 14px; border-bottom: 1px solid var(--border); width: 100%; background: none; border-left: 0; border-right: 0; border-top: 0; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+  .ind-doc:last-child { border-bottom: none; }
+  .ind-doc:hover { background: var(--surface-2); }
+  .ind-doc .id { font-size: 11px; font-weight: 700; color: var(--leaf-ink); }
+  .ind-doc .tt { font-size: 13.5px; font-weight: 500; }
+  .ind-doc .go { font-size: 12px; font-weight: 600; color: var(--leaf-ink); white-space: nowrap; }
+  .ind-player .frame.doc { aspect-ratio: auto; height: 78vh; background: #fff; }
   .ind-vsec { font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-3); margin: 18px 0 10px; }
   .ind-watch { display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 9px; border-radius: 12px; border: 1px solid rgba(155,203,74,0.5); background: transparent; color: var(--leaf-ink); font-size: 11.5px; font-weight: 700; cursor: pointer; }
   .ind-watch.seen { border-color: var(--border-2); color: var(--text-2); }
@@ -277,6 +286,7 @@
           weeks[w].map(function (i) { return itemHtml(i, w < wkNow, m.revision.indexOf(i.id) !== -1); }).join('') + '</div>';
       });
     });
+    if (m.docs && m.docs.length) html += '<div class="ind-phase">Documents<span>' + m.docs.length + '</span></div>' + docsHtml(m.docs);
     if (m.videos && m.videos.length) html += '<div class="ind-phase">Training videos<span>' + m.videos.filter(function (v) { return v.watched; }).length + ' of ' + m.videos.length + ' watched</span></div>' + libraryHtml(m.videos);
     $('indOut').innerHTML = html;
     bindView();
@@ -294,24 +304,66 @@
           '<div class="ind-vthumb" style="background-image:url(https://i.ytimg.com/vi/' + esc(v.yt) + '/mqdefault.jpg)">' +
             '<span class="play">' + ICON_PLAY + '</span>' + (v.watched ? '<span class="done">' + pill('Watched', 'teal') + '</span>' : '') +
             (v.pct && !v.watched ? '<div class="prog"><div style="width:' + v.pct + '%"></div></div>' : '') + '</div>' +
-          '<div class="vt">' + esc(v.title) + '<small>' + (v.minutes ? v.minutes + ' min' : '') + (v.pct && !v.watched ? (v.minutes ? ' · ' : '') + v.pct + '% watched' : '') + '</small></div></button>';
+          '<div class="vt"><span class="ind-vid">' + esc(v.id) + '</span>' + esc(v.title) + '<small>' + (v.minutes ? v.minutes + ' min' : '') + (v.pct && !v.watched ? (v.minutes ? ' · ' : '') + v.pct + '% watched' : '') + '</small></div></button>';
       }).join('') + '</div>';
     }).join('');
   }
+  // ---------- Training documents ----------
+  var ICON_DOC = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>';
+  function docById(id) { return ((ME && ME.docs) || []).filter(function (d) { return d.id === id; })[0]; }
+  function docsHtml(docs) {
+    var secs = [], by = {};
+    docs.forEach(function (d) { if (!by[d.section]) { by[d.section] = []; secs.push(d.section); } by[d.section].push(d); });
+    return secs.map(function (s) {
+      return '<div class="ind-vsec">' + esc(s) + '</div><div class="ind-docs">' + by[s].map(function (d) {
+        return '<button class="ind-doc" type="button" data-doc="' + esc(d.id) + '"><span class="id">' + esc(d.id) + '</span><span class="tt">' + esc(d.title) + '</span><span class="go">Open ↗</span></button>';
+      }).join('') + '</div>';
+    }).join('');
+  }
+  /** Drive file / Google Docs, Sheets, Slides link -> its embeddable preview URL, else ''. */
+  function previewUrl(link) {
+    var l = String(link || ''), m;
+    if ((m = l.match(/docs\.google\.com\/(document|spreadsheets|presentation)\/d\/([A-Za-z0-9_-]+)/))) return 'https://docs.google.com/' + m[1] + '/d/' + m[2] + '/preview';
+    if ((m = l.match(/drive\.google\.com\/file\/d\/([A-Za-z0-9_-]+)/)) || (m = l.match(/drive\.google\.com\/open\?id=([A-Za-z0-9_-]+)/))) return 'https://drive.google.com/file/d/' + m[1] + '/preview';
+    return '';
+  }
+  function openDoc(id) {
+    var d = docById(id); if (!d) return;
+    var pv = previewUrl(d.link);
+    if (!pv) { window.open(d.link, '_blank', 'noopener'); return; }
+    closePlayer();
+    PL = { doc: true };
+    $('indPlTitle').innerHTML = '<span class="ind-vid">' + esc(d.id) + '</span>' + esc(d.title) + '<small>' + esc(d.section) + '</small>';
+    $('indPlYt').href = d.link; $('indPlYt').textContent = 'Open in a new tab ↗';
+    $('indPlManual').style.display = 'none'; $('indPlProg').textContent = '';
+    $('indPlFrame').classList.add('doc');
+    $('indPlFrame').innerHTML = '<iframe src="' + esc(pv) + '" allow="autoplay"></iframe>';
+    $('indPlayer').classList.add('show');
+  }
+  function itemDocButtons(i) {
+    return (i.docs || []).map(function (id) {
+      var d = docById(id); if (!d) return '';
+      return '<button class="ind-watch seen" type="button" data-doc="' + esc(d.id) + '" title="' + esc(d.title) + '">' + ICON_DOC + esc(d.id) + '</button>';
+    }).join('');
+  }
+
   function renderLibraryOnly() {
     var v = ME.videos || [], mat = ME.material || [];
     $('indSub').textContent = 'Reference material on ICF’s products and processes – the same material new CREs learn in their induction.' +
       (v.length ? ' ' + v.filter(function (x) { return x.watched; }).length + ' of ' + v.length + ' videos watched.' : '');
     var html = '';
-    if (v.length) html += '<div class="ind-phase" style="margin-top:0">Training videos</div>' + libraryHtml(v);
+    var docs = ME.docs || [];
+    if (v.length) html += '<div class="ind-phase" style="margin-top:0">Training videos<span>' + v.length + '</span></div>' + libraryHtml(v);
+    if (docs.length) html += '<div class="ind-phase"' + (v.length ? '' : ' style="margin-top:0"') + '>Documents<span>' + docs.length + '</span></div>' + docsHtml(docs);
     if (mat.length) {
       html += '<div class="ind-phase">Training material<span>' + mat.length + ' topics</span></div><div class="ind-week">' + mat.map(function (i) {
         var meta = [];
         if (i.type) meta.push('<span class="chip">' + esc(i.type) + '</span>');
         (i.videos || []).forEach(function (vid, n) {
           var vv = videoById(vid); if (!vv) return;
-          meta.push('<button class="ind-watch' + (vv.watched ? ' seen' : '') + '" type="button" data-video="' + esc(vv.id) + '" title="' + esc(vv.title) + '">' + ICON_PLAY + (vv.watched ? 'Watched' : 'Watch') + (i.videos.length > 1 ? ' ' + (n + 1) : '') + '</button>');
+          meta.push('<button class="ind-watch' + (vv.watched ? ' seen' : '') + '" type="button" data-video="' + esc(vv.id) + '" title="' + esc(vv.title) + '">' + ICON_PLAY + esc(vv.id) + (vv.watched ? ' ✓' : '') + '</button>');
         });
+        meta.push(itemDocButtons(i));
         if (i.link && ytId(i.link)) meta.push('<button class="ind-watch" type="button" data-ytlink="' + esc(i.link) + '" data-title="' + esc(i.title) + '">' + ICON_PLAY + 'Watch</button>');
         else if (i.link) meta.push('<a href="' + esc(i.link) + '" target="_blank" rel="noopener">Open ↗</a>');
         return '<div class="ind-item" style="grid-template-columns:minmax(0,1fr) auto;"><div><div class="ind-t">' + esc(i.title) + '</div><div class="ind-w">' + esc(i.what) + '</div></div>' +
@@ -322,6 +374,9 @@
     bindVideos();
   }
   function bindVideos() {
+    C.each(document.querySelectorAll('#indOut [data-doc]'), function (b) {
+      b.addEventListener('click', function (e) { e.stopPropagation(); openDoc(b.getAttribute('data-doc')); });
+    });
     C.each(document.querySelectorAll('#indOut [data-video]'), function (b) {
       b.addEventListener('click', function (e) { e.stopPropagation(); openVideo(b.getAttribute('data-video')); });
     });
@@ -355,6 +410,7 @@
     var v = id ? videoById(id) : null;
     var yt = v ? v.yt : ytId(link);
     if (!yt) { if (link) window.open(link, '_blank'); return; }
+    $('indPlFrame').classList.remove('doc'); $('indPlYt').textContent = 'Open on YouTube ↗';
     PL = { v: v, yt: yt, seen: {}, dur: 0, lastT: null, sentPct: v ? v.pct : 0, untracked: !v };
     $('indPlTitle').innerHTML = esc(v ? v.title : (title || 'Video')) + (v ? '<small>' + esc(v.section) + (v.minutes ? ' · ' + v.minutes + ' min' : '') + '</small>' : '');
     $('indPlYt').href = 'https://www.youtube.com/watch?v=' + yt;
@@ -419,7 +475,7 @@
     if (PL.poll) clearInterval(PL.poll);
     try { if (PL.player && PL.player.destroy) PL.player.destroy(); } catch (e) {}
     PL = null;
-    $('indPlFrame').innerHTML = '';
+    $('indPlFrame').innerHTML = ''; $('indPlFrame').classList.remove('doc');
     $('indPlayer').classList.remove('show');
     if (ME) { if (ME.enrolled) render(); else renderLibraryOnly(); }
     if (needsRefresh) { needsRefresh = false; setTimeout(load, 1500); } // an item may have ticked itself
@@ -448,8 +504,9 @@
     (i.videos || []).forEach(function (vid, n) {
       var v = videoById(vid); if (!v) return;
       meta.push('<button class="ind-watch' + (v.watched ? ' seen' : '') + '" type="button" data-video="' + esc(v.id) + '" title="' + esc(v.title) + '">' + ICON_PLAY +
-        (v.watched ? 'Watched' : 'Watch') + (i.videos.length > 1 ? ' ' + (n + 1) : '') + '</button>');
+        esc(v.id) + (v.watched ? ' ✓' : '') + '</button>');
     });
+    meta.push(itemDocButtons(i));
     if (i.link && ytId(i.link)) meta.push('<button class="ind-watch" type="button" data-ytlink="' + esc(i.link) + '" data-title="' + esc(i.title) + '">' + ICON_PLAY + 'Watch</button>');
     else if (i.link) meta.push('<a href="' + esc(i.link) + '" target="_blank" rel="noopener">Open ↗</a>');
     return '<div class="ind-item' + (isDone ? ' done' : '') + (revise ? ' revise' : '') + '">' + tick +

@@ -20,6 +20,12 @@ Code: `Induction.js`, `induction_cre.html` (CRE beta page), `induction_admin.htm
 3. The page counts seconds actually played (skipping ahead doesn't count); **90% = watched**. When all videos on a *Self* checklist item are watched, the item ticks itself. Progress is in the **Video Progress** tab.
 4. If the pop-up ever shows a YouTube error instead of the video, the **Open on YouTube** button still works. If the YouTube script can't load at all, the plain player is shown and an "I've watched it" button unlocks after 80% of the video's minutes.
 
+## Training documents
+
+One row per document in the **Training Documents** tab: *Doc ID* (D1, D2…), *Title*, *Section*, *Order*, *Link*, *Plan Item*, *For* (`All` / `Induction`), *Active*. Drive files and Google Docs / Sheets / Slides open in a preview pop-up on the page (share them as "Anyone in the organisation / with the link can view"); any other link opens in a new tab. The example row D1 is inactive – overwrite it.
+
+**Videos and documents each have their own tab, one row per item.** The Induction Plan row only describes the task; put its ID in a video's or document's *Plan Item* and the item gets a V1 / D1 button. Leave the plan's own *Link* column empty unless it's a one-off link.
+
 ## Rules (top of `Induction.js`, `IND_CFG`)
 
 Pass mark 80% · test opens day 28 · 30 minutes · 25 questions per test · retake 15 days after the first attempt · 2 attempts (admin can allow more) · late enrolment: test opens 14 days after enrolling.
