@@ -71,7 +71,7 @@
     '<div><label for="indEnTest">Test opens on <span style="font-weight:400;color:#888">(optional)</span></label><input type="date" id="indEnTest"></div></div>' +
     '<div class="subtitle" style="margin-top:6px;">Leave the test date blank for the default: day 28, or 14 days from today if day 28 has already passed.</div>' +
     '<div class="actions"><button type="button" id="indEnBtn">Enrol</button></div><div class="msg" id="indEnMsg"></div>' +
-    '<h3>Question bank</h3><div id="indBank" class="empty"></div>' +
+    '<h3>Question bank &amp; videos</h3><div id="indBank" class="empty"></div>' +
     '<div class="actions"><button type="button" class="secondary" id="indReload">&#8635; Refresh induction</button></div><div class="msg" id="indMsg"></div>';
   var wrap = document.querySelector('.wrap');
   if (wrap) wrap.appendChild(card);
@@ -110,17 +110,18 @@
 
     // Trainees
     if (!d.trainees.length) el('indTable').innerHTML = '<div class="empty">No one is in induction yet.</div>';
-    else el('indTable').innerHTML = '<table><thead><tr><th>CRE</th><th>Day</th><th>Checklist</th><th>Assessment</th><th>Day-60</th><th></th></tr></thead><tbody>' +
+    else el('indTable').innerHTML = '<table><thead><tr><th>CRE</th><th>Day</th><th>Checklist</th><th>Videos</th><th>Assessment</th><th>Day-60</th><th></th></tr></thead><tbody>' +
       d.trainees.map(function (t) {
         var pct = t.itemsTotal ? Math.round(t.itemsDone / t.itemsTotal * 100) : 0;
         var d60 = t.day60 ? '<span class="status st-pass">' + esc(t.day60.rating) + '</span>' : (t.day60Due ? '<span class="status st-wait">Due</span>' : '<span class="todo">' + esc(t.day60DueLabel) + '</span>');
         return '<tr><td><b>' + esc(t.name) + '</b><div class="sub">' + esc(t.code) + ' · joined ' + esc(t.joinLabel) + (t.welcomeSeen ? '' : ' · welcome not read yet') + '</div></td>' +
           '<td>' + (t.day == null ? '–' : Math.min(t.day, 60) + (t.day > 60 ? '+' : '')) + '</td>' +
           '<td>' + t.itemsDone + ' / ' + t.itemsTotal + '<span class="bar"><div style="width:' + pct + '%"></div></span></td>' +
+          '<td>' + (t.videosTotal ? t.videosWatched + ' / ' + t.videosTotal : '–') + '</td>' +
           '<td>' + statusTag(t) + (t.bestPct != null ? '<div class="sub">best ' + t.bestPct + '%</div>' : '') + '</td>' +
           '<td>' + d60 + '</td>' +
           '<td><button type="button" class="link-btn" data-open="' + esc(t.code) + '">' + (OPEN[t.code] ? 'Hide' : 'Details') + '</button></td></tr>' +
-          (OPEN[t.code] ? '<tr><td colspan="6">' + detail(t) + '</td></tr>' : '');
+          (OPEN[t.code] ? '<tr><td colspan="7">' + detail(t) + '</td></tr>' : '');
       }).join('') + '</tbody></table>';
 
     // Enrol
@@ -135,7 +136,7 @@
       (b.unvalidated ? '<b style="color:#9a5b00">' + b.unvalidated + ' not yet validated by Greeshma</b> (fill in “Validated By”).' : 'All validated.') + '</div>' +
       '<table><thead><tr><th>Section</th><th>Active</th><th>Not validated</th></tr></thead><tbody>' +
       b.sections.map(function (s) { return '<tr><td>' + esc(s.section) + '</td><td>' + s.count + '</td><td>' + (s.unvalidated || '') + '</td></tr>'; }).join('') + '</tbody></table>' +
-      '<div class="subtitle">Edit questions and the checklist in the <a href="' + esc(d.sheetUrl) + '" target="_blank">tracker spreadsheet</a>: tabs “Question Bank” and “Induction Plan”. Keep the Question Bank tab protected – it holds the answers.</div>';
+      '<div class="subtitle">Edit questions and the checklist in the <a href="' + esc(d.sheetUrl) + '" target="_blank">tracker spreadsheet</a>: tabs “Question Bank”, “Induction Plan” and “Training Videos” (paste the unlisted YouTube link; “Plan Item” puts a Watch button on that checklist item). Keep the Question Bank tab protected – it holds the answers.</div>';
     bind();
   }
 
@@ -159,7 +160,11 @@
         '<div class="subtitle">Below 80% after the retake. Once the directors have met ' + esc(t.name) + ', write down what they decided.</div>') +
       '<textarea id="indRev_' + esc(t.code) + '" rows="2" placeholder="e.g. Salary revised to ... from ...; or: kept as is, re-test in 30 days"></textarea>' +
       '<div class="actions"><button type="button" class="sm" data-review="' + esc(t.code) + '">Save the outcome</button></div>' : '';
-    return '<div class="det"><div class="grid"><div><h3 style="margin-top:0">Checklist</h3>' + items + '</div>' +
+    var vids = (t.videos || []).map(function (v) {
+      return '<div class="it"><span>' + esc(v.title) + '</span>' + (v.watched ? '<span class="ok">✓ Watched</span>' : v.pct ? '<span class="pend">' + v.pct + '%</span>' : '<span class="todo">Not opened</span>') + '</div>';
+    }).join('');
+    return '<div class="det"><div class="grid"><div><h3 style="margin-top:0">Checklist</h3>' + items +
+      (vids ? '<h3>Training videos (' + t.videosWatched + ' / ' + t.videosTotal + ')</h3>' + vids : '') + '</div>' +
       '<div><h3 style="margin-top:0">Assessment</h3>' + att + (acts ? '<div class="actions">' + acts + '</div>' : '') + review +
       '<h3>Day-60 review</h3>' +
       (t.day60 ? '<div style="font-size:13px;"><b>' + esc(t.day60.rating) + '</b> – ' + esc(t.day60.note) + ' <span class="sub">(' + esc(t.day60.by) + ')</span></div>' : '<div class="subtitle">Due ' + esc(t.day60DueLabel) + '. For a conversation only – it never triggers a salary review.</div>') +

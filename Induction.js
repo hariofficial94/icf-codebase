@@ -34,6 +34,16 @@
  *     so they have time to cover the plan first.
  *   Existing CREs who have signed in before are never auto-enrolled.
  *
+ * TRAINING VIDEOS (Nov 2026): Greeshma's videos, uploaded to YouTube as
+ * UNLISTED (embedding left on). Listed in the "Training Videos" tab; every CRE
+ * sees the library ("For" = All) and trainees also see "Induction" ones. They
+ * play in a pop-up on the CRE page; the page reports how far they got and a
+ * video counts as watched at 90%. When every video linked to a Self checklist
+ * item is watched, that item ticks itself.
+ *
+ * DIRECTORS see an Induction section on the Owner Dashboard (beta) and record
+ * their own decision there after a below-80% retake.
+ *
  * TABS (created on first use; the plan and the bank are seeded with a
  * starter set that Hari replaces -- Greeshma validates the questions):
  *   "Induction"          one row per trainee
@@ -49,6 +59,14 @@ var IND_PROGRESS_SHEET_NAME = 'Induction Progress';
 var IND_QB_SHEET_NAME = 'Question Bank';
 var IND_TESTS_SHEET_NAME = 'Induction Tests';
 var IND_ANSWERS_SHEET_NAME = 'Induction Answers';
+var IND_VIDEOS_SHEET_NAME = 'Training Videos';
+var IND_VPROG_SHEET_NAME = 'Video Progress';
+var IND_VIDEO_HEADERS = ['Video ID', 'Title', 'Section', 'Order', 'YouTube Link', 'Minutes', 'Plan Item', 'For', 'Active'];
+var IND_VPROG_HEADERS = ['Staff Code', 'Video ID', 'First Opened', 'Last Opened', 'Opens', 'Max %', 'Watched At'];
+var IND_WATCHED_PCT = 90;
+var IND_SEED_VIDEOS = [
+  ['V01', 'Example \u2013 replace with Greeshma\u2019s first video', 'Company', 1, 'https://youtu.be/XXXXXXXXXXX', 10, 'P1-03', 'All', 'N']
+];
 
 // Rules -- change here (move to the Settings page later if they need tuning often).
 var IND_CFG = {
@@ -158,6 +176,89 @@ function indQbSheet_() {
 }
 function indTestsSheet_() { return indTab_(IND_TESTS_SHEET_NAME, IND_TEST_HEADERS); }
 function indAnswersSheet_() { return indTab_(IND_ANSWERS_SHEET_NAME, IND_ANSWER_HEADERS); }
+function indVideosSheet_() { return indTab_(IND_VIDEOS_SHEET_NAME, IND_VIDEO_HEADERS, IND_SEED_VIDEOS); }
+function indVProgSheet_() { return indTab_(IND_VPROG_SHEET_NAME, IND_VPROG_HEADERS); }
+
+// ================================================================
+// Training videos
+// ================================================================
+/** The 11-character YouTube id from any usual link (youtu.be, watch?v=, embed, shorts) or a bare id. */
+function indYoutubeId_(link) {
+  var s = String(link || '').trim();
+  var m = s.match(/(?:youtu\.be\/|[?&]v=|\/embed\/|\/shorts\/|\/live\/)([A-Za-z0-9_-]{11})/);
+  if (m) return m[1];
+  return /^[A-Za-z0-9_-]{11}$/.test(s) ? s : '';
+}
+function indVideos_() {
+  return indRows_(indVideosSheet_(), IND_VIDEO_HEADERS)
+    .filter(function (r) { return String(r['Video ID']).trim() && String(r['Active']).trim().toUpperCase() !== 'N'; })
+    .map(function (r) {
+      return {
+        id: String(r['Video ID']).trim(), title: String(r['Title'] || '').trim(), section: String(r['Section'] || 'General').trim() || 'General',
+        order: Number(r['Order']) || 999, yt: indYoutubeId_(r['YouTube Link']), minutes: Number(r['Minutes']) || null,
+        planItem: String(r['Plan Item'] || '').trim(), forInduction: /induction/i.test(String(r['For'] || ''))
+      };
+    })
+    .filter(function (v) { return v.yt; })
+    .sort(function (a, b) { return a.order - b.order || (a.title < b.title ? -1 : 1); });
+}
+function indVProg_(code) {
+  var all = indRows_(indVProgSheet_(), IND_VPROG_HEADERS);
+  if (!code) return all;
+  code = String(code).toUpperCase();
+  return all.filter(function (r) { return String(r['Staff Code']).toUpperCase() === code; });
+}
+/** Videos this person may see, with their progress. Trainees see "Induction" ones too. */
+function indVideosFor_(code, isTrainee) {
+  var prog = {};
+  indVProg_(code).forEach(function (p) { prog[String(p['Video ID'])] = p; });
+  return indVideos_().filter(function (v) { return isTrainee || !v.forInduction; }).map(function (v) {
+    var p = prog[v.id];
+    return { id: v.id, title: v.title, section: v.section, yt: v.yt, minutes: v.minutes, planItem: v.planItem,
+      pct: p ? Number(p['Max %']) || 0 : 0, watched: !!(p && p['Watched At']), opened: !!p };
+  });
+}
+
+/** The CRE page reports progress while a video plays: { videoId, pct, opened }. */
+function indVideoProgress_(form) {
+  form = form || {};
+  var me = indMe_();
+  var v = indVideos_().filter(function (x) { return x.id === String(form.videoId || ''); })[0];
+  if (!v) throw new Error('That video is no longer in the library.');
+  var pct = Math.max(0, Math.min(100, Math.round(Number(form.pct) || 0)));
+  var lock = indLock_();
+  var nowWatched = false;
+  try {
+    var sheet = indVProgSheet_();
+    var p = indVProg_(me.code).filter(function (r) { return String(r['Video ID']) === v.id; })[0];
+    if (!p) {
+      nowWatched = pct >= IND_WATCHED_PCT;
+      indAppend_(sheet, IND_VPROG_HEADERS, { 'Staff Code': me.code, 'Video ID': v.id, 'First Opened': new Date(), 'Last Opened': new Date(),
+        'Opens': 1, 'Max %': pct, 'Watched At': nowWatched ? new Date() : '' });
+    } else {
+      var f = {};
+      if (form.opened) { f['Last Opened'] = new Date(); f['Opens'] = (Number(p['Opens']) || 0) + 1; }
+      if (pct > (Number(p['Max %']) || 0)) f['Max %'] = pct;
+      if (!p['Watched At'] && pct >= IND_WATCHED_PCT) { f['Watched At'] = new Date(); nowWatched = true; }
+      if (Object.keys(f).length) indWrite_(sheet, IND_VPROG_HEADERS, p.row, f);
+    }
+    if (nowWatched && v.planItem) indAutoTickFromVideos_(me.code, v.planItem);
+  } finally { lock.releaseLock(); }
+  return { videoId: v.id, watched: nowWatched || undefined, pct: pct };
+}
+
+/** All videos of a Self checklist item watched -> the item is done. */
+function indAutoTickFromVideos_(code, itemId) {
+  if (!indTrainee_(code)) return;
+  var item = indPlan_().filter(function (i) { return i.id === itemId; })[0];
+  if (!item || item.signOff !== 'Self') return;
+  var watched = {};
+  indVProg_(code).forEach(function (p) { if (p['Watched At']) watched[String(p['Video ID'])] = true; });
+  var vids = indVideos_().filter(function (v) { return v.planItem === itemId; });
+  if (!vids.length || vids.some(function (v) { return !watched[v.id]; })) return;
+  if (indProgress_(code).some(function (p) { return String(p['Item ID']) === itemId; })) return;
+  indAppend_(indProgressSheet_(), IND_PROGRESS_HEADERS, { 'Staff Code': code, 'Item ID': itemId, 'Status': 'Done', 'Done At': new Date(), 'Note': 'All videos watched' });
+}
 
 function indRows_(sheet, headers) {
   var last = sheet.getLastRow();
@@ -391,7 +492,7 @@ function indRevision_(code, attempts) {
 function indGetMine_() {
   var me = indMe_();
   var x = indTrainee_(me.code);
-  if (!x || x.t['Status'] === IND_ST_REMOVED) return { enrolled: false };
+  if (!x || x.t['Status'] === IND_ST_REMOVED) return { enrolled: false, videos: indVideosFor_(me.code, false), watchedPct: IND_WATCHED_PCT };
   indSweepExpired_(me.code);
   x = indTrainee_(me.code);
   var t = x.t;
@@ -411,8 +512,10 @@ function indGetMine_() {
   var attempts = indAttempts_(me.code);
   var test = indTestState_(t, attempts);
   var bank = indBank_().filter(function (q) { return q.active; });
+  var videos = indVideosFor_(me.code, true);
+  items.forEach(function (it) { it.videos = videos.filter(function (v) { return v.planItem === it.id; }).map(function (v) { return v.id; }); });
   return {
-    enrolled: true,
+    enrolled: true, videos: videos, watchedPct: IND_WATCHED_PCT,
     name: String(t['Staff Name'] || me.name),
     joinYmd: joinYmd, joinLabel: indFmt_(joinYmd),
     day: day, totalDays: IND_CFG.totalDays, phase: day <= IND_CFG.phase1Days ? 1 : 2,
@@ -702,8 +805,8 @@ function indAfterResult_(code, a) {
   indWrite_(x.sheet, IND_HEADERS, t.row, fields);
   cxMail_(cxEmailsFor_(['Director']), cxEmailsFor_(['Admin']), 'Induction: ' + name + ' is below ' + IND_CFG.passPct + '% after the retake – salary review',
     '<p>' + cxEsc_(name) + ' scored <b>' + pct + '%</b> on the induction ' + label + '. Their best score is <b>' + fields['Best Score %'] + '%</b>; the pass mark is ' + IND_CFG.passPct + '%.</p>' + secHtml +
-    '<p>Under the induction policy this goes to the directors for a salary review. Nothing has been changed automatically. Once you have decided, the admin records the outcome on the Admin page.</p>',
-    link, 'Open the Admin page');
+    '<p>Under the induction policy this goes to the directors for a salary review. Nothing has been changed automatically. Once you have decided, record the decision in the Induction section of the Owner Dashboard.</p>',
+    appUrl_() + '?page=dashboard-beta', 'Open the Owner Dashboard');
 }
 
 // ================================================================
@@ -728,6 +831,7 @@ function indAdminData_() {
     var myAttempts = attempts.filter(function (a) { return String(a['Staff Code']).toUpperCase() === code; });
     var test = indTestState_(t, myAttempts);
     var doneCount = mine.filter(function (p) { return p['Status'] === 'Done' || p['Status'] === 'Signed off'; }).length;
+    var vids = indVideosFor_(code, true);
     var pmap = {};
     mine.forEach(function (p) { pmap[String(p['Item ID'])] = p; });
     return {
@@ -736,6 +840,8 @@ function indAdminData_() {
       status: String(t['Status'] || ''), removed: t['Status'] === IND_ST_REMOVED,
       welcomeSeen: !!t['Welcome Seen At'], enrolledBy: String(t['Enrolled By'] || ''),
       itemsDone: doneCount, itemsTotal: plan.length,
+      videosWatched: vids.filter(function (v) { return v.watched; }).length, videosTotal: vids.length,
+      videos: vids.map(function (v) { return { title: v.title, pct: v.pct, watched: v.watched }; }),
       items: plan.map(function (i) {
         var p = pmap[i.id];
         return { id: i.id, phase: i.phase, week: i.week, title: i.title, signOff: i.signOff,
@@ -937,6 +1043,7 @@ function indScorecard_(form) {
     staffCode: code, name: String(t['Staff Name'] || ''), fromLabel: indFmt_(joinYmd), toLabel: indFmt_(endYmd),
     rows: [
       { label: 'Checklist completed', value: done + ' / ' + plan.length, pct: pct(done, plan.length) },
+      (function () { var v = indVideosFor_(code, true); var w = v.filter(function (x) { return x.watched; }).length; return { label: 'Training videos watched', value: w + ' / ' + v.length, pct: pct(w, v.length) }; })(),
       { label: 'Assessment (best score)', value: t['Best Score %'] === '' ? 'Not taken' : t['Best Score %'] + '%', pct: t['Best Score %'] === '' ? null : Number(t['Best Score %']) },
       { label: 'Orders logged', value: String(m.orders) + (m.cancelled ? ' (+' + m.cancelled + ' cancelled)' : ''), pct: null },
       { label: 'Order value logged', value: 'Rs. ' + Math.round(m.value).toLocaleString('en-IN'), pct: null },
@@ -979,15 +1086,16 @@ function inductionApiMap_() {
     indStartTest:    { fn: indStartTest_,    roles: CRE, log: 'Induction: started the assessment' },
     indSaveAnswers:  { fn: indSaveAnswers_,  roles: CRE },
     indSubmitTest:   { fn: indSubmitTest_,   roles: CRE, log: 'Induction: submitted the assessment' },
-    indAdminData:    { fn: indAdminData_,    roles: [] },
+    indAdminData:    { fn: indAdminData_,    roles: ['Director'] },
+    indVideoProgress:{ fn: indVideoProgress_, roles: CRE },
     indEnrol:        { fn: indEnrol_,        roles: [], log: 'Induction: enrolled' },
     indRemove:       { fn: indRemove_,       roles: [], log: 'Induction: removed' },
     indSignOff:      { fn: indSignOff_,      roles: [], log: 'Induction: sign-off' },
     indUnlockTest:   { fn: indUnlockTest_,   roles: [], log: 'Induction: unlocked test' },
-    indAttemptDetail:{ fn: indAttemptDetail_, roles: [] },
+    indAttemptDetail:{ fn: indAttemptDetail_, roles: ['Director'] },
     indMarkShort:    { fn: indMarkShort_,    roles: [], log: 'Induction: marked short answers' },
-    indRecordReview: { fn: indRecordReview_, roles: [], log: 'Induction: director review recorded' },
-    indScorecard:    { fn: indScorecard_,    roles: [] },
+    indRecordReview: { fn: indRecordReview_, roles: ['Director'], log: 'Induction: director review recorded' },
+    indScorecard:    { fn: indScorecard_,    roles: ['Director'] },
     indRecordDay60:  { fn: indRecordDay60_,  roles: [], log: 'Induction: day-60 review' }
   };
 }

@@ -1,0 +1,174 @@
+<!--
+  CRE induction on the Owner Dashboard, beta (Nov 2026). Pulled in by
+  dashboard_beta.html with <?!= include('induction_dash'); ?> as the last
+  include. Adds an "Induction" section under the director panel: every CRE in
+  induction with their day, checklist, videos, assessment and day-60 review.
+  Click a row for the detail. Read-only, except the one decision that is the
+  directors': what happens after a CRE is below 80% after the retake.
+  Server side: Induction.gs (indAdminData, indAttemptDetail, indScorecard,
+  indRecordReview are open to Directors).
+-->
+<style>
+  .indd-bar { display: inline-block; width: 70px; height: 5px; border-radius: 3px; background: var(--surface-3); overflow: hidden; vertical-align: middle; margin-left: 8px; }
+  .indd-bar > div { height: 100%; background: var(--leaf-grad); }
+  .indd-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .indd-it { display: flex; justify-content: space-between; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 12.5px; }
+  .indd-it:last-child { border-bottom: none; }
+  .indd-it .w { color: var(--text-3); font-size: 11px; margin-right: 6px; }
+  .indd-sec { font-size: 12px; margin-top: 6px; }
+  .indd-sec .row { display: flex; justify-content: space-between; }
+  .indd-b { height: 5px; border-radius: 3px; background: var(--surface-3); overflow: hidden; margin-top: 4px; }
+  .indd-b > div { height: 100%; background: var(--leaf-grad); }
+  .indd-b.red > div { background: var(--red); }
+  .indd-h { font-size: 12px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-3); margin: 16px 0 6px; }
+  .indd-h:first-child { margin-top: 0; }
+  .indd-pre { white-space: pre-wrap; font: 11.5px/1.55 Consolas, monospace; color: var(--text-2); background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; max-height: 170px; overflow: auto; }
+  .indd-decide { border: 1px solid var(--red-bd); background: var(--red-bg); border-radius: 10px; padding: 14px 16px; margin-bottom: 16px; }
+  .indd-decide b { color: var(--red); }
+  @media (max-width: 760px) { .indd-grid { grid-template-columns: 1fr; } }
+</style>
+<div class="modal" id="inddModal"><div class="modal-box">
+  <div class="modal-head"><h3 id="inddTitle">Induction</h3><button class="btn icon-btn ghost" type="button" id="inddClose">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
+  <div class="modal-body" id="inddBody"></div>
+</div></div>
+<script>
+(function () {
+  'use strict';
+  function $(id) { return document.getElementById(id); }
+  function esc(t) { return String(t == null ? '' : t).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+  function errText(e) { return String((e && e.message) || e || 'Something went wrong').replace(/^(Error:\s*)+/, ''); }
+  function pill(t, tone) { return '<span class="pill t-' + tone + '"><span class="dot"></span>' + esc(t) + '</span>'; }
+
+  var STATE = { locked: ['Opens', 'grey'], open: ['Open now', 'blue'], inProgress: ['Taking it now', 'blue'], awaitingMarking: ['Being marked', 'amber'],
+    passed: ['Passed', 'teal'], retakeLocked: ['Retake on', 'amber'], retakeOpen: ['Retake open', 'amber'], review: ['Your decision needed', 'red'], reviewed: ['Decided', 'grey'] };
+  var DATA = null;
+
+  var sec = document.createElement('div');
+  sec.className = 'section'; sec.id = 'inddSection'; sec.style.display = 'none';
+  sec.innerHTML = '<div class="sec-head"><h2>CRE induction</h2><span class="sec-note" id="inddNote"></span></div><div class="tbl-wrap" id="inddTable"></div>';
+  var anchor = $('dirPanel');
+  if (anchor && anchor.parentNode) anchor.parentNode.insertBefore(sec, anchor.nextSibling);
+
+  function load() {
+    window.authRun().withSuccessHandler(function (d) { DATA = d; render(); })
+      .withFailureHandler(function (e) { if (window.ICF_BETA_ERR) window.ICF_BETA_ERR('Induction: ' + errText(e)); })
+      .indAdminData();
+  }
+  var prevReload = window.ICF_RELOAD;
+  window.ICF_RELOAD = function () { if (typeof prevReload === 'function') prevReload(); load(); };
+  var prevClear = window.ICF_CLEAR;
+  window.ICF_CLEAR = function () { DATA = null; sec.style.display = 'none'; $('inddTable').innerHTML = ''; $('inddModal').classList.remove('show'); if (typeof prevClear === 'function') prevClear(); };
+  load();
+  if ($('refreshBtn')) $('refreshBtn').addEventListener('click', load);
+
+  function stateTag(t) {
+    var s = STATE[t.test.state] || [t.test.state, 'grey'];
+    var extra = t.test.state === 'locked' ? ' ' + t.test.opensLabel : t.test.state === 'retakeLocked' ? ' ' + t.test.retakeLabel : '';
+    return pill(s[0] + extra, s[1]);
+  }
+
+  function render() {
+    var list = (DATA && DATA.trainees) || [];
+    sec.style.display = list.length ? '' : 'none';
+    if (!list.length) return;
+    var need = list.filter(function (t) { return t.test.state === 'review'; }).length;
+    $('inddNote').innerHTML = list.length + ' in induction' + (need ? ' · <b style="color:var(--red)">' + need + ' need your decision</b>' : '') + ' · pass mark ' + DATA.cfg.passPct + '%';
+    $('inddTable').innerHTML = '<table class="tbl"><thead><tr><th>CRE</th><th class="num">Day</th><th>Checklist</th><th>Videos</th><th>Assessment</th><th class="num">Best</th><th>Day-60 review</th></tr></thead><tbody>' +
+      list.map(function (t) {
+        var pc = t.itemsTotal ? Math.round(t.itemsDone / t.itemsTotal * 100) : 0;
+        var d60 = t.day60 ? pill(t.day60.rating, t.day60.rating === 'Needs support' ? 'amber' : 'teal') : (t.day60Due ? pill('Due', 'amber') : '<span class="faint">' + esc(t.day60DueLabel) + '</span>');
+        return '<tr data-code="' + esc(t.code) + '"><td><b>' + esc(t.name) + '</b><div class="faint" style="font-size:11.5px;">joined ' + esc(t.joinLabel) + '</div></td>' +
+          '<td class="num">' + (t.day == null ? '–' : Math.min(t.day, 60) + (t.day > 60 ? '+' : '')) + '</td>' +
+          '<td class="nowrap">' + t.itemsDone + ' / ' + t.itemsTotal + '<span class="indd-bar"><div style="width:' + pc + '%"></div></span></td>' +
+          '<td class="nowrap">' + (t.videosTotal ? t.videosWatched + ' / ' + t.videosTotal : '<span class="faint">–</span>') + '</td>' +
+          '<td>' + stateTag(t) + '</td>' +
+          '<td class="num">' + (t.bestPct == null ? '–' : t.bestPct + '%') + '</td><td>' + d60 + '</td></tr>';
+      }).join('') + '</tbody></table>';
+    Array.prototype.forEach.call($('inddTable').querySelectorAll('tr[data-code]'), function (tr) {
+      tr.addEventListener('click', function () { open(tr.getAttribute('data-code')); });
+    });
+  }
+
+  function secBars(sections, pass) {
+    return (sections || []).map(function (s) {
+      return '<div class="indd-sec"><div class="row"><span>' + esc(s.section) + '</span><span>' + s.score + ' / ' + s.max + ' · ' + s.pct + '%</span></div>' +
+        '<div class="indd-b' + (s.pct < pass ? ' red' : '') + '"><div style="width:' + s.pct + '%"></div></div></div>';
+    }).join('');
+  }
+
+  function open(code) {
+    var t = (DATA.trainees || []).filter(function (x) { return x.code === code; })[0];
+    if (!t) return;
+    var pass = DATA.cfg.passPct;
+    $('inddTitle').textContent = t.name + ' – induction, day ' + Math.min(t.day || 0, 60);
+    var decide = '';
+    if (t.test.state === 'review' || t.test.state === 'reviewed') {
+      decide = '<div class="indd-decide">' + (t.directorReview
+        ? 'Decision recorded by ' + esc(t.directorReviewBy) + ': ' + esc(t.directorReview)
+        : '<b>Below ' + pass + '% after the retake.</b> Best score ' + (t.bestPct == null ? '–' : t.bestPct + '%') + '. Under the induction policy this is a salary review. Nothing has changed automatically – record what you decide after meeting ' + esc(t.name) + '.') +
+        '<textarea class="inp" id="inddDecision" rows="2" style="margin-top:10px;" placeholder="e.g. Salary revised from ... to ... from 1 Jan; or: no change, re-test in 30 days"></textarea>' +
+        '<div style="margin-top:8px; display:flex; gap:8px; align-items:center;"><button class="btn primary sm" type="button" id="inddSave">Save the decision</button><span class="faint" id="inddMsg" style="font-size:12px;"></span></div></div>';
+    }
+    var items = t.items.map(function (i) {
+      var st = i.status === 'signed' ? pill('Signed off', 'teal') : i.status === 'done' ? pill('Done', 'teal') : i.status === 'waiting' ? pill('Waiting sign-off', 'amber') : '<span class="faint">Not done</span>';
+      return '<div class="indd-it"><span><span class="w">W' + i.week + '</span>' + esc(i.title) + '</span>' + st + '</div>';
+    }).join('');
+    var vids = (t.videos || []).map(function (v) {
+      return '<div class="indd-it"><span>' + esc(v.title) + '</span>' + (v.watched ? pill('Watched', 'teal') : v.pct ? '<span class="faint">' + v.pct + '%</span>' : '<span class="faint">Not opened</span>') + '</div>';
+    }).join('');
+    var atts = t.attempts.length ? t.attempts.map(function (a) {
+      return '<div style="margin-bottom:12px;"><div class="indd-it" style="border:none;"><span><b>Attempt ' + a.no + '</b></span><span>' +
+        (a.pct == null ? pill('Being marked', 'amber') : pill(a.pct + '%', a.pct >= pass ? 'teal' : 'red')) +
+        ' <button class="btn ghost sm" type="button" data-att="' + esc(a.attemptId) + '">Answers</button></span></div>' + secBars(a.sections, pass) + '</div>';
+    }).join('') : '<div class="faint" style="font-size:12.5px;">Not taken yet. ' + esc((STATE[t.test.state] || [''])[0]) + ' ' + esc(t.test.opensLabel || '') + '</div>';
+    $('inddBody').innerHTML = decide +
+      '<div class="indd-grid"><div>' +
+        '<div class="indd-h">Assessment</div>' + atts +
+        '<div class="indd-h">Day-60 review</div>' + (t.day60 ? '<div style="font-size:13px;"><b>' + esc(t.day60.rating) + '</b> – ' + esc(t.day60.note) + ' <span class="faint">(' + esc(t.day60.by) + ')</span></div>' : '<div class="faint" style="font-size:12.5px;">Due ' + esc(t.day60DueLabel) + '. Ananthu records it; it is for a conversation only.</div>') +
+        '<div id="inddSc"></div><button class="btn sm" type="button" id="inddScBtn" style="margin-top:8px;">Show work scorecard</button>' +
+        '<div class="indd-h">History</div><div class="indd-pre">' + esc(t.history) + '</div>' +
+      '</div><div>' +
+        '<div class="indd-h">Checklist · ' + t.itemsDone + ' / ' + t.itemsTotal + '</div>' + items +
+        (vids ? '<div class="indd-h">Training videos · ' + t.videosWatched + ' / ' + t.videosTotal + '</div>' + vids : '') +
+      '</div></div>';
+    $('inddModal').classList.add('show');
+
+    if ($('inddSave')) $('inddSave').addEventListener('click', function () {
+      var b = this; b.disabled = true;
+      window.authRun().withSuccessHandler(function () { $('inddModal').classList.remove('show'); load(); })
+        .withFailureHandler(function (e) { b.disabled = false; $('inddMsg').textContent = errText(e); })
+        .indRecordReview({ staffCode: code, note: $('inddDecision').value });
+    });
+    $('inddScBtn').addEventListener('click', function () {
+      var b = this; b.disabled = true; $('inddSc').innerHTML = '<div class="faint" style="font-size:12px;margin-top:8px;">Loading…</div>';
+      window.authRun().withSuccessHandler(function (sc) {
+        b.style.display = 'none';
+        $('inddSc').innerHTML = '<div style="margin-top:8px;">' + sc.rows.map(function (r) {
+          return '<div class="indd-it"><span>' + esc(r.label) + '</span><span><b>' + esc(r.value) + '</b>' + (r.pct == null ? '' : ' <span class="faint">' + r.pct + '%</span>') + '</span></div>';
+        }).join('') + '<div class="faint" style="font-size:11.5px;margin-top:4px;">Orders logged ' + esc(sc.fromLabel) + ' – ' + esc(sc.toLabel) + '.</div></div>';
+      }).withFailureHandler(function (e) { b.disabled = false; $('inddSc').textContent = errText(e); }).indScorecard({ staffCode: code });
+    });
+    Array.prototype.forEach.call($('inddBody').querySelectorAll('[data-att]'), function (b) {
+      b.addEventListener('click', function () { answers(b.getAttribute('data-att'), code); });
+    });
+  }
+
+  function answers(id, code) {
+    $('inddBody').innerHTML = '<div class="faint">Loading…</div>';
+    window.authRun().withSuccessHandler(function (a) {
+      $('inddTitle').textContent = a.name + ' – attempt ' + a.no + (a.pct == null ? '' : ' · ' + a.pct + '%');
+      $('inddBody').innerHTML = '<button class="btn ghost sm" type="button" id="inddBack">← Back</button>' + a.answers.map(function (q) {
+        var mark = q.correct === 'Y' ? pill('Right', 'teal') : q.correct === 'Pending' ? pill('Being marked', 'amber') : q.correct === 'Part' ? pill('Part marks', 'amber') : pill('Wrong', 'red');
+        return '<div style="padding:12px 0;border-bottom:1px solid var(--border);font-size:13px;"><div class="faint" style="font-size:11px;">' + esc(q.section) + '</div>' +
+          '<div style="font-weight:600;margin:2px 0 4px;">' + esc(q.text) + '</div><div>Answer: ' + (q.answerText ? esc(q.answerText) : '<i class="faint">blank</i>') + ' ' + mark + '</div>' +
+          (q.type !== 'Short' && q.correct !== 'Y' ? '<div class="faint" style="font-size:12px;margin-top:2px;">Correct: ' + esc(q.correctText) + '</div>' : '') + '</div>';
+      }).join('');
+      $('inddBack').addEventListener('click', function () { open(code); });
+    }).withFailureHandler(function (e) { $('inddBody').textContent = errText(e); }).indAttemptDetail({ attemptId: id });
+  }
+
+  $('inddClose').addEventListener('click', function () { $('inddModal').classList.remove('show'); });
+  $('inddModal').addEventListener('click', function (e) { if (e.target === $('inddModal')) $('inddModal').classList.remove('show'); });
+})();
+</script>

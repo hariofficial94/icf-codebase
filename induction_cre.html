@@ -5,7 +5,10 @@
     - a welcome screen on first sign-in, which they must acknowledge;
     - an "Induction" button on the rail and an Induction view: day X of 60,
       the checklist by week, the assessment card, the day-60 checkpoint;
-    - the timed assessment itself, full screen, with autosave.
+    - the timed assessment itself, full screen, with autosave;
+    - training videos (Nov 2026): Greeshma's unlisted YouTube videos, played in a
+      pop-up. Every CRE gets the library (rail button "Training" if they aren't
+      in induction); the page reports seconds actually played, and 90% = watched.
   The correct answers never come to this page -- scoring is on the server.
 -->
 <style>
@@ -93,6 +96,32 @@
   .ind-res .ind-secs { text-align: left; margin: 24px 0; }
   .ind-res p { color: var(--text-2); line-height: 1.6; }
 
+  .ind-vgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; }
+  .ind-vcard { text-align: left; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; cursor: pointer; padding: 0; color: var(--text); font: inherit; }
+  .ind-vcard:hover { border-color: var(--hover-bd); }
+  .ind-vthumb { position: relative; aspect-ratio: 16 / 9; background: #000 center / cover no-repeat; }
+  .ind-vthumb .play { position: absolute; inset: 0; margin: auto; width: 46px; height: 46px; border-radius: 50%; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; color: #fff; }
+  .ind-vthumb .play svg { width: 20px; height: 20px; margin-left: 3px; }
+  .ind-vthumb .done { position: absolute; top: 8px; right: 8px; }
+  .ind-vthumb .prog { position: absolute; left: 0; right: 0; bottom: 0; height: 4px; background: rgba(255,255,255,0.2); }
+  .ind-vthumb .prog div { height: 100%; background: var(--leaf-grad); }
+  .ind-vcard .vt { padding: 10px 12px; font-size: 13px; font-weight: 600; line-height: 1.4; }
+  .ind-vcard .vt small { display: block; font-weight: 500; color: var(--text-3); font-size: 11.5px; margin-top: 3px; }
+  .ind-vsec { font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-3); margin: 18px 0 10px; }
+  .ind-watch { display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 9px; border-radius: 12px; border: 1px solid rgba(155,203,74,0.5); background: transparent; color: var(--leaf-ink); font-size: 11.5px; font-weight: 700; cursor: pointer; }
+  .ind-watch.seen { border-color: var(--border-2); color: var(--text-2); }
+  .ind-watch svg { width: 11px; height: 11px; }
+  .ind-player { position: fixed; inset: 0; z-index: 4700; background: rgba(0,0,0,0.82); display: none; align-items: center; justify-content: center; padding: 20px; }
+  .ind-player.show { display: flex; }
+  .ind-player .box { width: 100%; max-width: 1000px; }
+  .ind-player .head { display: flex; align-items: center; gap: 12px; color: #fff; margin-bottom: 10px; }
+  .ind-player .head .t { flex: 1 1 auto; font-weight: 600; font-size: 15px; min-width: 0; }
+  .ind-player .head .t small { display: block; font-weight: 500; font-size: 12px; color: #b9bcc1; }
+  .ind-player .head a, .ind-player .head button { color: #fff; }
+  .ind-player .frame { position: relative; aspect-ratio: 16 / 9; background: #000; border-radius: 10px; overflow: hidden; }
+  .ind-player .frame > div, .ind-player .frame iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+  .ind-player .foot { color: #b9bcc1; font-size: 12px; margin-top: 10px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+
   @media (max-width: 900px) { .ind-hero { grid-template-columns: 1fr; } .ind-wel .phases { grid-template-columns: 1fr; } }
   @media (max-width: 760px) { .ind-item { grid-template-columns: 26px minmax(0, 1fr); } .ind-meta { grid-column: 2; justify-content: flex-start; } .ind-tbar { padding: 10px 14px; } }
 </style>
@@ -108,6 +137,15 @@
   </div>
   <div id="indTestBody"></div>
 </div>
+
+<!-- Video pop-up -->
+<div class="ind-player" id="indPlayer"><div class="box">
+  <div class="head"><div class="t" id="indPlTitle"></div>
+    <a class="btn ghost sm" id="indPlYt" href="#" target="_blank" rel="noopener">Open on YouTube ↗</a>
+    <button class="btn ghost icon-btn" type="button" id="indPlClose" title="Close (Esc)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>
+  <div class="frame" id="indPlFrame"></div>
+  <div class="foot"><span id="indPlProg"></span><button class="btn sm" type="button" id="indPlManual" style="display:none;">I've watched it</button></div>
+</div></div>
 
 <script>
 (function () {
@@ -126,6 +164,10 @@
 
   // ---------- Rail button + view (added only once someone is in induction) ----------
   var railBtn = null, view = null;
+  function setMode(enrolled) {
+    var tip = railBtn.querySelector('.rail-tip'); if (tip) tip.textContent = enrolled ? 'Induction' : 'Training';
+    view.querySelector('.page-title').textContent = enrolled ? 'Induction' : 'Training videos';
+  }
   function ensureShell() {
     if (railBtn) return;
     railBtn = document.createElement('button');
@@ -152,8 +194,9 @@
     window.authRun()
       .withSuccessHandler(function (res) {
         ME = res;
-        if (!res || !res.enrolled) { hideShell(); return; }
-        ensureShell(); railBtn.style.display = '';
+        if (!res || (!res.enrolled && !(res.videos && res.videos.length))) { hideShell(); return; }
+        ensureShell(); railBtn.style.display = ''; setMode(res.enrolled);
+        if (!res.enrolled) { renderLibraryOnly(); return; }
         render();
         if (!res.welcomeSeen) showWelcome();
         if (after) after(res);
@@ -167,7 +210,7 @@
   var prevClear = window.ICF_CLEAR;
   window.ICF_CLEAR = function () {
     stopTimers(); TEST = null; ME = null;
-    $('indWelcome').classList.remove('show'); $('indTest').classList.remove('show');
+    $('indWelcome').classList.remove('show'); $('indTest').classList.remove('show'); closePlayer();
     hideShell();
     if (view) $('indOut').innerHTML = '';
     if (typeof prevClear === 'function') prevClear();
@@ -234,9 +277,144 @@
           weeks[w].map(function (i) { return itemHtml(i, w < wkNow, m.revision.indexOf(i.id) !== -1); }).join('') + '</div>';
       });
     });
+    if (m.videos && m.videos.length) html += '<div class="ind-phase">Training videos<span>' + m.videos.filter(function (v) { return v.watched; }).length + ' of ' + m.videos.length + ' watched</span></div>' + libraryHtml(m.videos);
     $('indOut').innerHTML = html;
     bindView();
   }
+
+  // ---------- Training videos ----------
+  var ICON_PLAY = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 4.5v15l13-7.5z"/></svg>';
+  function videoById(id) { return ((ME && ME.videos) || []).filter(function (v) { return v.id === id; })[0]; }
+  function libraryHtml(videos) {
+    var secs = [], by = {};
+    videos.forEach(function (v) { if (!by[v.section]) { by[v.section] = []; secs.push(v.section); } by[v.section].push(v); });
+    return secs.map(function (s) {
+      return '<div class="ind-vsec">' + esc(s) + '</div><div class="ind-vgrid">' + by[s].map(function (v) {
+        return '<button class="ind-vcard" type="button" data-video="' + esc(v.id) + '">' +
+          '<div class="ind-vthumb" style="background-image:url(https://i.ytimg.com/vi/' + esc(v.yt) + '/mqdefault.jpg)">' +
+            '<span class="play">' + ICON_PLAY + '</span>' + (v.watched ? '<span class="done">' + pill('Watched', 'teal') + '</span>' : '') +
+            (v.pct && !v.watched ? '<div class="prog"><div style="width:' + v.pct + '%"></div></div>' : '') + '</div>' +
+          '<div class="vt">' + esc(v.title) + '<small>' + (v.minutes ? v.minutes + ' min' : '') + (v.pct && !v.watched ? (v.minutes ? ' · ' : '') + v.pct + '% watched' : '') + '</small></div></button>';
+      }).join('') + '</div>';
+    }).join('');
+  }
+  function renderLibraryOnly() {
+    var v = ME.videos;
+    $('indSub').textContent = 'Short videos on ICF’s products and processes. ' + v.filter(function (x) { return x.watched; }).length + ' of ' + v.length + ' watched.';
+    $('indOut').innerHTML = libraryHtml(v);
+    bindVideos();
+  }
+  function bindVideos() {
+    C.each(document.querySelectorAll('#indOut [data-video]'), function (b) {
+      b.addEventListener('click', function (e) { e.stopPropagation(); openVideo(b.getAttribute('data-video')); });
+    });
+    C.each(document.querySelectorAll('#indOut [data-ytlink]'), function (b) {
+      b.addEventListener('click', function () { openVideo(null, b.getAttribute('data-ytlink'), b.getAttribute('data-title')); });
+    });
+  }
+  function ytId(link) {
+    var m = String(link || '').match(/(?:youtu\.be\/|[?&]v=|\/embed\/|\/shorts\/|\/live\/)([A-Za-z0-9_-]{11})/);
+    return m ? m[1] : '';
+  }
+
+  // The player. Counts seconds actually played (seeking ahead doesn't count); 90% = watched.
+  var PL = null; // { v, yt, player, seen:{}, dur, lastT, sentPct, poll, untracked }
+  var apiState = 0; // 0 not loaded, 1 loading, 2 ready
+  var apiWaiters = [];
+  function withYtApi(ok, fail) {
+    if (apiState === 2) return ok();
+    apiWaiters.push(ok);
+    if (apiState === 1) return;
+    apiState = 1;
+    var prev = window.onYouTubeIframeAPIReady;
+    window.onYouTubeIframeAPIReady = function () { apiState = 2; if (prev) try { prev(); } catch (e) {} var w = apiWaiters; apiWaiters = []; w.forEach(function (f) { f(); }); };
+    var s = document.createElement('script'); s.src = 'https://www.youtube.com/iframe_api'; s.async = true;
+    s.onerror = function () { apiState = 0; apiWaiters = []; fail(); };
+    document.head.appendChild(s);
+    setTimeout(function () { if (apiState !== 2) { apiWaiters = []; apiState = 0; fail(); } }, 8000);
+  }
+  function openVideo(id, link, title) {
+    closePlayer();
+    var v = id ? videoById(id) : null;
+    var yt = v ? v.yt : ytId(link);
+    if (!yt) { if (link) window.open(link, '_blank'); return; }
+    PL = { v: v, yt: yt, seen: {}, dur: 0, lastT: null, sentPct: v ? v.pct : 0, untracked: !v };
+    $('indPlTitle').innerHTML = esc(v ? v.title : (title || 'Video')) + (v ? '<small>' + esc(v.section) + (v.minutes ? ' · ' + v.minutes + ' min' : '') + '</small>' : '');
+    $('indPlYt').href = 'https://www.youtube.com/watch?v=' + yt;
+    $('indPlManual').style.display = 'none';
+    $('indPlProg').textContent = v ? (v.watched ? 'Watched ✓' : (v.pct ? 'Watched so far: ' + v.pct + '%' : 'Counts as watched at ' + ME.watchedPct + '%')) : '';
+    $('indPlFrame').innerHTML = '<div id="indPlMount"></div>';
+    $('indPlayer').classList.add('show');
+    if (v) report(v.id, v.pct, true);
+    var mine = PL;
+    withYtApi(function () {
+      if (PL !== mine) return;
+      PL.player = new YT.Player('indPlMount', {
+        videoId: yt, host: 'https://www.youtube-nocookie.com',
+        playerVars: { autoplay: 1, rel: 0, modestbranding: 1, playsinline: 1, origin: location.origin },
+        events: { onStateChange: function (e) { if (PL === mine && (e.data === 2 || e.data === 0)) { sample(); flush(e.data === 0); } } }
+      });
+      PL.poll = setInterval(function () { if (PL === mine) sample(); }, 1000);
+    }, function () {
+      if (PL !== mine) return;
+      // The YouTube script couldn't load: plain player, and the CRE confirms when done.
+      $('indPlFrame').innerHTML = '<iframe src="https://www.youtube-nocookie.com/embed/' + yt + '?autoplay=1&rel=0&playsinline=1" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe>';
+      if (v && !v.watched) {
+        var wait = Math.max(1, Math.round((v.minutes || 3) * 0.8));
+        $('indPlProg').textContent = 'Progress can’t be tracked here. The button below unlocks after ' + wait + ' min.';
+        setTimeout(function () { if (PL === mine) $('indPlManual').style.display = ''; }, wait * 60000);
+      }
+    });
+  }
+  function sample() {
+    var p = PL && PL.player;
+    if (!p || typeof p.getCurrentTime !== 'function' || !PL.v) return;
+    var d = p.getDuration ? p.getDuration() : 0; if (d > 0) PL.dur = d;
+    var t = p.getCurrentTime() || 0;
+    var playing = p.getPlayerState && p.getPlayerState() === 1;
+    if (playing && PL.lastT !== null && t > PL.lastT && t - PL.lastT <= 2.5) {
+      for (var s = Math.floor(PL.lastT); s < Math.floor(t); s++) PL.seen[s] = 1;
+    }
+    PL.lastT = t;
+    if (!PL.dur) return;
+    var pct = Math.min(100, Math.round(Object.keys(PL.seen).length / Math.floor(PL.dur) * 100));
+    if (pct > (PL.best || 0)) PL.best = pct;
+    var shown = Math.max(PL.best || 0, PL.v.pct || 0);
+    if (!PL.v.watched) $('indPlProg').textContent = shown >= ME.watchedPct ? 'Watched ✓' : 'Watched so far: ' + shown + '% · counts as watched at ' + ME.watchedPct + '%';
+    if ((PL.best || 0) - (PL.sentPct || 0) >= 10 || ((PL.best || 0) >= ME.watchedPct && (PL.sentPct || 0) < ME.watchedPct)) flush();
+  }
+  function flush() {
+    if (!PL || !PL.v || !PL.best || PL.best <= (PL.sentPct || 0)) return;
+    PL.sentPct = PL.best;
+    report(PL.v.id, PL.best, false);
+  }
+  function report(id, pct, opened) {
+    var v = videoById(id);
+    if (v && pct > v.pct) v.pct = pct;
+    if (v && pct >= ME.watchedPct) v.watched = true;
+    window.authRun().withSuccessHandler(function (r) { if (r && r.watched) needsRefresh = true; })
+      .withFailureHandler(function () {}).indVideoProgress({ videoId: id, pct: pct, opened: !!opened });
+  }
+  var needsRefresh = false;
+  function closePlayer() {
+    if (!PL) return;
+    try { sample(); flush(); } catch (e) {}
+    if (PL.poll) clearInterval(PL.poll);
+    try { if (PL.player && PL.player.destroy) PL.player.destroy(); } catch (e) {}
+    PL = null;
+    $('indPlFrame').innerHTML = '';
+    $('indPlayer').classList.remove('show');
+    if (ME) { if (ME.enrolled) render(); else renderLibraryOnly(); }
+    if (needsRefresh) { needsRefresh = false; setTimeout(load, 1500); } // an item may have ticked itself
+  }
+  $('indPlClose').addEventListener('click', closePlayer);
+  $('indPlayer').addEventListener('click', function (e) { if (e.target === $('indPlayer')) closePlayer(); });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && PL) closePlayer(); });
+  $('indPlManual').addEventListener('click', function () {
+    if (!PL || !PL.v) return;
+    report(PL.v.id, 100, false); needsRefresh = true;
+    $('indPlManual').style.display = 'none'; $('indPlProg').textContent = 'Watched ✓';
+  });
 
   function itemHtml(i, overdue, revise) {
     var isDone = i.status === 'done' || i.status === 'signed';
@@ -250,7 +428,13 @@
     else if (i.status === 'todo' && overdue) meta.push(pill('Overdue', 'red'));
     else if (i.signOff === 'Admin' && i.status === 'todo') meta.push('<span class="chip" title="An admin confirms this one">Sign-off</span>');
     if (i.type) meta.push('<span class="chip">' + esc(i.type) + '</span>');
-    if (i.link) meta.push('<a href="' + esc(i.link) + '" target="_blank" rel="noopener">Open ↗</a>');
+    (i.videos || []).forEach(function (vid, n) {
+      var v = videoById(vid); if (!v) return;
+      meta.push('<button class="ind-watch' + (v.watched ? ' seen' : '') + '" type="button" data-video="' + esc(v.id) + '" title="' + esc(v.title) + '">' + ICON_PLAY +
+        (v.watched ? 'Watched' : 'Watch') + (i.videos.length > 1 ? ' ' + (n + 1) : '') + '</button>');
+    });
+    if (i.link && ytId(i.link)) meta.push('<button class="ind-watch" type="button" data-ytlink="' + esc(i.link) + '" data-title="' + esc(i.title) + '">' + ICON_PLAY + 'Watch</button>');
+    else if (i.link) meta.push('<a href="' + esc(i.link) + '" target="_blank" rel="noopener">Open ↗</a>');
     return '<div class="ind-item' + (isDone ? ' done' : '') + (revise ? ' revise' : '') + '">' + tick +
       '<div><div class="ind-t">' + esc(i.title) + '</div><div class="ind-w">' + esc(i.what) + '</div></div>' +
       '<div class="ind-meta">' + meta.join('') + '</div></div>';
@@ -292,6 +476,7 @@
   }
 
   function bindView() {
+    bindVideos();
     var start = $('indStart');
     if (start) start.addEventListener('click', function () {
       var t = ME.test;
@@ -332,7 +517,7 @@
         '<div class="ph"><div class="d">Days 1–30</div><b>Phase 1 · Learn</b><ul><li>Meet the team, see the factory</li><li>Products, prices, payment terms</li><li>Shadow Greeshma on calls</li><li>Practice orders in this tracker and the CRM</li></ul></div>' +
         '<div class="ph"><div class="d">Days 31–60</div><b>Phase 2 · Perform</b><ul><li>Handle your own enquiries and orders</li><li>Weekly reviews with Ananthu</li><li>Day-60 review of your work</li></ul></div>' +
       '</div>' +
-      '<p>Your checklist is under <b>Induction</b> on the left. Tick items as you finish them; practical ones are confirmed by the admin.</p>' +
+      '<p>Your checklist is under <b>Induction</b> on the left. Tick items as you finish them; practical ones are confirmed by the admin. Items with a <b>Watch</b> button have training videos – they play right here, and the item ticks itself once you have watched them.</p>' +
       '<div class="rule"><b>The assessment – please read</b><ul>' +
         '<li>Around day 30 (opens <b>' + esc(m.test.opensLabel) + '</b>) you take a ' + m.test.durationMin + '-minute assessment on what Phase 1 covers.</li>' +
         '<li>The pass mark is <b>' + m.test.passPct + '%</b>. You see your score as soon as you submit.</li>' +
