@@ -1,0 +1,473 @@
+<!--
+  CRE induction on the CRE page (Nov 2026). Pulled in by cre_beta.html with
+  <?!= include('induction_cre'); ?> after orders_cre, as the last line before </body>.
+  Only shows for a CRE who is in induction (server: Induction.gs):
+    - a welcome screen on first sign-in, which they must acknowledge;
+    - an "Induction" button on the rail and an Induction view: day X of 60,
+      the checklist by week, the assessment card, the day-60 checkpoint;
+    - the timed assessment itself, full screen, with autosave.
+  The correct answers never come to this page -- scoring is on the server.
+-->
+<style>
+  .ind-hero { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 16px; margin-bottom: 22px; }
+  .ind-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; }
+  .ind-card h3 { margin: 0 0 4px; font-size: 15px; font-weight: 600; }
+  .ind-card .ind-sub { font-size: 12.5px; color: var(--text-2); }
+  .ind-big { font-size: 34px; font-weight: 700; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+  .ind-big small { font-size: 15px; font-weight: 500; color: var(--text-2); margin-left: 4px; }
+  .ind-line { position: relative; height: 8px; border-radius: 4px; background: var(--surface-3); margin: 18px 0 26px; }
+  .ind-line .fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px; background: var(--leaf-grad); }
+  .ind-line .mk { position: absolute; top: -5px; width: 2px; height: 18px; background: var(--text-3); }
+  .ind-line .mk span { position: absolute; top: 21px; transform: translateX(-50%); font-size: 11px; color: var(--text-2); white-space: nowrap; }
+  .ind-line .mk.end span { transform: translateX(-100%); }
+  .ind-line .mk.start span { transform: none; }
+  .ind-bar { height: 6px; border-radius: 3px; background: var(--surface-3); overflow: hidden; margin-top: 8px; }
+  .ind-bar > div { height: 100%; background: var(--leaf-grad); }
+  .ind-bar.red > div { background: var(--red); }
+  .ind-bar.amber > div { background: var(--amber); }
+  .ind-stats { display: flex; gap: 22px; flex-wrap: wrap; margin-top: 4px; font-size: 12.5px; color: var(--text-2); }
+  .ind-stats b { color: var(--text); font-size: 15px; display: block; }
+  .ind-test .btn { margin-top: 14px; }
+  .ind-secs { margin-top: 12px; display: grid; gap: 8px; }
+  .ind-sec { font-size: 12.5px; }
+  .ind-sec .row { display: flex; justify-content: space-between; gap: 8px; }
+  .ind-attempts { margin-top: 10px; font-size: 12px; color: var(--text-2); }
+  .ind-rev { margin-bottom: 22px; }
+  .ind-week { margin-bottom: 18px; }
+  .ind-week h4 { margin: 0 0 8px; font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-3); display: flex; gap: 8px; align-items: center; }
+  .ind-week h4 .now { color: var(--leaf-ink); }
+  .ind-phase { font-size: 18px; font-weight: 600; margin: 26px 0 12px; }
+  .ind-phase span { font-size: 13px; font-weight: 500; color: var(--text-2); margin-left: 6px; }
+  .ind-item { display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; gap: 10px; align-items: start; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); margin-bottom: 6px; }
+  .ind-item.done { opacity: 0.72; }
+  .ind-item.done .ind-t { text-decoration: line-through; text-decoration-color: var(--text-3); }
+  .ind-item.revise { border-color: var(--amber-bd); }
+  .ind-tick { width: 22px; height: 22px; border-radius: 6px; border: 2px solid var(--border-2); background: transparent; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0; margin-top: 1px; }
+  .ind-tick:hover { border-color: var(--leaf); }
+  .ind-tick.on { background: var(--leaf-grad); border-color: transparent; color: var(--on-leaf); }
+  .ind-tick.wait { border-color: var(--amber); color: var(--amber); }
+  .ind-tick:disabled { cursor: default; }
+  .ind-tick svg { width: 14px; height: 14px; }
+  .ind-t { font-weight: 600; font-size: 13.5px; }
+  .ind-w { font-size: 12.5px; color: var(--text-2); margin-top: 3px; line-height: 1.5; }
+  .ind-meta { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+  .ind-meta a { font-size: 12px; font-weight: 600; }
+
+  /* Welcome + test: full screen, above the page, below the sign-in screen */
+  .ind-full { position: fixed; inset: 0; z-index: 4500; background: var(--bg); overflow-y: auto; display: none; }
+  .ind-full.show { display: block; }
+  .ind-wel { max-width: 720px; margin: 0 auto; padding: 56px 24px 64px; }
+  .ind-wel .kicker { font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--leaf-ink); }
+  .ind-wel h1 { font-size: 32px; letter-spacing: -0.02em; margin: 8px 0 10px; }
+  .ind-wel p { color: var(--text-2); font-size: 14.5px; line-height: 1.65; }
+  .ind-wel .phases { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 22px 0; }
+  .ind-wel .ph { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
+  .ind-wel .ph b { display: block; font-size: 14px; margin-bottom: 4px; }
+  .ind-wel .ph .d { font-size: 11.5px; font-weight: 700; color: var(--leaf-ink); letter-spacing: 0.04em; text-transform: uppercase; }
+  .ind-wel .ph ul { margin: 8px 0 0; padding-left: 18px; color: var(--text-2); font-size: 13px; line-height: 1.6; }
+  .ind-wel .rule { border: 1px solid var(--amber-bd); background: var(--amber-bg); border-radius: 12px; padding: 16px 18px; margin: 18px 0; }
+  .ind-wel .rule b { color: var(--amber); }
+  .ind-wel .rule ul { margin: 8px 0 0; padding-left: 18px; font-size: 13.5px; line-height: 1.65; color: var(--text); }
+
+  .ind-tbar { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 14px; padding: 12px 22px; background: var(--bg-2); border-bottom: 1px solid var(--border); }
+  .ind-tbar .ttl { font-weight: 600; flex: 1 1 auto; min-width: 0; }
+  .ind-tbar .ttl small { display: block; font-weight: 500; font-size: 12px; color: var(--text-2); }
+  .ind-timer { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; padding: 4px 12px; border-radius: 8px; background: var(--surface-2); }
+  .ind-timer.warn { color: var(--amber); background: var(--amber-bg); }
+  .ind-timer.crit { color: var(--red); background: var(--red-bg); }
+  .ind-qs { max-width: 760px; margin: 0 auto; padding: 24px 22px 80px; }
+  .ind-qsec { font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-3); margin: 26px 0 10px; }
+  .ind-q { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; margin-bottom: 10px; }
+  .ind-q.answered { border-color: rgba(109,184,81,0.45); }
+  .ind-q .qt { font-size: 14.5px; font-weight: 500; line-height: 1.5; }
+  .ind-q .qn { color: var(--text-3); font-weight: 700; margin-right: 6px; }
+  .ind-q .qm { font-size: 11.5px; color: var(--text-3); margin-left: 6px; }
+  .ind-opt { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; margin-top: 8px; border: 1px solid var(--border-2); border-radius: 8px; cursor: pointer; font-size: 13.5px; }
+  .ind-opt:hover { background: var(--surface-2); }
+  .ind-opt input { margin: 2px 0 0; accent-color: var(--leaf); width: 16px; height: 16px; flex: 0 0 auto; }
+  .ind-opt.sel { border-color: var(--leaf); background: rgba(109,184,81,0.08); }
+  .ind-res { max-width: 560px; margin: 0 auto; padding: 60px 24px; text-align: center; }
+  .ind-res .pct { font-size: 64px; font-weight: 700; letter-spacing: -0.03em; }
+  .ind-res .pct.pass { color: var(--leaf-ink); }
+  .ind-res .pct.fail { color: var(--red); }
+  .ind-res .ind-secs { text-align: left; margin: 24px 0; }
+  .ind-res p { color: var(--text-2); line-height: 1.6; }
+
+  @media (max-width: 900px) { .ind-hero { grid-template-columns: 1fr; } .ind-wel .phases { grid-template-columns: 1fr; } }
+  @media (max-width: 760px) { .ind-item { grid-template-columns: 26px minmax(0, 1fr); } .ind-meta { grid-column: 2; justify-content: flex-start; } .ind-tbar { padding: 10px 14px; } }
+</style>
+
+<!-- Welcome (first sign-in) -->
+<div class="ind-full" id="indWelcome"><div class="ind-wel" id="indWelBody"></div></div>
+<!-- The assessment -->
+<div class="ind-full" id="indTest">
+  <div class="ind-tbar" id="indTbar">
+    <div class="ttl" id="indTtl">Induction assessment<small id="indTsub"></small></div>
+    <div class="ind-timer" id="indTimer">--:--</div>
+    <button class="btn primary" type="button" id="indSubmit">Submit</button>
+  </div>
+  <div id="indTestBody"></div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+  var C = window.ICF_CRE;
+  if (!C) { if (window.ICF_BETA_ERR) window.ICF_BETA_ERR('induction_cre: the CRE page helpers are missing.'); return; }
+  var $ = C.$, esc = C.esc;
+  function errText(e) { return C.errText(e); }
+  function pill(text, tone) { return '<span class="pill t-' + tone + '"><span class="dot"></span>' + esc(text) + '</span>'; }
+  var ICON_TICK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M5 12.5 10 17l9-10"/></svg>';
+  var ICON_CLOCK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l2.5 2"/></svg>';
+
+  var ME = null;          // indGetMine result
+  var TEST = null;        // running test: { attemptId, questions, answers, deadlineMs, skew, dirty }
+  var timerId = null, saveId = null;
+
+  // ---------- Rail button + view (added only once someone is in induction) ----------
+  var railBtn = null, view = null;
+  function ensureShell() {
+    if (railBtn) return;
+    railBtn = document.createElement('button');
+    railBtn.className = 'rail-btn'; railBtn.type = 'button';
+    railBtn.setAttribute('data-view', 'induction'); railBtn.setAttribute('data-go', 'induction');
+    railBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 9 12 4l10 5-10 5z"/><path d="M6 11v5c0 1.5 2.7 3 6 3s6-1.5 6-3v-5"/><path d="M22 9v6"/></svg>' +
+      '<span class="count hot" id="indRailCount" style="display:none;">0</span><span class="rail-tip">Induction</span>';
+    var rail = document.querySelector('.rail');
+    var grow = rail && rail.querySelector('.rail-grow');
+    if (rail) rail.insertBefore(railBtn, grow || null);
+    view = document.createElement('section');
+    view.className = 'view'; view.id = 'view-induction';
+    view.innerHTML = '<div class="page-head"><div><h1 class="page-title">Induction</h1><div class="page-sub" id="indSub">Loading…</div></div>' +
+      '<button class="btn" type="button" id="indRefresh">&#8635; Refresh</button></div><div id="indOut"><div class="loading">Loading…</div></div>';
+    var main = document.querySelector('main.main');
+    if (main) main.appendChild(view);
+    railBtn.addEventListener('click', function () { load(); });
+    $('indRefresh').addEventListener('click', function () { load(); });
+  }
+  function hideShell() { if (railBtn) railBtn.style.display = 'none'; }
+
+  // ---------- Load ----------
+  function load(after) {
+    window.authRun()
+      .withSuccessHandler(function (res) {
+        ME = res;
+        if (!res || !res.enrolled) { hideShell(); return; }
+        ensureShell(); railBtn.style.display = '';
+        render();
+        if (!res.welcomeSeen) showWelcome();
+        if (after) after(res);
+      })
+      .withFailureHandler(function (e) { if (view) $('indOut').innerHTML = '<div class="note bad">' + esc(errText(e)) + '</div>'; })
+      .indGetMine();
+  }
+  document.addEventListener('icf-signed-in', function (e) { if ((e.detail || {}).role === 'CRE' || (e.detail || {}).role === 'Admin') load(); });
+  if (window.ICF_STAFF) load();
+
+  var prevClear = window.ICF_CLEAR;
+  window.ICF_CLEAR = function () {
+    stopTimers(); TEST = null; ME = null;
+    $('indWelcome').classList.remove('show'); $('indTest').classList.remove('show');
+    hideShell();
+    if (view) $('indOut').innerHTML = '';
+    if (typeof prevClear === 'function') prevClear();
+  };
+
+  // ---------- Helpers ----------
+  function weekOf(day) { return Math.max(1, Math.ceil(day / 7)); }
+  function dueCount(m) {
+    var wk = weekOf(m.day);
+    var n = m.items.filter(function (i) { return i.status === 'todo' && i.week <= wk; }).length;
+    if (m.test.state === 'open' || m.test.state === 'retakeOpen' || m.test.state === 'inProgress') n++;
+    return n;
+  }
+  function secHtml(sections) {
+    return '<div class="ind-secs">' + (sections || []).map(function (s) {
+      var tone = s.pending ? '' : (s.pct >= ME.test.passPct ? '' : (s.pct >= 50 ? ' amber' : ' red'));
+      return '<div class="ind-sec"><div class="row"><span>' + esc(s.section) + '</span><span class="mono">' + s.score + ' / ' + s.max +
+        (s.pending ? ' <span class="faint">(+' + s.pending + ' being marked)</span>' : ' · ' + s.pct + '%') + '</span></div>' +
+        '<div class="ind-bar' + tone + '"><div style="width:' + Math.min(100, s.max ? s.score / s.max * 100 : 0) + '%"></div></div></div>';
+    }).join('') + '</div>';
+  }
+
+  // ---------- Render the view ----------
+  function render() {
+    var m = ME;
+    var cnt = dueCount(m);
+    $('indRailCount').textContent = cnt; $('indRailCount').style.display = cnt ? '' : 'none';
+    var phaseTxt = m.day > m.totalDays ? 'Induction period complete' : (m.phase === 1 ? 'Phase 1 · Learn (days 1–30)' : 'Phase 2 · Perform (days 31–60)');
+    $('indSub').textContent = 'Joined ' + m.joinLabel + ' · ' + phaseTxt;
+
+    var done = m.items.filter(function (i) { return i.status === 'done' || i.status === 'signed'; }).length;
+    var waiting = m.items.filter(function (i) { return i.status === 'waiting'; }).length;
+    var dayPct = Math.min(100, Math.max(0, (m.day - 1) / m.totalDays * 100));
+    var testDay = m.test.opensOn && m.joinYmd ? Math.round((new Date(m.test.opensOn) - new Date(m.joinYmd)) / 86400000) + 1 : 28;
+    var testPos = Math.min(100, Math.max(0, (testDay - 1) / m.totalDays * 100));
+
+    var html = '<div class="ind-hero"><div class="ind-card">' +
+      '<div class="ind-sub">Your induction</div>' +
+      '<div class="ind-big">Day ' + Math.min(m.day, m.totalDays) + '<small>of ' + m.totalDays + '</small></div>' +
+      '<div class="ind-line"><div class="fill" style="width:' + dayPct + '%"></div>' +
+        '<div class="mk start" style="left:0"><span>Joined</span></div>' +
+        '<div class="mk" style="left:' + testPos + '%"><span>Assessment</span></div>' +
+        '<div class="mk end" style="left:calc(100% - 2px)"><span>Day 60</span></div></div>' +
+      '<div class="ind-stats"><div><b>' + done + ' / ' + m.items.length + '</b>checklist done</div>' +
+        (waiting ? '<div><b>' + waiting + '</b>waiting for sign-off</div>' : '') +
+        '<div><b>' + esc(m.checkpoint.dueLabel) + '</b>day-60 review</div></div>' +
+      '</div>' + testCard(m) + '</div>';
+
+    if (m.revision && m.revision.length && (m.test.state === 'retakeLocked' || m.test.state === 'retakeOpen')) {
+      var titles = m.items.filter(function (i) { return m.revision.indexOf(i.id) !== -1; }).map(function (i) { return esc(i.title); });
+      html += '<div class="note ind-rev"><b>Revise before your retake:</b> ' + (titles.length ? titles.join(' · ') : 'the sections where you scored lowest') + '. These are marked in the checklist below.</div>';
+    }
+
+    var wkNow = weekOf(m.day);
+    [1, 2].forEach(function (ph) {
+      var items = m.items.filter(function (i) { return i.phase === ph; });
+      if (!items.length) return;
+      html += '<div class="ind-phase">' + (ph === 1 ? 'Phase 1 · Learn' : 'Phase 2 · Perform') + '<span>' + (ph === 1 ? 'Days 1–30' : 'Days 31–60') + '</span></div>';
+      var weeks = {};
+      items.forEach(function (i) { (weeks[i.week] = weeks[i.week] || []).push(i); });
+      Object.keys(weeks).sort(function (a, b) { return a - b; }).forEach(function (w) {
+        w = Number(w);
+        html += '<div class="ind-week"><h4>Week ' + w + (w === wkNow ? ' <span class="now">· this week</span>' : '') + '</h4>' +
+          weeks[w].map(function (i) { return itemHtml(i, w < wkNow, m.revision.indexOf(i.id) !== -1); }).join('') + '</div>';
+      });
+    });
+    $('indOut').innerHTML = html;
+    bindView();
+  }
+
+  function itemHtml(i, overdue, revise) {
+    var isDone = i.status === 'done' || i.status === 'signed';
+    var tick = '<button class="ind-tick' + (isDone ? ' on' : i.status === 'waiting' ? ' wait' : '') + '" type="button" data-tick="' + esc(i.id) + '"' +
+      (i.status === 'signed' ? ' disabled title="Signed off by ' + esc(i.signedOffBy) + '"' : i.status === 'waiting' ? ' title="Waiting for sign-off – click to untick"' : ' title="' + (isDone ? 'Untick' : 'Mark done') + '"') + '>' +
+      (isDone ? ICON_TICK : i.status === 'waiting' ? ICON_CLOCK : '') + '</button>';
+    var meta = [];
+    if (revise) meta.push(pill('Revise', 'amber'));
+    if (i.status === 'signed') meta.push(pill('Signed off · ' + i.signedOffBy, 'teal'));
+    else if (i.status === 'waiting') meta.push(pill('Waiting for sign-off', 'amber'));
+    else if (i.status === 'todo' && overdue) meta.push(pill('Overdue', 'red'));
+    else if (i.signOff === 'Admin' && i.status === 'todo') meta.push('<span class="chip" title="An admin confirms this one">Sign-off</span>');
+    if (i.type) meta.push('<span class="chip">' + esc(i.type) + '</span>');
+    if (i.link) meta.push('<a href="' + esc(i.link) + '" target="_blank" rel="noopener">Open ↗</a>');
+    return '<div class="ind-item' + (isDone ? ' done' : '') + (revise ? ' revise' : '') + '">' + tick +
+      '<div><div class="ind-t">' + esc(i.title) + '</div><div class="ind-w">' + esc(i.what) + '</div></div>' +
+      '<div class="ind-meta">' + meta.join('') + '</div></div>';
+  }
+
+  function testCard(m) {
+    var t = m.test, last = t.attempts.length ? t.attempts[t.attempts.length - 1] : null;
+    var facts = t.questionCount + ' questions · ' + t.durationMin + ' minutes · pass mark ' + t.passPct + '%';
+    var body = '', btn = '';
+    switch (t.state) {
+      case 'locked':
+        body = '<p class="ind-sub">Opens on <b>' + esc(t.opensLabel) + '</b>. ' + esc(facts) + '. It covers what is in your Phase 1 checklist.</p>'; break;
+      case 'open':
+        body = '<p class="ind-sub">The assessment is open. ' + esc(facts) + '. Once you start, the timer runs even if you close the page.</p>';
+        btn = '<button class="btn primary" type="button" id="indStart">Start the assessment</button>'; break;
+      case 'inProgress':
+        body = '<p class="ind-sub">You have an assessment in progress. Your answers are being saved.</p>';
+        btn = '<button class="btn primary" type="button" id="indStart">Resume the assessment</button>'; break;
+      case 'awaitingMarking':
+        body = '<p class="ind-sub">Submitted. Your short answers are being marked; your final score will show here.</p>' + (last ? secHtml(last.sections) : ''); break;
+      case 'passed':
+        var best = t.attempts.filter(function (a) { return a.result === 'Pass'; }).pop();
+        body = '<div class="ind-big" style="color:var(--leaf-ink)">' + best.pct + '%</div><p class="ind-sub">Passed. Well done.</p>' + secHtml(best.sections); break;
+      case 'retakeLocked':
+        body = '<div class="ind-big" style="color:var(--red)">' + (last.pct == null ? '–' : last.pct + '%') + '</div>' +
+          '<p class="ind-sub">Below the ' + t.passPct + '% pass mark. Your retake opens on <b>' + esc(t.retakeLabel) + '</b>. Use the time to revise the items marked below.</p>' + secHtml(last.sections); break;
+      case 'retakeOpen':
+        body = '<p class="ind-sub">Your retake is open. ' + esc(facts) + '. Last time: <b>' + (last && last.pct != null ? last.pct + '%' : '–') + '</b>.</p>';
+        btn = '<button class="btn primary" type="button" id="indStart">Start the retake</button>'; break;
+      case 'review':
+        body = '<div class="ind-big" style="color:var(--red)">' + (last && last.pct != null ? last.pct + '%' : '–') + '</div>' +
+          '<p class="ind-sub">Below the ' + t.passPct + '% pass mark after the retake. The directors will meet you to discuss the next steps, including your salary, as set out in your induction terms.</p>' + (last ? secHtml(last.sections) : ''); break;
+      case 'reviewed':
+        body = '<p class="ind-sub">Your assessment review with the directors is complete.</p>'; break;
+    }
+    var hist = t.attempts.length > 1 || (t.attempts.length === 1 && t.state !== 'passed' && t.state !== 'retakeLocked' && t.state !== 'review' && t.state !== 'awaitingMarking')
+      ? '<div class="ind-attempts">' + t.attempts.map(function (a) { return 'Attempt ' + a.no + ': ' + (a.pct == null ? 'being marked' : a.pct + '%'); }).join(' · ') + '</div>' : '';
+    return '<div class="ind-card ind-test"><h3>Assessment</h3>' + body + hist + btn + '</div>';
+  }
+
+  function bindView() {
+    var start = $('indStart');
+    if (start) start.addEventListener('click', function () {
+      var t = ME.test;
+      if (t.state !== 'inProgress' && !confirm('Start now?\n\n' + t.questionCount + ' questions, ' + t.durationMin + ' minutes. The timer keeps running if you close the page. Make sure you have a quiet half hour.')) return;
+      C.busy(start, 'Opening…');
+      window.authRun().withSuccessHandler(function (res) { C.unbusy(start); openTest(res); })
+        .withFailureHandler(function (e) { C.unbusy(start); alert(errText(e)); load(); })
+        .indStartTest();
+    });
+    C.each(document.querySelectorAll('[data-tick]'), function (b) {
+      b.addEventListener('click', function () {
+        var id = b.getAttribute('data-tick');
+        var it = ME.items.filter(function (i) { return i.id === id; })[0];
+        if (!it || it.status === 'signed') return;
+        var doneNow = it.status === 'todo';
+        var note = '';
+        if (doneNow && it.signOff === 'Admin') {
+          note = prompt('This one is confirmed by the admin. Add a short note for them (optional) – e.g. dates you shadowed:', '');
+          if (note === null) return;
+        }
+        b.disabled = true;
+        window.authRun().withSuccessHandler(function () { load(); })
+          .withFailureHandler(function (e) { b.disabled = false; alert(errText(e)); })
+          .indTickItem({ itemId: id, done: doneNow, note: note });
+      });
+    });
+  }
+
+  // ---------- Welcome ----------
+  function showWelcome() {
+    var m = ME, first = String(m.name || '').split(/\s+/)[0];
+    $('indWelBody').innerHTML =
+      '<div class="kicker">Welcome to ICF</div>' +
+      '<h1>Hello ' + esc(first) + ', welcome aboard.</h1>' +
+      '<p>ICF Group has been making sanitation and modular infrastructure solutions for 35 years: bio-toilets, underground STPs, portable site cabins and more. ' +
+      'As a Customer Relations Executive you are often the first and most frequent voice our customers hear. Your first 60 days are planned so you learn the products, the way an order moves through ICF, and this tracker.</p>' +
+      '<div class="phases">' +
+        '<div class="ph"><div class="d">Days 1–30</div><b>Phase 1 · Learn</b><ul><li>Meet the team, see the factory</li><li>Products, prices, payment terms</li><li>Shadow Greeshma on calls</li><li>Practice orders in this tracker and the CRM</li></ul></div>' +
+        '<div class="ph"><div class="d">Days 31–60</div><b>Phase 2 · Perform</b><ul><li>Handle your own enquiries and orders</li><li>Weekly reviews with Ananthu</li><li>Day-60 review of your work</li></ul></div>' +
+      '</div>' +
+      '<p>Your checklist is under <b>Induction</b> on the left. Tick items as you finish them; practical ones are confirmed by the admin.</p>' +
+      '<div class="rule"><b>The assessment – please read</b><ul>' +
+        '<li>Around day 30 (opens <b>' + esc(m.test.opensLabel) + '</b>) you take a ' + m.test.durationMin + '-minute assessment on what Phase 1 covers.</li>' +
+        '<li>The pass mark is <b>' + m.test.passPct + '%</b>. You see your score as soon as you submit.</li>' +
+        '<li>If you score below ' + m.test.passPct + '%, you get one retake about ' + m.retakeGapDays + ' days later.</li>' +
+        '<li>If the retake is also below ' + m.test.passPct + '%, the directors will review your salary with you.</li>' +
+        '<li>At day 60 you and Ananthu go through a review of your work.</li></ul></div>' +
+      '<label class="check" style="margin-top:18px;"><input type="checkbox" id="indWelOk"> I have read this, including how the assessment works.</label>' +
+      '<div style="margin-top:18px;"><button class="btn primary" type="button" id="indWelGo" disabled>Start my induction</button></div>' +
+      '<div class="err" id="indWelErr"></div>';
+    $('indWelcome').classList.add('show');
+    $('indWelOk').addEventListener('change', function () { $('indWelGo').disabled = !this.checked; });
+    $('indWelGo').addEventListener('click', function () {
+      var b = $('indWelGo'); C.busy(b, 'Saving…');
+      window.authRun().withSuccessHandler(function () {
+        $('indWelcome').classList.remove('show'); ME.welcomeSeen = true;
+        if (railBtn) railBtn.click();
+      }).withFailureHandler(function (e) { C.unbusy(b); C.showErr($('indWelErr'), errText(e)); }).indAckWelcome();
+    });
+  }
+
+  // ---------- The assessment ----------
+  function stopTimers() { if (timerId) clearInterval(timerId); if (saveId) clearInterval(saveId); timerId = saveId = null; }
+  function onLeave(e) { if (TEST && !TEST.submitting) { e.preventDefault(); e.returnValue = ''; } }
+  window.addEventListener('beforeunload', onLeave);
+
+  function openTest(res) {
+    TEST = { attemptId: res.attemptId, questions: res.questions, answers: res.saved || {}, deadlineMs: res.deadlineMs,
+      skew: (res.serverNowMs || Date.now()) - Date.now(), dirty: false, submitting: false };
+    $('indTsub').textContent = 'Attempt ' + res.attemptNo + ' · ' + res.questions.length + ' questions · pass mark ' + ME.test.passPct + '%' + (res.resumed ? ' · resumed' : '');
+    $('indTbar').style.display = '';
+    var html = '<div class="ind-qs">', lastSec = '';
+    res.questions.forEach(function (q, n) {
+      if (q.section !== lastSec) { html += '<div class="ind-qsec">' + esc(q.section) + '</div>'; lastSec = q.section; }
+      var a = TEST.answers[q.qid] || '';
+      html += '<div class="ind-q' + (a ? ' answered' : '') + '" id="indQ_' + esc(q.qid) + '"><div class="qt"><span class="qn">' + (n + 1) + '.</span>' + esc(q.text) +
+        (q.marks > 1 ? '<span class="qm">' + q.marks + ' marks</span>' : '') + '</div>';
+      if (q.type === 'Short') {
+        html += '<textarea class="inp" rows="4" style="margin-top:10px;" data-q="' + esc(q.qid) + '" placeholder="Your answer">' + esc(a) + '</textarea>';
+      } else {
+        q.options.forEach(function (o) {
+          var sel = a === o.key;
+          html += '<label class="ind-opt' + (sel ? ' sel' : '') + '"><input type="radio" name="iq_' + esc(q.qid) + '" value="' + esc(o.key) + '" data-q="' + esc(q.qid) + '"' + (sel ? ' checked' : '') + '>' +
+            '<span>' + (q.type === 'MCQ' ? '<b>' + esc(o.key) + ')</b> ' : '') + esc(o.text) + '</span></label>';
+        });
+      }
+      html += '</div>';
+    });
+    html += '<div style="margin-top:22px;"><button class="btn primary block" type="button" id="indSubmit2">Submit my answers</button></div></div>';
+    $('indTestBody').innerHTML = html;
+    $('indTest').classList.add('show'); $('indTest').scrollTop = 0;
+
+    C.each($('indTestBody').querySelectorAll('input[type=radio]'), function (r) {
+      r.addEventListener('change', function () {
+        var qid = r.getAttribute('data-q');
+        TEST.answers[qid] = r.value; TEST.dirty = true;
+        var box = $('indQ_' + qid); box.classList.add('answered');
+        C.each(box.querySelectorAll('.ind-opt'), function (l) { l.classList.toggle('sel', l.querySelector('input').checked); });
+        updateCount();
+      });
+    });
+    C.each($('indTestBody').querySelectorAll('textarea'), function (t) {
+      t.addEventListener('input', function () {
+        var qid = t.getAttribute('data-q');
+        TEST.answers[qid] = t.value; TEST.dirty = true;
+        $('indQ_' + qid).classList.toggle('answered', !!t.value.trim());
+        updateCount();
+      });
+    });
+    $('indSubmit2').addEventListener('click', function () { submit(false); });
+    updateCount(); tick();
+    stopTimers();
+    timerId = setInterval(tick, 1000);
+    saveId = setInterval(autosave, 20000);
+  }
+  $('indSubmit').addEventListener('click', function () { submit(false); });
+
+  function answeredCount() { return TEST.questions.filter(function (q) { return String(TEST.answers[q.qid] || '').trim(); }).length; }
+  function updateCount() { $('indTsub').textContent = $('indTsub').textContent.replace(/ · \d+ answered$/, '') + ' · ' + answeredCount() + ' answered'; }
+
+  function tick() {
+    if (!TEST) return;
+    var left = Math.max(0, Math.round((TEST.deadlineMs - (Date.now() + TEST.skew)) / 1000));
+    var el = $('indTimer');
+    el.textContent = Math.floor(left / 60) + ':' + ('0' + left % 60).slice(-2);
+    el.classList.toggle('warn', left <= 300 && left > 60);
+    el.classList.toggle('crit', left <= 60);
+    if (left <= 0 && !TEST.submitting) submit(true);
+  }
+  function autosave() {
+    if (!TEST || !TEST.dirty || TEST.submitting) return;
+    TEST.dirty = false;
+    window.authRun().withSuccessHandler(function () {}).withFailureHandler(function () { if (TEST) TEST.dirty = true; })
+      .indSaveAnswers({ attemptId: TEST.attemptId, answers: TEST.answers });
+  }
+
+  function submit(timeUp) {
+    if (!TEST || TEST.submitting) return;
+    if (!timeUp) {
+      var missing = TEST.questions.length - answeredCount();
+      if (!confirm(missing ? missing + ' question(s) are unanswered. Submit anyway?\n\nYou cannot change your answers after submitting.' : 'Submit your answers? You cannot change them after submitting.')) return;
+    }
+    TEST.submitting = true;
+    stopTimers();
+    $('indSubmit').disabled = true;
+    var b2 = $('indSubmit2'); if (b2) C.busy(b2, 'Submitting…');
+    window.authRun()
+      .withSuccessHandler(function (res) { var t = TEST; TEST = null; showResult(res, timeUp, t); })
+      .withFailureHandler(function (e) {
+        TEST.submitting = false; $('indSubmit').disabled = false; if (b2) C.unbusy(b2);
+        timerId = setInterval(tick, 1000); saveId = setInterval(autosave, 20000);
+        alert('Could not submit: ' + errText(e) + '\n\nYour answers are still here. Try again.');
+      })
+      .indSubmitTest({ attemptId: TEST.attemptId, answers: TEST.answers });
+  }
+
+  function showResult(res, timeUp) {
+    $('indSubmit').disabled = false;
+    $('indTbar').style.display = 'none';
+    $('indTestBody').innerHTML = '<div class="ind-res"><div class="loading">Getting your result…</div></div>';
+    $('indTest').scrollTop = 0;
+    load(function (m) {
+      var pass = res.result === 'Pass', pending = res.result === 'Pending marking';
+      var msg;
+      if (pending) msg = 'Your multiple-choice answers are scored. Your short answers are being marked by the admin, and your final score will appear on your induction page.';
+      else if (pass) msg = 'You passed. Well done – keep going with your checklist.';
+      else if (m.test.state === 'retakeLocked' || m.test.state === 'retakeOpen') msg = 'Below the ' + m.test.passPct + '% pass mark. Your retake opens on ' + m.test.retakeLabel + '. Your induction page shows what to revise.';
+      else msg = 'Below the ' + m.test.passPct + '% pass mark. The directors will meet you to discuss the next steps.';
+      $('indTestBody').innerHTML = '<div class="ind-res">' +
+        (timeUp || res.late ? '<div class="note">Time ran out – your saved answers were submitted.</div>' : '') +
+        '<div class="ind-sub" style="margin-top:14px;">' + (pending ? 'Score so far' : 'Your score') + '</div>' +
+        '<div class="pct ' + (pending ? '' : pass ? 'pass' : 'fail') + '">' + (pending ? res.score + ' / ' + res.max : res.pct + '%') + '</div>' +
+        '<p>' + esc(msg) + '</p>' + secHtml(res.sections) +
+        '<button class="btn primary" type="button" id="indResClose">Back to my induction</button></div>';
+      $('indResClose').addEventListener('click', function () { $('indTest').classList.remove('show'); if (railBtn) railBtn.click(); });
+    });
+  }
+})();
+</script>

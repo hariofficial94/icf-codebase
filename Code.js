@@ -2967,6 +2967,11 @@ function apiMap_() {
     var extra11 = returnsApiMap_();
     for (var k11 in extra11) map[k11] = extra11[k11];
   }
+  // CRE induction (Nov 2026) -- Induction.gs.
+  if (typeof inductionApiMap_ === 'function') {
+    var extra12 = inductionApiMap_();
+    for (var k12 in extra12) map[k12] = extra12[k12];
+  }
   return map;
 }
 
@@ -3038,6 +3043,7 @@ function activityDetail_(fnName, a, result) {
       if (!d && typeof rentalExtrasActivityDetail_ === 'function') d = rentalExtrasActivityDetail_(fnName, a, result);
       if (!d && typeof orderTypesActivityDetail_ === 'function') d = orderTypesActivityDetail_(fnName, a, result);
       if (!d && typeof returnsActivityDetail_ === 'function') d = returnsActivityDetail_(fnName, a, result);
+      if (!d && typeof inductionActivityDetail_ === 'function') d = inductionActivityDetail_(fnName, a, result);
       return d;
   }
 }
@@ -3076,6 +3082,8 @@ function staffLogin(staffCode, pin, page) {
 
   var token = Utilities.getUuid();
   cache.put('sess_' + token, JSON.stringify({ code: code, epoch: sessionEpoch_() }), SESSION_SECONDS);
+  // CRE induction (Nov 2026): a CRE's very first sign-in enrols them -- checked before "Last Sign-in" is stamped. Never throws.
+  if (typeof indAutoEnrol_ === 'function') indAutoEnrol_(staff);
   stampLastSignIn_(staff.row);
   logActivity_(staff, 'Signed in', '', page || '');
   return { token: token, code: code, name: staff.name, role: staff.role, appUrl: (staff.role === 'Admin' || canOpenPage_(staff.role, 'rental')) ? appUrl_() : '' };

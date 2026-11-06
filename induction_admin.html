@@ -1,0 +1,247 @@
+<!--
+  CRE induction on the Admin page (Nov 2026). Pulled in by admin.html with
+  <?!= include('induction_admin'); ?> as the last include. Adds one card:
+  sign-offs and short answers waiting for the admin, the trainees with their
+  checklist / assessment / day-60 review, enrolment, and the question bank
+  summary. Server side: Induction.gs.
+-->
+<style>
+  .ind-adm { border-left: 4px solid #2c7a4b; }
+  .ind-adm h2 { color: #2c7a4b; }
+  .ind-adm h3 { font-size: 14px; color: #1F3864; margin: 18px 0 4px; }
+  .ind-adm .wait { border: 1px solid #f0d9a8; background: #fffaf0; border-radius: 6px; padding: 10px 12px; margin-top: 8px; display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; align-items: center; font-size: 13px; }
+  .ind-adm .wait .n { font-size: 12px; color: #666; margin-top: 2px; }
+  .ind-adm .wait .actions { margin: 0; }
+  .ind-adm button.sm { padding: 6px 10px; font-size: 12px; }
+  .ind-adm .bar { height: 6px; background: #e8ecef; border-radius: 3px; overflow: hidden; width: 90px; display: inline-block; vertical-align: middle; margin-left: 6px; }
+  .ind-adm .bar > div { height: 100%; background: #2c7a4b; }
+  .ind-adm .det { background: #f7f9fa; border: 1px solid #e3e7ea; border-radius: 6px; padding: 12px 14px; }
+  .ind-adm .det .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .ind-adm .it { display: flex; justify-content: space-between; gap: 8px; font-size: 12.5px; padding: 5px 0; border-bottom: 1px solid #eceff1; align-items: center; }
+  .ind-adm .it .w { color: #888; font-size: 11px; margin-right: 6px; }
+  .ind-adm .ok { color: #2c5a1e; font-weight: 600; font-size: 12px; }
+  .ind-adm .pend { color: #9a5b00; font-weight: 600; font-size: 12px; }
+  .ind-adm .todo { color: #999; font-size: 12px; }
+  .ind-adm textarea { width: 100%; padding: 8px 10px; font: inherit; font-size: 13px; border: 1px solid #ccc; border-radius: 4px; }
+  .ind-adm pre { white-space: pre-wrap; font: 11.5px/1.5 Consolas, monospace; color: #555; background: #fff; border: 1px solid #eee; padding: 8px; border-radius: 4px; max-height: 160px; overflow: auto; }
+  .ind-adm .sc td { padding: 5px 6px; }
+  .status.st-pass { background: #e3f1dc; color: #2c5a1e; }
+  .status.st-fail { background: #f8d7da; color: #B00020; }
+  .status.st-wait { background: #fff1dc; color: #9a5b00; }
+  .status.st-info { background: #e3edf8; color: #1F5FA8; }
+  .ind-modal { position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 3000; display: none; align-items: flex-start; justify-content: center; padding: 40px 16px; overflow-y: auto; }
+  .ind-modal.show { display: flex; }
+  .ind-modal .box { background: #fff; border-radius: 8px; max-width: 780px; width: 100%; padding: 20px 24px; }
+  .ind-modal .qa { border-bottom: 1px solid #eee; padding: 10px 0; font-size: 13px; }
+  .ind-modal .qa .q { font-weight: 600; }
+  .ind-modal .qa .a { margin-top: 4px; }
+  .ind-modal .qa .c { margin-top: 2px; color: #2c5a1e; font-size: 12px; }
+  .ind-modal .qa input[type=number] { width: 80px; }
+  @media (max-width: 700px) { .ind-adm .det .grid { grid-template-columns: 1fr; } }
+</style>
+<div class="ind-modal" id="indModal"><div class="box" id="indModalBox"></div></div>
+<script>
+(function () {
+  function esc(t) { return String(t == null ? '' : t).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+  function el(id) { return document.getElementById(id); }
+  function errText(e) { return String((e && e.message) || e || 'Something went wrong').replace(/^(Error:\s*)+/, ''); }
+  function msg(id, text, ok) { var m = el(id); if (!m) return; m.textContent = text; m.className = 'msg show ' + (ok ? 'ok' : 'err'); }
+  function todayYmd() { var d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 10); }
+  function run(fn, arg, ok, btn, msgId) {
+    if (btn) { btn.disabled = true; }
+    window.authRun()
+      .withSuccessHandler(function (r) { if (btn) btn.disabled = false; ok(r); })
+      .withFailureHandler(function (e) { if (btn) btn.disabled = false; if (msgId) msg(msgId, errText(e)); else alert(errText(e)); })[fn](arg);
+  }
+
+  var DATA = null, OPEN = {};
+  var STATE_LABEL = { locked: 'Opens', open: 'Open now', inProgress: 'In progress', awaitingMarking: 'To mark', passed: 'Passed',
+    retakeLocked: 'Retake on', retakeOpen: 'Retake open', review: 'Director review', reviewed: 'Reviewed' };
+
+  var card = document.createElement('div');
+  card.className = 'card ind-adm';
+  card.innerHTML =
+    '<h2>CRE induction</h2>' +
+    '<div class="subtitle">New CREs’ 60-day induction: checklist sign-offs, the day-30 assessment (pass mark 80%, one retake), and the day-60 review. A CRE signing in for the first time is enrolled automatically; enrol someone already working below.</div>' +
+    '<div id="indWait" class="empty">Loading...</div>' +
+    '<h3>Trainees</h3><div class="table-scroll" id="indTable"></div>' +
+    '<h3>Enrol a CRE</h3>' +
+    '<div class="row3"><div><label for="indEnWho">CRE</label><select id="indEnWho"></select></div>' +
+    '<div><label for="indEnJoin">Join date</label><input type="date" id="indEnJoin"></div>' +
+    '<div><label for="indEnTest">Test opens on <span style="font-weight:400;color:#888">(optional)</span></label><input type="date" id="indEnTest"></div></div>' +
+    '<div class="subtitle" style="margin-top:6px;">Leave the test date blank for the default: day 28, or 14 days from today if day 28 has already passed.</div>' +
+    '<div class="actions"><button type="button" id="indEnBtn">Enrol</button></div><div class="msg" id="indEnMsg"></div>' +
+    '<h3>Question bank</h3><div id="indBank" class="empty"></div>' +
+    '<div class="actions"><button type="button" class="secondary" id="indReload">&#8635; Refresh induction</button></div><div class="msg" id="indMsg"></div>';
+  var wrap = document.querySelector('.wrap');
+  if (wrap) wrap.appendChild(card);
+  el('indEnJoin').value = todayYmd();
+
+  function load() {
+    run('indAdminData', undefined, function (d) { DATA = d; render(); }, null, 'indMsg');
+  }
+  var prevReload = window.ICF_RELOAD;
+  window.ICF_RELOAD = function () { if (typeof prevReload === 'function') prevReload(); load(); };
+  el('indReload').addEventListener('click', load);
+  load();
+
+  function statusTag(t) {
+    var s = t.test.state;
+    var cls = s === 'passed' || s === 'reviewed' ? 'st-pass' : s === 'review' || s === 'retakeLocked' || s === 'retakeOpen' ? 'st-fail' : s === 'awaitingMarking' ? 'st-wait' : 'st-info';
+    var extra = s === 'locked' ? ' ' + t.test.opensLabel : s === 'retakeLocked' ? ' ' + t.test.retakeLabel : '';
+    return '<span class="status ' + cls + '">' + esc(STATE_LABEL[s] || s) + esc(extra) + '</span>';
+  }
+
+  function render() {
+    var d = DATA;
+    // Waiting for the admin
+    var w = '';
+    d.waitingSignOff.forEach(function (x) {
+      w += '<div class="wait"><div><b>' + esc(x.name) + '</b> – ' + esc(x.title) + '<div class="n">Marked done, needs your sign-off' + (x.note ? ': “' + esc(x.note) + '”' : '') + '</div></div>' +
+        '<div class="actions"><button type="button" class="sm" data-so="' + esc(x.code) + '|' + esc(x.itemId) + '">Sign off</button>' +
+        '<button type="button" class="sm decline" data-sb="' + esc(x.code) + '|' + esc(x.itemId) + '">Not yet</button></div></div>';
+    });
+    d.toMark.forEach(function (a) {
+      w += '<div class="wait"><div><b>' + esc(a.name) + '</b> – assessment attempt ' + a.no + '<div class="n">Short answers to mark (' + a.pendingMarks + ' marks). Scored so far: ' + a.score + ' / ' + a.max + '</div></div>' +
+        '<div class="actions"><button type="button" class="sm" data-att="' + esc(a.attemptId) + '">Mark answers</button></div></div>';
+    });
+    el('indWait').className = w ? '' : 'empty';
+    el('indWait').innerHTML = w || 'Nothing waiting for you.';
+
+    // Trainees
+    if (!d.trainees.length) el('indTable').innerHTML = '<div class="empty">No one is in induction yet.</div>';
+    else el('indTable').innerHTML = '<table><thead><tr><th>CRE</th><th>Day</th><th>Checklist</th><th>Assessment</th><th>Day-60</th><th></th></tr></thead><tbody>' +
+      d.trainees.map(function (t) {
+        var pct = t.itemsTotal ? Math.round(t.itemsDone / t.itemsTotal * 100) : 0;
+        var d60 = t.day60 ? '<span class="status st-pass">' + esc(t.day60.rating) + '</span>' : (t.day60Due ? '<span class="status st-wait">Due</span>' : '<span class="todo">' + esc(t.day60DueLabel) + '</span>');
+        return '<tr><td><b>' + esc(t.name) + '</b><div class="sub">' + esc(t.code) + ' · joined ' + esc(t.joinLabel) + (t.welcomeSeen ? '' : ' · welcome not read yet') + '</div></td>' +
+          '<td>' + (t.day == null ? '–' : Math.min(t.day, 60) + (t.day > 60 ? '+' : '')) + '</td>' +
+          '<td>' + t.itemsDone + ' / ' + t.itemsTotal + '<span class="bar"><div style="width:' + pct + '%"></div></span></td>' +
+          '<td>' + statusTag(t) + (t.bestPct != null ? '<div class="sub">best ' + t.bestPct + '%</div>' : '') + '</td>' +
+          '<td>' + d60 + '</td>' +
+          '<td><button type="button" class="link-btn" data-open="' + esc(t.code) + '">' + (OPEN[t.code] ? 'Hide' : 'Details') + '</button></td></tr>' +
+          (OPEN[t.code] ? '<tr><td colspan="6">' + detail(t) + '</td></tr>' : '');
+      }).join('') + '</tbody></table>';
+
+    // Enrol
+    el('indEnWho').innerHTML = d.cresNotEnrolled.length ? d.cresNotEnrolled.map(function (s) { return '<option value="' + esc(s.code) + '">' + esc(s.name) + ' (' + esc(s.code) + ')</option>'; }).join('')
+      : '<option value="">All active CREs are enrolled</option>';
+
+    // Bank
+    var b = d.bank;
+    el('indBank').className = '';
+    el('indBank').innerHTML = '<div style="font-size:13px;">' + b.active + ' active questions; each test draws ' + b.perTest + '. ' +
+      (b.active < b.perTest * 2 ? '<b style="color:#B00020">Add more – at least ' + (b.perTest * 2) + ' are needed so the retake gets fresh questions.</b> ' : '') +
+      (b.unvalidated ? '<b style="color:#9a5b00">' + b.unvalidated + ' not yet validated by Greeshma</b> (fill in “Validated By”).' : 'All validated.') + '</div>' +
+      '<table><thead><tr><th>Section</th><th>Active</th><th>Not validated</th></tr></thead><tbody>' +
+      b.sections.map(function (s) { return '<tr><td>' + esc(s.section) + '</td><td>' + s.count + '</td><td>' + (s.unvalidated || '') + '</td></tr>'; }).join('') + '</tbody></table>' +
+      '<div class="subtitle">Edit questions and the checklist in the <a href="' + esc(d.sheetUrl) + '" target="_blank">tracker spreadsheet</a>: tabs “Question Bank” and “Induction Plan”. Keep the Question Bank tab protected – it holds the answers.</div>';
+    bind();
+  }
+
+  function detail(t) {
+    var items = t.items.map(function (i) {
+      var st = i.status === 'signed' ? '<span class="ok">✓ ' + esc(i.signedOffBy) + '</span>' : i.status === 'done' ? '<span class="ok">✓ Done</span>' :
+        i.status === 'waiting' ? '<button type="button" class="sm" data-so="' + esc(t.code) + '|' + esc(i.id) + '">Sign off</button>' :
+        (i.signOff === 'Admin' ? '<button type="button" class="sm secondary" data-so="' + esc(t.code) + '|' + esc(i.id) + '">Sign off</button>' : '<span class="todo">Not done</span>');
+      return '<div class="it"><span><span class="w">W' + i.week + '</span>' + esc(i.title) + '</span>' + st + '</div>';
+    }).join('');
+    var att = t.attempts.length ? t.attempts.map(function (a) {
+      return '<div class="it"><span>Attempt ' + a.no + ': <b>' + (a.pct == null ? 'to mark' : a.pct + '%') + '</b> ' +
+        (a.sections || []).map(function (s) { return '<span class="w">' + esc(s.section) + ' ' + s.pct + '%</span>'; }).join('') + '</span>' +
+        '<button type="button" class="link-btn" data-att="' + esc(a.attemptId) + '">Answers</button></div>';
+    }).join('') : '<div class="todo">No attempts yet.</div>';
+    var s = t.test.state, acts = '';
+    if (s === 'locked' || s === 'retakeLocked') acts += '<button type="button" class="sm secondary" data-unlock="' + esc(t.code) + '">Open the ' + (s === 'locked' ? 'test' : 'retake') + ' today</button>';
+    if (s === 'review' || s === 'reviewed') acts += '<button type="button" class="sm secondary" data-extra="' + esc(t.code) + '">Allow one more attempt</button>';
+    var review = (s === 'review' || s === 'reviewed') ?
+      '<h3>Director review</h3>' + (t.directorReview ? '<div style="font-size:13px;">' + esc(t.directorReview) + ' <span class="sub">– ' + esc(t.directorReviewBy) + '</span></div>' :
+        '<div class="subtitle">Below 80% after the retake. Once the directors have met ' + esc(t.name) + ', write down what they decided.</div>') +
+      '<textarea id="indRev_' + esc(t.code) + '" rows="2" placeholder="e.g. Salary revised to ... from ...; or: kept as is, re-test in 30 days"></textarea>' +
+      '<div class="actions"><button type="button" class="sm" data-review="' + esc(t.code) + '">Save the outcome</button></div>' : '';
+    return '<div class="det"><div class="grid"><div><h3 style="margin-top:0">Checklist</h3>' + items + '</div>' +
+      '<div><h3 style="margin-top:0">Assessment</h3>' + att + (acts ? '<div class="actions">' + acts + '</div>' : '') + review +
+      '<h3>Day-60 review</h3>' +
+      (t.day60 ? '<div style="font-size:13px;"><b>' + esc(t.day60.rating) + '</b> – ' + esc(t.day60.note) + ' <span class="sub">(' + esc(t.day60.by) + ')</span></div>' : '<div class="subtitle">Due ' + esc(t.day60DueLabel) + '. For a conversation only – it never triggers a salary review.</div>') +
+      '<div id="indSc_' + esc(t.code) + '"></div>' +
+      '<div class="actions"><button type="button" class="sm secondary" data-sc="' + esc(t.code) + '">Show scorecard</button></div>' +
+      '<h3>History</h3><pre>' + esc(t.history) + '</pre>' +
+      '<div class="actions"><button type="button" class="sm decline" data-remove="' + esc(t.code) + '">Remove from induction</button></div>' +
+      '</div></div></div>';
+  }
+
+  function scorecardHtml(code, sc) {
+    return '<table class="sc"><tbody>' + sc.rows.map(function (r) {
+      return '<tr><td>' + esc(r.label) + '</td><td align="right"><b>' + esc(r.value) + '</b></td><td align="right" class="sub">' + (r.pct == null ? '' : r.pct + '%') + '</td></tr>';
+    }).join('') + '</tbody></table><div class="subtitle">Orders logged ' + esc(sc.fromLabel) + ' – ' + esc(sc.toLabel) + ', excluding “Test Customer” orders.</div>' +
+      '<div class="row3"><div><label>Rating</label><select id="indRt_' + esc(code) + '"><option value="">Pick</option><option' + (sc.day60 && sc.day60.rating === 'Strong' ? ' selected' : '') + '>Strong</option><option' + (sc.day60 && sc.day60.rating === 'On track' ? ' selected' : '') + '>On track</option><option' + (sc.day60 && sc.day60.rating === 'Needs support' ? ' selected' : '') + '>Needs support</option></select></div></div>' +
+      '<label>Notes from the conversation</label><textarea id="indRn_' + esc(code) + '" rows="2">' + esc(sc.day60 ? sc.day60.note : '') + '</textarea>' +
+      '<div class="actions"><button type="button" class="sm" data-d60="' + esc(code) + '">Save day-60 review</button></div>';
+  }
+
+  function bind() {
+    function on(sel, fn) { Array.prototype.forEach.call(card.querySelectorAll(sel), function (b) { b.addEventListener('click', function () { fn(b); }); }); }
+    on('[data-open]', function (b) { var c = b.getAttribute('data-open'); OPEN[c] = !OPEN[c]; render(); });
+    on('[data-so]', function (b) { var p = b.getAttribute('data-so').split('|'); run('indSignOff', { staffCode: p[0], itemId: p[1], approve: true }, load, b, 'indMsg'); });
+    on('[data-sb]', function (b) {
+      if (!confirm('Send this back? It goes back to "not done" and the CRE ticks it again when it is really done.')) return;
+      var p = b.getAttribute('data-sb').split('|'); run('indSignOff', { staffCode: p[0], itemId: p[1], approve: false }, load, b, 'indMsg');
+    });
+    on('[data-att]', function (b) { openAttempt(b.getAttribute('data-att')); });
+    on('[data-unlock]', function (b) { if (confirm('Open it today?')) run('indUnlockTest', { staffCode: b.getAttribute('data-unlock') }, load, b, 'indMsg'); });
+    on('[data-extra]', function (b) { if (confirm('Allow one more attempt, open from today?')) run('indUnlockTest', { staffCode: b.getAttribute('data-extra'), extraAttempt: true }, load, b, 'indMsg'); });
+    on('[data-review]', function (b) { var c = b.getAttribute('data-review'); run('indRecordReview', { staffCode: c, note: el('indRev_' + c).value }, load, b, 'indMsg'); });
+    on('[data-remove]', function (b) {
+      var c = b.getAttribute('data-remove');
+      if (confirm('Remove ' + c + ' from induction? Their records stay in the sheet; they stop seeing the induction page.')) run('indRemove', { staffCode: c }, function () { OPEN[c] = false; load(); }, b, 'indMsg');
+    });
+    on('[data-sc]', function (b) {
+      var c = b.getAttribute('data-sc');
+      el('indSc_' + c).innerHTML = '<div class="empty">Loading...</div>';
+      run('indScorecard', { staffCode: c }, function (sc) {
+        el('indSc_' + c).innerHTML = scorecardHtml(c, sc);
+        el('indSc_' + c).querySelector('[data-d60]').addEventListener('click', function () {
+          var btn = this;
+          run('indRecordDay60', { staffCode: c, rating: el('indRt_' + c).value, note: el('indRn_' + c).value }, load, btn, 'indMsg');
+        });
+      }, b, 'indMsg');
+    });
+  }
+  el('indEnBtn').addEventListener('click', function () {
+    var code = el('indEnWho').value;
+    if (!code) return msg('indEnMsg', 'No CRE to enrol.');
+    run('indEnrol', { staffCode: code, joinYmd: el('indEnJoin').value, testOpensYmd: el('indEnTest').value }, function (r) {
+      msg('indEnMsg', r.name + ' enrolled. The test opens on ' + r.testOpens + '. They will see the welcome screen next time they open the CRE page.', true);
+      el('indEnTest').value = ''; load();
+    }, el('indEnBtn'), 'indEnMsg');
+  });
+
+  // ---------- One attempt: answers (+ marking short answers) ----------
+  var modal = el('indModal');
+  modal.addEventListener('click', function (e) { if (e.target === modal) modal.classList.remove('show'); });
+  function openAttempt(id) {
+    el('indModalBox').innerHTML = '<div class="empty">Loading...</div>';
+    modal.classList.add('show');
+    run('indAttemptDetail', { attemptId: id }, function (a) {
+      var pending = a.result === 'Pending marking';
+      el('indModalBox').innerHTML = '<h2>' + esc(a.name) + ' – attempt ' + a.no + '</h2>' +
+        '<div class="subtitle">' + (a.pct == null ? 'Scored so far: ' + a.score + ' / ' + a.max + ' – short answers to mark' : 'Score: ' + a.score + ' / ' + a.max + ' = ' + a.pct + '% (' + esc(a.result) + ')') + '</div>' +
+        a.answers.map(function (q) {
+          var mark = q.correct === 'Pending'
+            ? '<div class="a">Marks: <input type="number" min="0" max="' + q.max + '" step="0.5" data-mk="' + esc(q.qid) + '"> / ' + q.max + '</div>'
+            : '<div class="a">' + (q.correct === 'Y' ? '<span class="ok">✓</span>' : q.correct === 'Part' ? '<span class="pend">Part</span>' : '<span style="color:#B00020;font-weight:600">✗</span>') + ' ' + (q.marks == null ? '' : q.marks + ' / ' + q.max) + '</div>';
+          return '<div class="qa"><div class="sub">' + esc(q.section) + ' · ' + esc(q.type) + '</div><div class="q">' + esc(q.text) + '</div>' +
+            '<div class="a">Answer: ' + (q.answerText ? esc(q.answerText) : '<i>blank</i>') + '</div>' +
+            (q.type !== 'Short' ? '<div class="c">Correct: ' + esc(q.correctText) + '</div>' : '') + mark + '</div>';
+        }).join('') +
+        '<div class="actions">' + (pending ? '<button type="button" id="indSaveMarks">Save marks</button>' : '') + '<button type="button" class="secondary" id="indModalClose">Close</button></div><div class="msg" id="indModalMsg"></div>';
+      el('indModalClose').addEventListener('click', function () { modal.classList.remove('show'); });
+      if (pending) el('indSaveMarks').addEventListener('click', function () {
+        var marks = {};
+        Array.prototype.forEach.call(el('indModalBox').querySelectorAll('[data-mk]'), function (i) { marks[i.getAttribute('data-mk')] = i.value; });
+        run('indMarkShort', { attemptId: id, marks: marks }, function (r) { modal.classList.remove('show'); load(); alert('Saved. Final score: ' + r.pct + '% (' + r.result + ').'); }, el('indSaveMarks'), 'indModalMsg');
+      });
+    }, null, 'indMsg');
+  }
+})();
+</script>
