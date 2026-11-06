@@ -206,7 +206,7 @@
     window.authRun()
       .withSuccessHandler(function (res) {
         ME = res;
-        if (!res || (!res.enrolled && !(res.videos && res.videos.length) && !(res.material && res.material.length))) { hideShell(); return; }
+        if (!res || (!res.enrolled && !(res.videos && res.videos.length) && !(res.docs && res.docs.length))) { hideShell(); return; }
         ensureShell(); railBtn.style.display = ''; setMode(res.enrolled);
         if (!res.enrolled) { renderLibraryOnly(); return; }
         render();
@@ -300,7 +300,9 @@
   // Two tabs (Hari, 6 Nov 2026): Read = documents + the checklist's reading topics (existing CREs only --
   // trainees have the checklist itself); Watch = videos. Checklist items of type Watch aren't listed:
   // their videos are under Watch.
-  function readTopics() { return ME.enrolled ? [] : (ME.material || []).filter(function (i) { return !/watch/i.test(i.type); }); }
+  // Checklist items are NOT shown on Read (Hari, 6 Nov 2026): the Induction Plan is only a new
+  // joinee's checklist; Read lists the Training Documents tab and nothing else.
+  function readTopics() { return []; }
   function libTabs() {
     var t = [{ key: 'read', label: 'Read', list: (ME.docs || []).concat(readTopics()) }, { key: 'watch', label: 'Watch', list: ME.videos || [] }];
     return t.filter(function (x) { return x.list.length; });

@@ -10,7 +10,7 @@ Code: `Induction.js`, `induction_cre.html` (CRE beta page), `induction_admin.htm
 | CRE in induction | Ticks checklist items. "Sign-off" items go to the admin. Takes the assessment when it opens: timed (30 min), autosaved, score and section scores shown at once, correct answers never shown |
 | Admin (Ananthu) | **CRE induction** card at the bottom of the Admin page: sign-offs and short answers waiting, trainees, enrol, open a test early, allow one more attempt, record the directors' decision, day-60 scorecard + rating. Emails for sign-offs, results and short answers to mark |
 | Directors | **CRE induction** section on the Owner Dashboard (beta), under the director panel: every trainee's day, checklist, videos, assessment, day-60 review; click a row for details, answers and the work scorecard. When someone is below 80% after the retake, the row says **Your decision needed** and the directors record the decision there. Emails for that, and for a day-60 "Needs support" |
-| Every CRE | **Training Material** page (rail button *Training*; inside *Induction* for trainees): the "All" videos plus the checklist's reading material (Read / Watch items, or any item with a link or videos), read-only. Greeshma's YouTube videos play in a pop-up on the page |
+| Every CRE | **Training Material** page (rail button *Training*; inside *Induction* for trainees): the "All" documents (Read) and videos (Watch), read-only. The Induction Plan checklist is shown only to new joinees. Greeshma's YouTube videos play in a pop-up on the page |
 | Existing CREs (e.g. Greeshma) | Nothing. Only a CRE's **first ever** sign-in auto-enrols them |
 
 ## Training videos (YouTube, unlisted)
@@ -24,7 +24,7 @@ Code: `Induction.js`, `induction_cre.html` (CRE beta page), `induction_admin.htm
 
 One row per document in the **Training Documents** tab: *Doc ID* (D1, D2…), *Title*, *Section*, *Order*, *Link*, *Plan Item*, *For* (`All` / `Induction`), *Active*. Drive files and Google Docs / Sheets / Slides open in a preview pop-up on the page (share them as "Anyone in the organisation / with the link can view"); any other link opens in a new tab. The example row D1 is inactive – overwrite it.
 
-The page is called **Training Material** and has two tabs: **Read** (the documents, plus – for existing CREs – the checklist's reading topics) and **Watch** (the videos). A search box matches title, number (D2, V3) or section.
+The page is called **Training Material** and has two tabs: **Read** (the Training Documents tab only – checklist items never appear there) and **Watch** (the videos). A search box matches title, number (D2, V3) or section.
 
 **Videos and documents each have their own tab, one row per item.** The Induction Plan row only describes the task; put its ID in a video's or document's *Plan Item* and the item gets a V1 / D1 button. Leave the plan's own *Link* column empty unless it's a one-off link.
 
