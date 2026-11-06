@@ -24,6 +24,8 @@ Code: `Induction.js`, `induction_cre.html` (CRE beta page), `induction_admin.htm
 
 One row per document in the **Training Documents** tab: *Doc ID* (D1, D2…), *Title*, *Section*, *Order*, *Link*, *Plan Item*, *For* (`All` / `Induction`), *Active*. Drive files and Google Docs / Sheets / Slides open in a preview pop-up on the page (share them as "Anyone in the organisation / with the link can view"); any other link opens in a new tab. The example row D1 is inactive – overwrite it.
 
+On the page, videos, documents and (for existing CREs) the reading material sit under tabs – **Videos | Documents | Material** – with a search box that matches title, number (V3, D2) or section.
+
 **Videos and documents each have their own tab, one row per item.** The Induction Plan row only describes the task; put its ID in a video's or document's *Plan Item* and the item gets a V1 / D1 button. Leave the plan's own *Link* column empty unless it's a one-off link.
 
 ## Rules (top of `Induction.js`, `IND_CFG`)

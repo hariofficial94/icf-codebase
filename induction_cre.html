@@ -115,6 +115,9 @@
   .ind-doc .id { font-size: 11px; font-weight: 700; color: var(--leaf-ink); }
   .ind-doc .tt { font-size: 13.5px; font-weight: 500; }
   .ind-doc .go { font-size: 12px; font-weight: 600; color: var(--leaf-ink); white-space: nowrap; }
+  .ind-lib-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; border-bottom: 1px solid var(--border); margin-bottom: 4px; }
+  .ind-lib-head .tabs { border-bottom: none; margin-bottom: 0; }
+  .ind-lib-head .inp { width: 260px; max-width: 100%; height: 32px; margin-bottom: 6px; }
   .ind-player .frame.doc { aspect-ratio: auto; height: 78vh; background: #fff; }
   .ind-vsec { font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-3); margin: 18px 0 10px; }
   .ind-watch { display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 9px; border-radius: 12px; border: 1px solid rgba(155,203,74,0.5); background: transparent; color: var(--leaf-ink); font-size: 11.5px; font-weight: 700; cursor: pointer; }
@@ -286,10 +289,56 @@
           weeks[w].map(function (i) { return itemHtml(i, w < wkNow, m.revision.indexOf(i.id) !== -1); }).join('') + '</div>';
       });
     });
-    if (m.docs && m.docs.length) html += '<div class="ind-phase">Documents<span>' + m.docs.length + '</span></div>' + docsHtml(m.docs);
-    if (m.videos && m.videos.length) html += '<div class="ind-phase">Training videos<span>' + m.videos.filter(function (v) { return v.watched; }).length + ' of ' + m.videos.length + ' watched</span></div>' + libraryHtml(m.videos);
+    if ((m.videos && m.videos.length) || (m.docs && m.docs.length)) html += '<div class="ind-phase">Training library</div>' + libShell();
     $('indOut').innerHTML = html;
     bindView();
+    renderLib();
+  }
+
+  // ---------- Library: tabs (Videos | Documents | Material) + search ----------
+  var libTab = '', libQ = '';
+  function libTabs() {
+    var t = [{ key: 'videos', label: 'Videos', list: ME.videos || [] }, { key: 'docs', label: 'Documents', list: ME.docs || [] }];
+    if (!ME.enrolled) t.push({ key: 'material', label: 'Material', list: ME.material || [] }); // trainees have the checklist itself
+    return t.filter(function (x) { return x.list.length; });
+  }
+  function libMatch(o) {
+    if (!libQ) return true;
+    var hay = [o.id, o.title, o.section, o.what].join(' ').toLowerCase();
+    return libQ.split(/\s+/).every(function (w) { return hay.indexOf(w) !== -1; });
+  }
+  function libShell() {
+    return '<div class="ind-lib-head"><div class="tabs" id="indLibTabs"></div>' +
+      '<input class="inp" id="indLibQ" type="search" autocomplete="off" placeholder="Search by title or number (e.g. V3)" value="' + esc(libQ) + '"></div>' +
+      '<div id="indLibPanel"></div>';
+  }
+  function renderLib() {
+    var tabs = libTabs();
+    if (!tabs.length || !$('indLibTabs')) return;
+    if (!tabs.some(function (t) { return t.key === libTab; })) libTab = tabs[0].key;
+    $('indLibTabs').innerHTML = tabs.map(function (t) {
+      var n = t.list.filter(libMatch).length;
+      return '<button class="tab' + (t.key === libTab ? ' on' : '') + '" type="button" data-libtab="' + t.key + '">' + esc(t.label) + ' <span class="count">' + n + '</span></button>';
+    }).join('');
+    C.each($('indLibTabs').querySelectorAll('[data-libtab]'), function (b) {
+      b.addEventListener('click', function () { libTab = b.getAttribute('data-libtab'); renderLib(); });
+    });
+    var q = $('indLibQ');
+    if (q && !q.dataset.bound) {
+      q.dataset.bound = '1';
+      q.addEventListener('input', function () { libQ = q.value.trim().toLowerCase(); renderLib(); });
+    }
+    var cur = tabs.filter(function (t) { return t.key === libTab; })[0];
+    var list = cur.list.filter(libMatch);
+    var html;
+    if (!list.length) html = '<div class="empty">Nothing matches “' + esc(libQ) + '”.</div>';
+    else if (libTab === 'videos') {
+      var w = cur.list.filter(function (v) { return v.watched; }).length;
+      html = '<div class="faint" style="font-size:12px;margin-top:10px;">' + w + ' of ' + cur.list.length + ' watched</div>' + libraryHtml(list);
+    } else if (libTab === 'docs') html = docsHtml(list);
+    else html = '<div class="ind-week" style="margin-top:14px;">' + list.map(materialItemHtml).join('') + '</div>';
+    $('indLibPanel').innerHTML = html;
+    bindVideos($('indLibPanel'));
   }
 
   // ---------- Training videos ----------
@@ -347,40 +396,34 @@
     }).join('');
   }
 
-  function renderLibraryOnly() {
-    var v = ME.videos || [], mat = ME.material || [];
-    $('indSub').textContent = 'Reference material on ICF’s products and processes – the same material new CREs learn in their induction.' +
-      (v.length ? ' ' + v.filter(function (x) { return x.watched; }).length + ' of ' + v.length + ' videos watched.' : '');
-    var html = '';
-    var docs = ME.docs || [];
-    if (v.length) html += '<div class="ind-phase" style="margin-top:0">Training videos<span>' + v.length + '</span></div>' + libraryHtml(v);
-    if (docs.length) html += '<div class="ind-phase"' + (v.length ? '' : ' style="margin-top:0"') + '>Documents<span>' + docs.length + '</span></div>' + docsHtml(docs);
-    if (mat.length) {
-      html += '<div class="ind-phase">Training material<span>' + mat.length + ' topics</span></div><div class="ind-week">' + mat.map(function (i) {
-        var meta = [];
-        if (i.type) meta.push('<span class="chip">' + esc(i.type) + '</span>');
-        (i.videos || []).forEach(function (vid, n) {
-          var vv = videoById(vid); if (!vv) return;
-          meta.push('<button class="ind-watch' + (vv.watched ? ' seen' : '') + '" type="button" data-video="' + esc(vv.id) + '" title="' + esc(vv.title) + '">' + ICON_PLAY + esc(vv.id) + (vv.watched ? ' ✓' : '') + '</button>');
-        });
-        meta.push(itemDocButtons(i));
-        if (i.link && ytId(i.link)) meta.push('<button class="ind-watch" type="button" data-ytlink="' + esc(i.link) + '" data-title="' + esc(i.title) + '">' + ICON_PLAY + 'Watch</button>');
-        else if (i.link) meta.push('<a href="' + esc(i.link) + '" target="_blank" rel="noopener">Open ↗</a>');
-        return '<div class="ind-item" style="grid-template-columns:minmax(0,1fr) auto;"><div><div class="ind-t">' + esc(i.title) + '</div><div class="ind-w">' + esc(i.what) + '</div></div>' +
-          '<div class="ind-meta">' + meta.join('') + '</div></div>';
-      }).join('') + '</div>';
-    }
-    $('indOut').innerHTML = html || '<div class="empty">Nothing here yet.</div>';
-    bindVideos();
+  function materialItemHtml(i) {
+    var meta = [];
+    if (i.type) meta.push('<span class="chip">' + esc(i.type) + '</span>');
+    (i.videos || []).forEach(function (vid) {
+      var vv = videoById(vid); if (!vv) return;
+      meta.push('<button class="ind-watch' + (vv.watched ? ' seen' : '') + '" type="button" data-video="' + esc(vv.id) + '" title="' + esc(vv.title) + '">' + ICON_PLAY + esc(vv.id) + (vv.watched ? ' ✓' : '') + '</button>');
+    });
+    meta.push(itemDocButtons(i));
+    if (i.link && ytId(i.link)) meta.push('<button class="ind-watch" type="button" data-ytlink="' + esc(i.link) + '" data-title="' + esc(i.title) + '">' + ICON_PLAY + 'Watch</button>');
+    else if (i.link) meta.push('<a href="' + esc(i.link) + '" target="_blank" rel="noopener">Open ↗</a>');
+    return '<div class="ind-item" style="grid-template-columns:minmax(0,1fr) auto;"><div><div class="ind-t">' + esc(i.title) + '</div><div class="ind-w">' + esc(i.what) + '</div></div>' +
+      '<div class="ind-meta">' + meta.join('') + '</div></div>';
   }
-  function bindVideos() {
-    C.each(document.querySelectorAll('#indOut [data-doc]'), function (b) {
+  function renderLibraryOnly() {
+    $('indSub').textContent = 'Reference material on ICF’s products and processes – the same material new CREs learn in their induction.';
+    if (!libTabs().length) { $('indOut').innerHTML = '<div class="empty">Nothing here yet.</div>'; return; }
+    $('indOut').innerHTML = libShell();
+    renderLib();
+  }
+  function bindVideos(root) {
+    root = root || $('indOut');
+    C.each(root.querySelectorAll('[data-doc]'), function (b) {
       b.addEventListener('click', function (e) { e.stopPropagation(); openDoc(b.getAttribute('data-doc')); });
     });
-    C.each(document.querySelectorAll('#indOut [data-video]'), function (b) {
+    C.each(root.querySelectorAll('[data-video]'), function (b) {
       b.addEventListener('click', function (e) { e.stopPropagation(); openVideo(b.getAttribute('data-video')); });
     });
-    C.each(document.querySelectorAll('#indOut [data-ytlink]'), function (b) {
+    C.each(root.querySelectorAll('[data-ytlink]'), function (b) {
       b.addEventListener('click', function () { openVideo(null, b.getAttribute('data-ytlink'), b.getAttribute('data-title')); });
     });
   }
