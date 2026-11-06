@@ -178,7 +178,7 @@
   var railBtn = null, view = null;
   function setMode(enrolled) {
     var tip = railBtn.querySelector('.rail-tip'); if (tip) tip.textContent = enrolled ? 'Induction' : 'Training';
-    view.querySelector('.page-title').textContent = enrolled ? 'Induction' : 'Training videos';
+    view.querySelector('.page-title').textContent = enrolled ? 'Induction' : 'Training Material';
   }
   function ensureShell() {
     if (railBtn) return;
@@ -289,7 +289,7 @@
           weeks[w].map(function (i) { return itemHtml(i, w < wkNow, m.revision.indexOf(i.id) !== -1); }).join('') + '</div>';
       });
     });
-    if ((m.videos && m.videos.length) || (m.docs && m.docs.length)) html += '<div class="ind-phase">Training library</div>' + libShell();
+    if ((m.videos && m.videos.length) || (m.docs && m.docs.length)) html += '<div class="ind-phase">Training Material</div>' + libShell();
     $('indOut').innerHTML = html;
     bindView();
     renderLib();
@@ -297,9 +297,12 @@
 
   // ---------- Library: tabs (Videos | Documents | Material) + search ----------
   var libTab = '', libQ = '';
+  // Two tabs (Hari, 6 Nov 2026): Read = documents + the checklist's reading topics (existing CREs only --
+  // trainees have the checklist itself); Watch = videos. Checklist items of type Watch aren't listed:
+  // their videos are under Watch.
+  function readTopics() { return ME.enrolled ? [] : (ME.material || []).filter(function (i) { return !/watch/i.test(i.type); }); }
   function libTabs() {
-    var t = [{ key: 'videos', label: 'Videos', list: ME.videos || [] }, { key: 'docs', label: 'Documents', list: ME.docs || [] }];
-    if (!ME.enrolled) t.push({ key: 'material', label: 'Material', list: ME.material || [] }); // trainees have the checklist itself
+    var t = [{ key: 'read', label: 'Read', list: (ME.docs || []).concat(readTopics()) }, { key: 'watch', label: 'Watch', list: ME.videos || [] }];
     return t.filter(function (x) { return x.list.length; });
   }
   function libMatch(o) {
@@ -309,7 +312,7 @@
   }
   function libShell() {
     return '<div class="ind-lib-head"><div class="tabs" id="indLibTabs"></div>' +
-      '<input class="inp" id="indLibQ" type="search" autocomplete="off" placeholder="Search by title or number (e.g. V3)" value="' + esc(libQ) + '"></div>' +
+      '<input class="inp" id="indLibQ" type="search" autocomplete="off" placeholder="Search by title or number (e.g. D2, V3)" value="' + esc(libQ) + '"></div>' +
       '<div id="indLibPanel"></div>';
   }
   function renderLib() {
@@ -332,11 +335,15 @@
     var list = cur.list.filter(libMatch);
     var html;
     if (!list.length) html = '<div class="empty">Nothing matches “' + esc(libQ) + '”.</div>';
-    else if (libTab === 'videos') {
+    else if (libTab === 'watch') {
       var w = cur.list.filter(function (v) { return v.watched; }).length;
       html = '<div class="faint" style="font-size:12px;margin-top:10px;">' + w + ' of ' + cur.list.length + ' watched</div>' + libraryHtml(list);
-    } else if (libTab === 'docs') html = docsHtml(list);
-    else html = '<div class="ind-week" style="margin-top:14px;">' + list.map(materialItemHtml).join('') + '</div>';
+    } else {
+      var docs = list.filter(function (o) { return o.link !== undefined && o.what === undefined; });
+      var topics = list.filter(function (o) { return o.what !== undefined; });
+      html = (docs.length ? docsHtml(docs) : '') +
+        (topics.length ? '<div class="ind-vsec">Topics</div><div class="ind-week">' + topics.map(materialItemHtml).join('') + '</div>' : '');
+    }
     $('indLibPanel').innerHTML = html;
     bindVideos($('indLibPanel'));
   }
