@@ -194,7 +194,7 @@
     window.authRun()
       .withSuccessHandler(function (res) {
         ME = res;
-        if (!res || (!res.enrolled && !(res.videos && res.videos.length))) { hideShell(); return; }
+        if (!res || (!res.enrolled && !(res.videos && res.videos.length) && !(res.material && res.material.length))) { hideShell(); return; }
         ensureShell(); railBtn.style.display = ''; setMode(res.enrolled);
         if (!res.enrolled) { renderLibraryOnly(); return; }
         render();
@@ -299,9 +299,26 @@
     }).join('');
   }
   function renderLibraryOnly() {
-    var v = ME.videos;
-    $('indSub').textContent = 'Short videos on ICF’s products and processes. ' + v.filter(function (x) { return x.watched; }).length + ' of ' + v.length + ' watched.';
-    $('indOut').innerHTML = libraryHtml(v);
+    var v = ME.videos || [], mat = ME.material || [];
+    $('indSub').textContent = 'Reference material on ICF’s products and processes – the same material new CREs learn in their induction.' +
+      (v.length ? ' ' + v.filter(function (x) { return x.watched; }).length + ' of ' + v.length + ' videos watched.' : '');
+    var html = '';
+    if (v.length) html += '<div class="ind-phase" style="margin-top:0">Training videos</div>' + libraryHtml(v);
+    if (mat.length) {
+      html += '<div class="ind-phase">Training material<span>' + mat.length + ' topics</span></div><div class="ind-week">' + mat.map(function (i) {
+        var meta = [];
+        if (i.type) meta.push('<span class="chip">' + esc(i.type) + '</span>');
+        (i.videos || []).forEach(function (vid, n) {
+          var vv = videoById(vid); if (!vv) return;
+          meta.push('<button class="ind-watch' + (vv.watched ? ' seen' : '') + '" type="button" data-video="' + esc(vv.id) + '" title="' + esc(vv.title) + '">' + ICON_PLAY + (vv.watched ? 'Watched' : 'Watch') + (i.videos.length > 1 ? ' ' + (n + 1) : '') + '</button>');
+        });
+        if (i.link && ytId(i.link)) meta.push('<button class="ind-watch" type="button" data-ytlink="' + esc(i.link) + '" data-title="' + esc(i.title) + '">' + ICON_PLAY + 'Watch</button>');
+        else if (i.link) meta.push('<a href="' + esc(i.link) + '" target="_blank" rel="noopener">Open ↗</a>');
+        return '<div class="ind-item" style="grid-template-columns:minmax(0,1fr) auto;"><div><div class="ind-t">' + esc(i.title) + '</div><div class="ind-w">' + esc(i.what) + '</div></div>' +
+          '<div class="ind-meta">' + meta.join('') + '</div></div>';
+      }).join('') + '</div>';
+    }
+    $('indOut').innerHTML = html || '<div class="empty">Nothing here yet.</div>';
     bindVideos();
   }
   function bindVideos() {

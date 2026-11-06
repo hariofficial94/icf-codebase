@@ -10,7 +10,7 @@ Code: `Induction.js`, `induction_cre.html` (CRE beta page), `induction_admin.htm
 | CRE in induction | Ticks checklist items. "Sign-off" items go to the admin. Takes the assessment when it opens: timed (30 min), autosaved, score and section scores shown at once, correct answers never shown |
 | Admin (Ananthu) | **CRE induction** card at the bottom of the Admin page: sign-offs and short answers waiting, trainees, enrol, open a test early, allow one more attempt, record the directors' decision, day-60 scorecard + rating. Emails for sign-offs, results and short answers to mark |
 | Directors | **CRE induction** section on the Owner Dashboard (beta), under the director panel: every trainee's day, checklist, videos, assessment, day-60 review; click a row for details, answers and the work scorecard. When someone is below 80% after the retake, the row says **Your decision needed** and the directors record the decision there. Emails for that, and for a day-60 "Needs support" |
-| Every CRE | **Training videos** (rail button *Training*, or inside *Induction* for trainees). Greeshma's YouTube videos play in a pop-up on the page |
+| Every CRE | **Training** page (rail button *Training*; inside *Induction* for trainees): the "All" videos plus the checklist's reading material (Read / Watch items, or any item with a link or videos), read-only. Greeshma's YouTube videos play in a pop-up on the page |
 | Existing CREs (e.g. Greeshma) | Nothing. Only a CRE's **first ever** sign-in auto-enrols them |
 
 ## Training videos (YouTube, unlisted)

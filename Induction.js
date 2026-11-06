@@ -41,6 +41,9 @@
  * video counts as watched at 90%. When every video linked to a Self checklist
  * item is watched, that item ticks itself.
  *
+ * EXISTING CREs get a "Training" page: the "All" videos plus the checklist's reading
+ * material (Read / Watch items, or items with a link or videos) as a read-only reference.
+ *
  * DIRECTORS see an Induction section on the Owner Dashboard (beta) and record
  * their own decision there after a below-80% retake.
  *
@@ -492,7 +495,17 @@ function indRevision_(code, attempts) {
 function indGetMine_() {
   var me = indMe_();
   var x = indTrainee_(me.code);
-  if (!x || x.t['Status'] === IND_ST_REMOVED) return { enrolled: false, videos: indVideosFor_(me.code, false), watchedPct: IND_WATCHED_PCT };
+  if (!x || x.t['Status'] === IND_ST_REMOVED) {
+    // Not in induction (e.g. an existing CRE): the Training page -- the video library plus the
+    // checklist's reading material as a read-only reference (Read / Watch items, or any item with
+    // a link or videos). No ticking, no assessment.
+    var libVideos = indVideosFor_(me.code, false);
+    var material = indPlan_().map(function (it) {
+      it.videos = libVideos.filter(function (v) { return v.planItem === it.id; }).map(function (v) { return v.id; });
+      return it;
+    }).filter(function (it) { return /read|watch/i.test(it.type) || it.link || it.videos.length; });
+    return { enrolled: false, videos: libVideos, material: material, watchedPct: IND_WATCHED_PCT };
+  }
   indSweepExpired_(me.code);
   x = indTrainee_(me.code);
   var t = x.t;
