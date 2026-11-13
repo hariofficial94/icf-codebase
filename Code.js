@@ -570,7 +570,7 @@ function include(name) {
 
 // ---------------- SHARED HELPERS ----------------
 function getSheet() {
-  var sheet = SpreadsheetApp.openById(SHEET_ID).getSheets()[0];
+  var sheet = findTrackerSheet_(SpreadsheetApp.openById(SHEET_ID));
   // Reading a column past the edge of the grid throws in Apps Script, so
   // make sure the grid is wide enough for every column in HEADERS (e.g. the
   // new AU "Dispatch Type") before anything reads it.
@@ -578,6 +578,24 @@ function getSheet() {
   if (maxCols < HEADERS.length) sheet.insertColumnsAfter(maxCols, HEADERS.length - maxCols);
   ensureHeaderRow_(sheet);
   return sheet;
+}
+
+/**
+ * The order tracker tab, found by NAME -- never "whichever tab is first".
+ * 13 Nov 2026: a links tab ("All pages") was added in front of Tracker and
+ * every page read it as the tracker, showing zero orders. If the tab is ever
+ * renamed, the tab whose A1 says "Tracker ID" is used; if neither exists the
+ * call fails loudly rather than reading (or writing) the wrong tab.
+ */
+var TRACKER_SHEET_NAME = 'Tracker';
+function findTrackerSheet_(ss) {
+  var sheet = ss.getSheetByName(TRACKER_SHEET_NAME);
+  if (sheet) return sheet;
+  var all = ss.getSheets();
+  for (var i = 0; i < all.length; i++) {
+    if (String(all[i].getRange(1, 1).getValue() || '').trim() === 'Tracker ID') return all[i];
+  }
+  throw new Error('The order tracker tab ("' + TRACKER_SHEET_NAME + '") is missing from the spreadsheet. Rename the orders tab back to "Tracker".');
 }
 
 /**
