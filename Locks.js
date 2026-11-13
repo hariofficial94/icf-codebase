@@ -33,6 +33,7 @@ function pendingRequestFor_(trackerId) {
     // by the CRE at intake or when the goods are ready -- locking would stop verification, payments
     // and Ops' work for days.
     if (r.type === PX_DISPATCH) return;
+    if (typeof PX_WAIVE !== 'undefined' && r.type === PX_WAIVE) return; // a waiver with the directors doesn't stop the order (13 Nov 2026)
     if (r.status === 'Pending' && r.trackerId.toLowerCase() === t && r.requestId !== LOCK_SKIP_REQUEST_ID_) {
       hits.push({ kind: 'payment', requestId: r.requestId, label: PX_LABELS[r.type] || r.type, requestedBy: r.requestedBy,
                   requestedByName: r.requestedByName, requestedAtMs: r.requestedAtMs, waitingFor: 'an admin' });

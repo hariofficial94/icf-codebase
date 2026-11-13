@@ -765,6 +765,11 @@
         <div class="panel-sub">Goods coming back to ICF that you raised or own. Raise a return from the order itself (open it, “Goods coming back?”). When it’s done, tell the customer, tick the box and press OK.</div>
         <div class="req-list" id="rtList"><div class="loading">Loading…</div></div>
       </div>
+      <div style="margin-top:32px;" id="pxPaneWrap">
+        <div class="panel-title"><h3>Payment requests <span class="count" id="pxPaneCount" style="display:none;">0</span></h3></div>
+        <div class="panel-sub">Your requests to the admin to dispatch without full payment or to take the balance after delivery, and any payment approval or waiver on your orders. Waiting ones stay until decided; decided ones stay for 14 days.</div>
+        <div class="req-list" id="pxPaneList"><div class="loading">Loading…</div></div>
+      </div>
       <div style="margin-top:32px;" id="sbPaneWrap">
         <div class="panel-title"><h3>Orders on standby <span class="count" id="sbPaneCount" style="display:none;">0</span></h3></div>
         <div class="panel-sub">Your orders paused for a customer-side delay – asked for by Ops, Accounts or the admin. Use the resume date to tell the customer when it moves again. Ended ones stay here for 7 days.</div>
@@ -1543,7 +1548,7 @@
         })
         .findOrders(id);
     }
-    function refreshAfterAction() { loadActionList(); loadCreSummary(); loadMyOrders(); loadApprovals(); loadPendingPayments(); }
+    function refreshAfterAction() { loadActionList(); loadCreSummary(); loadMyOrders(); loadApprovals(); loadPendingPayments(); if (typeof loadPaymentRequests === 'function') loadPaymentRequests(); }
 
     function showOrderInDrawer(order) {
       if (!drawerOpen || drawerId !== order.trackerId) openDrawerShell(order.trackerId);
@@ -1998,7 +2003,8 @@
     // Requests (was Awaiting approval + Cancellations & refunds panes)
     // =====================================================================
     function updateReqBadge() {
-      var ready = approvals.filter(function (it) { return it.status !== 'Pending'; }).length + cxItems.filter(function (it) { return it.canAck; }).length + (window.ICF_RETURNS_READY || 0);
+      var ready = approvals.filter(function (it) { return it.status !== 'Pending'; }).length + cxItems.filter(function (it) { return it.canAck; }).length + (window.ICF_RETURNS_READY || 0) +
+        (pxPane || []).filter(function (it) { return it.status === 'Declined'; }).length; // a "no" from the admin needs the CRE's attention (13 Nov 2026)
       $('railReqCount').textContent = ready; $('railReqCount').style.display = ready ? 'inline-flex' : 'none';
     }
     function loadApprovals() {
@@ -2055,7 +2061,30 @@
         });
       });
     }
-    $('refreshReq').addEventListener('click', function () { loadApprovals(); loadCancellations(); loadStandbyPane(); });
+    $('refreshReq').addEventListener('click', function () { loadApprovals(); loadCancellations(); loadStandbyPane(); loadPaymentRequests(); });
+
+    // Payment requests (13 Nov 2026): what the CRE asked the admin about money, and how it was decided.
+    var pxPane = [];
+    function loadPaymentRequests() {
+      authRun()
+        .withSuccessHandler(function (r) { pxPane = (r && r.items) || []; renderPaymentRequests(); updateReqBadge(); })
+        .withFailureHandler(function () { if (!pxPane.length) $('pxPaneList').innerHTML = '<div class="card-box empty">Could not load the list.</div>'; })
+        .getCrePaymentRequests();
+    }
+    function renderPaymentRequests() {
+      var c = $('pxPaneCount'); c.textContent = pxPane.length; c.style.display = pxPane.length ? 'inline-flex' : 'none';
+      var TONE = { Pending: 'amber', Approved: 'teal', Declined: 'red' };
+      $('pxPaneList').innerHTML = pxPane.length ? pxPane.map(function (it) {
+        return '<div class="req req-open" data-id="' + esc(it.trackerId) + '">' +
+          '<div style="display:flex; justify-content:space-between; gap:10px; align-items:flex-start;"><div><div class="req-name">' + esc(it.institution) + '</div>' +
+          '<div class="req-sub">' + esc(it.trackerId) + ' · ' + esc(it.label) + '</div></div>' +
+          '<span class="pill t-' + (TONE[it.status] || 'grey') + '"><span class="dot"></span>' + esc(it.statusText) + '</span></div>' +
+          (it.amountNote ? '<div class="req-sub" style="margin-top:6px;">' + esc(it.amountNote) + '</div>' : '') +
+          (it.reason ? '<div class="req-sub">Reason: ' + esc(it.reason) + '</div>' : '') +
+          '<div class="req-sub faint" style="margin-top:6px;">' + esc(it.when) + (it.mine ? '' : ' · asked by ' + esc(it.requestedByName)) + '</div></div>';
+      }).join('') : '<div class="card-box empty">No payment requests in the last 14 days.</div>';
+      each($('pxPaneList').querySelectorAll('.req-open'), function (el) { el.addEventListener('click', function () { openOrder(el.getAttribute('data-id')); }); });
+    }
 
     // Orders on standby (13 Nov 2026): every standby on this CRE's orders, so the customer can be told.
     var sbPane = [];
@@ -2476,7 +2505,7 @@
     // Loading, live refresh and the sign-in hooks
     // =====================================================================
     function loadAll() {
-      loadCreSummary(); loadMyOrders(); loadActionList(); loadPendingPayments(); loadApprovals(); loadCancellations(); loadStandbyPane();
+      loadCreSummary(); loadMyOrders(); loadActionList(); loadPendingPayments(); loadApprovals(); loadCancellations(); loadStandbyPane(); loadPaymentRequests();
       if (window.ICF_RETURNS_LOAD) window.ICF_RETURNS_LOAD();
     }
     loadOrderTypeOptions();
@@ -2504,7 +2533,8 @@
       renderGlance(); renderActions();
       $('payList').innerHTML = '<div class="loading">Loading…</div>'; $('paySide').innerHTML = '';
       $('apprList').innerHTML = '<div class="loading">Loading…</div>'; $('cxList').innerHTML = '<div class="loading">Loading…</div>';
-      ['railPayCount', 'railReqCount', 'apprCount', 'cxCount', 'rtCount', 'sbPaneCount'].forEach(function (id) { $(id).style.display = 'none'; });
+      ['railPayCount', 'railReqCount', 'apprCount', 'cxCount', 'rtCount', 'sbPaneCount', 'pxPaneCount'].forEach(function (id) { $(id).style.display = 'none'; });
+      pxPane = []; $('pxPaneList').innerHTML = '<div class="loading">Loading…</div>';
       sbPane = []; $('sbSideBlock').style.display = 'none'; $('sbPaneList').innerHTML = '<div class="loading">Loading…</div>';
       $('rtList').innerHTML = '<div class="loading">Loading…</div>'; window.ICF_RETURNS_READY = 0;
       findInput.value = ''; findPop.innerHTML = ''; findPop.classList.remove('show');

@@ -909,6 +909,12 @@ function sbSettingsSchema_() {
       rows.push({ label: r[0], def: r[1], help: r[2], kind: 'number', group: 'DACC & Flipkart', min: r[3], max: r[4] });
     });
   }
+  // Balance waivers (13 Nov 2026, Waivers.gs): the admin's limit, in rupees.
+  if (typeof WAIVE_SETTINGS_ROWS !== 'undefined') {
+    WAIVE_SETTINGS_ROWS.forEach(function (r) {
+      rows.push({ label: r[0], def: r[1], help: r[2], kind: 'money', group: 'Approvers', min: r[3], max: r[4] });
+    });
+  }
   // Follow-ups (13 Nov 2026, FollowUps.gs): verification, courier balances, delivery, cancelled-order clear-out.
   if (typeof FU_SETTINGS_ROWS !== 'undefined') {
     FU_SETTINGS_ROWS.forEach(function (r) {

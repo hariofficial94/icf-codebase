@@ -1,0 +1,127 @@
+<!--
+  "Waive a balance" on the Admin page (13 Nov 2026). Pulled in by admin.html with
+  <?!= include('waive_admin'); ?> near the end of <body>. Adds one card under the payment approvals.
+  Up to the director-set limit the admin's waiver applies at once; above it, it goes to
+  the directors (dashboard). Server side: Waivers.js.
+-->
+<style>
+  .wv-card { border-left: 4px solid #6b4c9a; }
+  .wv-card h2 { color: #6b4c9a; }
+  .wv-find { display: flex; gap: 8px; margin-top: 10px; }
+  .wv-find input { flex: 1; }
+  .wv-find button { width: auto; margin: 0; }
+  .wv-order { margin-top: 12px; padding: 12px 14px; border: 1px solid #ddd; border-radius: 6px; background: #fafafa; font-size: 13px; }
+  .wv-order .wv-name { font-size: 14.5px; font-weight: 700; color: #1F3864; }
+  .wv-money { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 8px; }
+  .wv-money div { font-size: 12px; color: #666; }
+  .wv-money b { display: block; font-size: 15px; color: #1F3864; }
+  .wv-money .due b { color: #a33a32; }
+  .wv-order textarea { width: 100%; box-sizing: border-box; margin-top: 8px; }
+  .wv-note { font-size: 12px; margin-top: 6px; color: #6b4c9a; }
+  .wv-pick { padding: 7px 10px; border: 1px solid #ddd; border-radius: 4px; margin-top: 6px; cursor: pointer; background: #fff; }
+  .wv-pick:hover { border-color: #6b4c9a; }
+  .status.Approved { background: #e3f1dc; color: #2c5a1e; }
+</style>
+
+<script>
+(function () {
+  function esc(t) { return String(t == null ? '' : t).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+  function inr(n) { var v = Math.round((Number(n) || 0) * 100) / 100; return '₹' + v.toLocaleString('en-IN'); }
+
+  var card = document.createElement('div');
+  card.className = 'card wv-card';
+  card.innerHTML =
+    '<h2>Waive a balance</h2>' +
+    '<div class="subtitle" id="wvSub">For money that is never going to come – a few rupees short from bank charges, rounding, a small deduction the customer won’t pay. ' +
+      'Waiving closes what’s left to pay on the order (it can then be dispatched or closed). Not for TDS – that is still owed until the certificate comes.</div>' +
+    '<div class="wv-find"><input type="text" id="wvQ" placeholder="Quotation no., phone or customer name"><button type="button" id="wvFind">Find</button></div>' +
+    '<div id="wvOut"></div>' +
+    '<details style="margin-top:14px;"><summary>Recent waivers</summary><div class="table-scroll" id="wvRecent"></div></details>';
+  // Under the payment approvals card (the first card after the page header).
+  var cards = document.querySelectorAll('.wrap > .card');
+  var anchor = null;
+  Array.prototype.forEach.call(cards, function (c) { if (!anchor && c.querySelector('#pxPendingList')) anchor = c; });
+  anchor = anchor || cards[0];
+  if (anchor && anchor.parentNode) anchor.parentNode.insertBefore(card, anchor.nextSibling);
+
+  var LIMIT = null;
+  function loadMeta() {
+    authRun()
+      .withSuccessHandler(function (d) {
+        LIMIT = d.limit;
+        document.getElementById('wvSub').innerHTML = esc(document.getElementById('wvSub').textContent) +
+          ' <b>Your limit: ' + inr(d.limit) + '</b> (set by a director on the Settings page). Above it, the waiver goes to the directors to approve.';
+        var rows = d.recent || [];
+        document.getElementById('wvRecent').innerHTML = rows.length
+          ? '<table><tr><th>Order</th><th>Amount</th><th>Reason</th><th>Status</th><th>By</th></tr>' + rows.map(function (r) {
+              return '<tr><td>' + esc(r.trackerId) + '<div class="sub">' + esc(r.institution) + '</div></td><td>' + inr(r.amount) + '</td>' +
+                '<td>' + esc(r.reason) + '</td><td><span class="status ' + esc(r.status) + '">' + esc(r.status === 'Pending' ? 'With directors' : r.status) + '</span></td>' +
+                '<td>' + esc(r.requestedByName) + '<div class="sub">' + esc(r.decidedBy ? 'decided: ' + r.decidedBy + ', ' + r.decidedAt : r.requestedAt) + '</div></td></tr>';
+            }).join('') + '</table>'
+          : '<div class="empty">None yet.</div>';
+      })
+      .withFailureHandler(function () {})
+      .getWaiverAdmin();
+  }
+
+  function find(q) {
+    var out = document.getElementById('wvOut');
+    q = String(q || '').trim();
+    if (!q) return;
+    out.innerHTML = '<div class="wv-order">Looking up…</div>';
+    authRun()
+      .withSuccessHandler(function (o) {
+        if (o.matches) {
+          out.innerHTML = '<div class="wv-order">Several orders match – choose one:' + o.matches.map(function (m) {
+            return '<div class="wv-pick" data-id="' + esc(m.trackerId) + '"><b>' + esc(m.institution) + '</b> · ' + esc(m.trackerId) + ' · ' + esc(m.status) + '</div>';
+          }).join('') + '</div>';
+          Array.prototype.forEach.call(out.querySelectorAll('.wv-pick'), function (el) { el.addEventListener('click', function () { find(el.getAttribute('data-id')); }); });
+          return;
+        }
+        render(o);
+      })
+      .withFailureHandler(function (e) { out.innerHTML = '<div class="msg show err">' + esc(e.message) + '</div>'; })
+      .getWaiveInfo(q);
+  }
+
+  function render(o) {
+    var out = document.getElementById('wvOut');
+    out.innerHTML = '<div class="wv-order"><div class="wv-name">' + esc(o.institution) + '</div>' +
+      '<div class="sub">' + esc(o.trackerId) + ' · CRE ' + esc(o.cre) + ' · ' + esc(o.status) + (o.deliveryStatus ? ' · ' + esc(o.deliveryStatus) : '') + ' · ' + esc(o.terms) + '</div>' +
+      '<div class="wv-money"><div>Order value<b>' + inr(o.total) + '</b></div><div>Received<b>' + inr(o.paid) + '</b></div><div class="due">Still due<b>' + inr(o.balance) + '</b></div>' +
+        (o.alreadyWaived ? '<div>Waived before<b>' + inr(o.alreadyWaived) + '</b></div>' : '') + '</div>' +
+      (o.canWaive
+        ? '<label style="margin-top:10px;display:block;">Reason (the CRE and Accounts see it)</label><textarea id="wvReason" rows="2" placeholder="e.g. ₹20 short – bank charges; customer won’t pay the difference"></textarea>' +
+          (o.needsDirector ? '<div class="wv-note">' + inr(o.balance) + ' is over your limit of ' + inr(o.limit) + ', so this goes to the directors to approve. The order carries on meanwhile.</div>' : '') +
+          '<div class="actions"><button type="button" id="wvGo">' + (o.needsDirector ? 'Send to the directors' : 'Waive ' + inr(o.balance)) + '</button></div>'
+        : '<div class="msg show err" style="margin-top:10px;">' + esc(o.why) + '</div>') +
+      '<div class="msg" id="wvMsg"></div></div>';
+    var go = document.getElementById('wvGo');
+    if (!go) return;
+    go.addEventListener('click', function () {
+      var reason = document.getElementById('wvReason').value.trim();
+      var msg = document.getElementById('wvMsg');
+      if (reason.length < 5) { msg.textContent = 'Say why it’s being waived.'; msg.className = 'msg show err'; return; }
+      if (!window.confirm((o.needsDirector ? 'Send a waiver of ' : 'Waive ') + inr(o.balance) + ' on ' + o.trackerId + '?' + (o.needsDirector ? '' : '\n\nThe order value goes down by this amount; the billed value is kept on record.'))) return;
+      go.disabled = true; go.textContent = 'Saving…';
+      authRun()
+        .withSuccessHandler(function (r) {
+          msg.className = 'msg show ok';
+          msg.textContent = r.waived ? 'Waived. ' + (r.releasedToOps ? 'The order has gone back to Ops to dispatch. ' : '') + 'The CRE and Accounts have been told.'
+            : 'Sent to the directors (' + r.requestId + '). They decide it from the dashboard.';
+          go.style.display = 'none';
+          loadMeta();
+          if (window.ICF_REFRESH_APPROVALS) window.ICF_REFRESH_APPROVALS();
+        })
+        .withFailureHandler(function (e) { go.disabled = false; go.textContent = o.needsDirector ? 'Send to the directors' : 'Waive ' + inr(o.balance); msg.textContent = e.message; msg.className = 'msg show err'; })
+        .waiveBalance({ trackerId: o.trackerId, reason: reason, amount: o.balance });
+    });
+  }
+
+  document.getElementById('wvFind').addEventListener('click', function () { find(document.getElementById('wvQ').value); });
+  document.getElementById('wvQ').addEventListener('keydown', function (e) { if (e.key === 'Enter') find(this.value); });
+  var prevReload = window.ICF_RELOAD;
+  window.ICF_RELOAD = function () { if (typeof prevReload === 'function') prevReload(); loadMeta(); };
+  loadMeta();
+})();
+</script>

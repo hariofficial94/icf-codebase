@@ -284,7 +284,9 @@ var HEADERS = [
   'Order Type', 'DACC Transporter', 'DACC Arrived At', 'DACC Warehouse', 'DACC Outcome', 'DACC Released At', 'DACC Released By',
   'DACC Alerts Sent', 'Ship By Date', 'Flipkart Alerts Sent', 'Return Credit Applied', 'Return Credit Ref', 'Original Order Value',
   // Flipkart settlements (13 Nov 2026) -- Accounts matches each order to Flipkart's monthly payout. See FollowUps.js. Header cells are filled in automatically.
-  'Flipkart Settlement', 'Flipkart Settlement UTR', 'Flipkart Settled By', 'Flipkart Settled At'
+  'Flipkart Settlement', 'Flipkart Settlement UTR', 'Flipkart Settled By', 'Flipkart Settled At',
+  // Balance waivers (13 Nov 2026) -- see Waivers.js. Total Order Value is reduced by the waiver; the billed value stays in Original Order Value.
+  'Waived Amount', 'Waived By', 'Waived At', 'Waive Reason'
 ];
 
 var DISPATCH_VEHICLE = 'Vehicle';
@@ -2703,7 +2705,8 @@ function getDashboardData_() {
     verifiedBy: col('Verified By'), pickedUpBy: col('Picked Up By'), gpReqBy: col('Gate Pass Requested By'),
     gpIssued: col('Gate Pass Issued Timestamp'), gateOut: col('Gate Out Timestamp'), gateOutBy: col('Gate Out By'),
     // Flipkart kept apart on the owner dashboard (13 Nov 2026).
-    orderType: col('Order Type'), fkSettlement: col('Flipkart Settlement'), fkSettledAt: col('Flipkart Settled At')
+    orderType: col('Order Type'), fkSettlement: col('Flipkart Settlement'), fkSettledAt: col('Flipkart Settled At'),
+    waived: col('Waived Amount')
   };
 
   var out = [];
@@ -2757,7 +2760,8 @@ function getDashboardData_() {
       gateOutBy: C.gateOutBy >= 0 ? String(r[C.gateOutBy] || '').replace(/\s*\([^)]*\)\s*$/, '') : '',
       orderType: C.orderType >= 0 ? normalizeOrderType_(r[C.orderType]) : 'Standard',
       fkSettled: C.fkSettlement >= 0 && String(r[C.fkSettlement] || '') === 'Settled',
-      fkSettledDate: C.fkSettledAt >= 0 ? dashDate_(r[C.fkSettledAt]) : null
+      fkSettledDate: C.fkSettledAt >= 0 ? dashDate_(r[C.fkSettledAt]) : null,
+      waived: C.waived >= 0 ? (Number(r[C.waived]) || 0) : 0
     });
     if (out.length >= 2000) break;
   }
@@ -3040,6 +3044,11 @@ function apiMap_() {
     var extra13 = followUpApiMap_();
     for (var k13 in extra13) map[k13] = extra13[k13];
   }
+  // Balance waivers + CRE payment requests pane (13 Nov 2026) -- Waivers.gs.
+  if (typeof waiverApiMap_ === 'function') {
+    var extra14 = waiverApiMap_();
+    for (var k14 in extra14) map[k14] = extra14[k14];
+  }
   return map;
 }
 
@@ -3113,6 +3122,7 @@ function activityDetail_(fnName, a, result) {
       if (!d && typeof returnsActivityDetail_ === 'function') d = returnsActivityDetail_(fnName, a, result);
       if (!d && typeof inductionActivityDetail_ === 'function') d = inductionActivityDetail_(fnName, a, result);
       if (!d && typeof followUpActivityDetail_ === 'function') d = followUpActivityDetail_(fnName, a, result);
+      if (!d && typeof waiverActivityDetail_ === 'function') d = waiverActivityDetail_(fnName, a, result);
       return d;
   }
 }
@@ -3762,7 +3772,8 @@ function getAdminData_() {
       requestId: r.requestId, trackerId: r.trackerId, institution: inst[r.trackerId.toLowerCase()] || '',
       type: r.type, typeLabel: PX_LABELS[r.type] || r.type, requestedBy: r.requestedBy, requestedByName: r.requestedByName,
       reason: r.reason, amountNote: r.amountNote, status: r.status, requestedAt: fmt(r.requestedAtMs),
-      decidedBy: r.decidedBy, decidedAt: fmt(r.decidedAtMs)
+      decidedBy: r.decidedBy, decidedAt: fmt(r.decidedAtMs),
+      directorOnly: r.type === PX_WAIVE // over the admin's waiver limit: a director approves (13 Nov 2026)
     };
   });
   return { requests: requests, paymentExceptions: paymentExceptions, staff: staff, unownedOpen: openCount['(none)'] || 0, today: todayYmd_() };
@@ -3957,6 +3968,11 @@ PX_LABELS[PX_CORRECTION] = 'Correct advance amount';
 // goes to the Excess Payments tab, never onto the order. See Excess.gs.
 var PX_EXCESS = 'EXCESS_PAYMENT';
 PX_LABELS[PX_EXCESS] = 'Payment with excess';
+// PX_WAIVE "Waive balance" (13 Nov 2026) -- an admin waives what's left on an order; above the
+// director-set limit a director decides. Raised only by waiveBalance_ (Waivers.gs), never by
+// requestPaymentException_. "Corrected Advance" holds the amount to waive.
+var PX_WAIVE = 'WAIVE_BALANCE';
+PX_LABELS[PX_WAIVE] = 'Waive balance';
 
 function getOrCreatePaymentExceptionsSheet_() {
   var ss = SpreadsheetApp.openById(SHEET_ID);
@@ -4108,6 +4124,8 @@ function decidePaymentException_(form) {
     r = readPaymentExceptions_().filter(function (x) { return x.requestId === form.requestId; })[0];
     if (!r) throw new Error('Request not found.');
     if (r.status !== 'Pending') throw new Error('This request was already ' + r.status.toLowerCase() + ' by ' + (r.decidedBy || 'someone') + '.');
+    // Waiver over the admin limit (13 Nov 2026, Waivers.gs): only a director approves; anyone deciding can decline.
+    if (form.approve && r.type === PX_WAIVE) waiveApproveFromRequest_(r, me);
     if (form.approve && r.type === PX_CORRECTION) {
       // Apply the corrected advance to the order now, so Accounts simply
       // verifies against the right figure. Only while still unverified.
@@ -4144,6 +4162,7 @@ function decidePaymentException_(form) {
   } finally {
     lock.releaseLock();
   }
+  if (form.approve && r.type === PX_WAIVE && r._waiveOut) { waiveNotify_(r._waiveOut, r.reason, me); releasedToOps = !!r._waiveOut.releasedToOps; }
   // Declined dispatch-with-balance (Oct 2026): Ops and the CRE are told when the goods are waiting.
   if (!form.approve && r.type === PX_DISPATCH && typeof opsNotifyDispatchDeclined_ === 'function') {
     try { opsNotifyDispatchDeclined_(r, me); } catch (e) { Logger.log('decline notice failed: ' + e); }
@@ -4180,7 +4199,8 @@ function writeAdvancePct_(sheet, row, advance, total) {
  */
 function getApprovalSummary_() {
   var now = Date.now();
-  var px = readPaymentExceptions_().filter(function (r) { return r.status === 'Pending'; });
+  // Waivers over the limit are the directors' (dashboard), not counted for admins (13 Nov 2026).
+  var px = readPaymentExceptions_().filter(function (r) { return r.status === 'Pending' && r.type !== PX_WAIVE; });
   var ar = readAccessRequests_().filter(function (r) { return r.status === 'Pending'; });
   // Standby requests waiting for an admin (Oct 2026). "Pending Director" ones are the directors', not counted here.
   var sb = (typeof readStandby_ === 'function') ? readStandby_().filter(function (r) { return r.status === 'Pending'; }) : [];
@@ -4507,7 +4527,7 @@ function checkApprovalAlerts() {
     var sent = 0;
 
     var jobs = [
-      { list: readPaymentExceptions_(), sheet: getOrCreatePaymentExceptionsSheet_(), col: PX_HEADERS.indexOf('Alerts Sent') + 1,
+      { list: readPaymentExceptions_().filter(function (r) { return r.type !== PX_WAIVE; }), sheet: getOrCreatePaymentExceptionsSheet_(), col: PX_HEADERS.indexOf('Alerts Sent') + 1, // waivers go to the directors directly
         remind: cfg.paymentRemindAfter, escalate: cfg.paymentEscalateAfter,
         label: function (r) { return (PX_LABELS[r.type] || r.type) + ' \u2013 ' + r.trackerId; },
         detail: function (r) { return r.amountNote + '<br>Asked by ' + r.requestedByName + ': ' + r.reason; } },

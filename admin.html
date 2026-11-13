@@ -212,13 +212,15 @@
               '<div class="req-meta">Asked by ' + esc(r.requestedByName) + ' (' + esc(r.requestedBy) + ')</div>' +
             '</div><div class="req-when">' + esc(r.requestedAt) + '</div></div>' +
             '<div class="req-reason">' + esc(r.reason) + '</div>' +
-            '<div class="actions"><button type="button" class="approve">Approve</button>' +
+            (r.directorOnly ? '<div class="req-meta" style="color:#6b4c9a;font-weight:600;">Over the admin waiver limit – a director approves it from the dashboard. You can decline it here.</div>' : '') +
+            '<div class="actions">' + (r.directorOnly ? '' : '<button type="button" class="approve">Approve</button>') +
             '<button type="button" class="decline">Decline</button></div>' +
             '<div class="msg"></div></div>';
         }).join('');
         Array.prototype.forEach.call(box.querySelectorAll('.req'), function (el) {
           var id = el.getAttribute('data-id');
-          el.querySelector('.approve').addEventListener('click', function () { decidePx(el, id, true); });
+          var ap = el.querySelector('.approve');
+          if (ap) ap.addEventListener('click', function () { decidePx(el, id, true); });
           el.querySelector('.decline').addEventListener('click', function () { decidePx(el, id, false); });
         });
       }
@@ -366,6 +368,7 @@
   </script>
   <?!= include('standby_admin'); ?>
   <?!= include('cancel_admin'); ?>
+  <?!= include('waive_admin'); ?>
   <?!= include('returns_admin'); ?>
   <?!= include('standby_direct'); ?>
   <?!= include('induction_admin'); ?>

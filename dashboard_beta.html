@@ -1059,7 +1059,9 @@
       var total = bal(owing), a = bal(notDisp), b1 = bal(dispPO), b2 = bal(dispEnd);
       var w = function (x) { return total > 0 ? (x / total * 100).toFixed(2) + '%' : '0'; };
       var allValue = sum(orders, function (o) { return o.total; }), allAdv = sum(orders, function (o) { return o.advance; });
-      MONEY_SETS = { outstanding: owing, notDisp: notDisp, disp: disp, dispPO: dispPO, dispEnd: dispEnd };
+      // Balances waived (13 Nov 2026): taken off the order value, so shown here to keep them in sight.
+      var waivedList = orders.filter(function (o) { return o.waived > 0; }), waivedAll = sum(waivedList, function (o) { return o.waived; });
+      MONEY_SETS = { outstanding: owing, notDisp: notDisp, disp: disp, dispPO: dispPO, dispEnd: dispEnd, waived: waivedList };
       $('moneyCard').innerHTML =
         '<div class="card-head" style="margin-bottom:6px;"><h3>Outstanding balance ' + infoBtn('outstanding') + '</h3>' +
           '<button class="btn sm ghost" type="button" data-money="outstanding">See orders &rarr;</button></div>' +
@@ -1069,11 +1071,12 @@
         mrow('dispatched', 'disp', 'transparent', 'Already dispatched', 'Goods with the customer, money not in – the risk', b1 + b2, disp.length, ' style="margin-top:2px;"', true) +
         mrow('dispPO', 'dispPO', 'var(--amber)', 'PO customers on credit', 'Dealers / institutions with their own PO', b1, dispPO.length, '', false, true) +
         mrow('dispEnd', 'dispEnd', 'var(--red)', 'End customers', 'Approved to pay after dispatch', b2, dispEnd.length, '', false, true) +
-        '<div class="money-foot"><span>All time: <b>' + inr(allValue) + '</b> logged</span><span><b>' + inr(allAdv) + '</b> received</span><span><b>' + (pct(allAdv, allValue) || 0) + '%</b> collected</span></div>';
+        '<div class="money-foot"><span>All time: <b>' + inr(allValue) + '</b> logged</span><span><b>' + inr(allAdv) + '</b> received</span><span><b>' + (pct(allAdv, allValue) || 0) + '%</b> collected</span>' +
+          (waivedAll ? '<span data-money="waived" style="cursor:pointer;" title="Balances waived (never to be paid). The order value shown is after the waiver.">' + '<b>' + inr(waivedAll) + '</b> waived on ' + plural(waivedList.length, 'order') + '</span>' : '') + '</div>';
       each($('moneyCard').querySelectorAll('[data-money]'), function (el) {
         el.addEventListener('click', function () {
           var k = el.getAttribute('data-money');
-          var titles = { outstanding: 'Outstanding balance', notDisp: 'Balance due – not yet dispatched', disp: 'Balance due – already dispatched', dispPO: 'Dispatched unpaid – PO customers', dispEnd: 'Dispatched unpaid – end customers' };
+          var titles = { waived: 'Balances waived', outstanding: 'Outstanding balance', notDisp: 'Balance due – not yet dispatched', disp: 'Balance due – already dispatched', dispPO: 'Dispatched unpaid – PO customers', dispEnd: 'Dispatched unpaid – end customers' };
           openList(titles[k], MONEY_SETS[k], { money: true });
         });
       });

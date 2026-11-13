@@ -1346,8 +1346,8 @@ function opsReleaseIfCleared_(sheet, row, reason) {
   var id = String(f['Tracker ID']);
   if (opsBlockedFromValues_(id, f['Payment Terms Type'], f['Total Order Value'], f['Advance Received'], null)) return false;
   var paid = computeBalanceDue(f['Total Order Value'], f['Advance Received']) <= 0;
-  if (paid) reason = 'Payment received';
-  else if (!reason) {
+  if (paid && !reason) reason = 'Payment received'; // a waiver (13 Nov 2026) passes its own reason
+  else if (!paid && !reason) {
     var ap = latestPaymentException_(id, PX_DISPATCH);
     reason = 'Dispatch approved without full payment' + (ap && ap.decidedBy ? ' by ' + String(ap.decidedBy).replace(/ \(.*$/, '') : '');
   }

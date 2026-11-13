@@ -116,7 +116,7 @@ function pendingLockSet_() {
   var out = {};
   try {
     readPaymentExceptions_().forEach(function (r) {
-      if (r.type !== PX_DISPATCH && r.status === 'Pending') out[r.trackerId.toLowerCase()] = PX_LABELS[r.type] || r.type;
+      if (r.type !== PX_DISPATCH && r.type !== PX_WAIVE && r.status === 'Pending') out[r.trackerId.toLowerCase()] = PX_LABELS[r.type] || r.type;
     });
   } catch (e) { Logger.log('lock set (payments): ' + e); }
   try {
