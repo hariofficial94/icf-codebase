@@ -909,6 +909,12 @@ function sbSettingsSchema_() {
       rows.push({ label: r[0], def: r[1], help: r[2], kind: 'number', group: 'DACC & Flipkart', min: r[3], max: r[4] });
     });
   }
+  // Follow-ups (13 Nov 2026, FollowUps.gs): verification, courier balances, delivery, cancelled-order clear-out.
+  if (typeof FU_SETTINGS_ROWS !== 'undefined') {
+    FU_SETTINGS_ROWS.forEach(function (r) {
+      rows.push({ label: r[0], def: r[1], help: r[2], kind: 'number', group: 'Follow-ups', min: r[3], max: r[4] });
+    });
+  }
   return rows;
 }
 
@@ -1001,7 +1007,9 @@ function saveSettings_(values) {
      [SB_SETTINGS_ROWS[4][0], SB_SETTINGS_ROWS[5][0]]].concat(typeof OPS_SETTINGS_ROWS !== 'undefined'
       ? [[OPS_SETTINGS_ROWS[0][0], OPS_SETTINGS_ROWS[1][0]], [OPS_SETTINGS_ROWS[2][0], OPS_SETTINGS_ROWS[3][0]], [OPS_SETTINGS_ROWS[6][0], OPS_SETTINGS_ROWS[7][0]]] : [])
      .concat(typeof RENTAL_SETTINGS_ROWS !== 'undefined'
-      ? [[RENTAL_SETTINGS_ROWS[1][0], RENTAL_SETTINGS_ROWS[2][0]], [RENTAL_SETTINGS_ROWS[3][0], RENTAL_SETTINGS_ROWS[4][0]]] : []).forEach(function (p) {
+      ? [[RENTAL_SETTINGS_ROWS[1][0], RENTAL_SETTINGS_ROWS[2][0]], [RENTAL_SETTINGS_ROWS[3][0], RENTAL_SETTINGS_ROWS[4][0]]] : [])
+     .concat(typeof FU_SETTINGS_ROWS !== 'undefined'
+      ? [[FU_SETTINGS_ROWS[2][0], FU_SETTINGS_ROWS[3][0]], [FU_SETTINGS_ROWS[4][0], FU_SETTINGS_ROWS[5][0]]] : []).forEach(function (p) {
       if (Number(get(p[0])) >= Number(get(p[1]))) errors.push('"' + p[1] + '" must be longer than "' + p[0] + '".');
     });
   }
@@ -1047,6 +1055,7 @@ function saveSettings_(values) {
   cache.remove('gate_nudge_hours'); cache.remove('gate_overdue');
   cache.remove('rental_settings');
   cache.remove('ordertype_settings');
+  cache.remove('fu_settings');
   if (changes.length) logActivity_(me, 'Changed settings', '', changes.join('; ').slice(0, 45000));
   return { changed: changes.length, changes: changes };
 }

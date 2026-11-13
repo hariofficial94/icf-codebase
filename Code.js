@@ -282,7 +282,9 @@ var HEADERS = [
   'Payment Follow-up Date', 'Payment Follow-up Note',
   // Order types (Oct 2026): DACC and Flipkart -- see OrderTypes.js. Return credit -- see Returns.js. Header cells are filled in automatically.
   'Order Type', 'DACC Transporter', 'DACC Arrived At', 'DACC Warehouse', 'DACC Outcome', 'DACC Released At', 'DACC Released By',
-  'DACC Alerts Sent', 'Ship By Date', 'Flipkart Alerts Sent', 'Return Credit Applied', 'Return Credit Ref', 'Original Order Value'
+  'DACC Alerts Sent', 'Ship By Date', 'Flipkart Alerts Sent', 'Return Credit Applied', 'Return Credit Ref', 'Original Order Value',
+  // Flipkart settlements (13 Nov 2026) -- Accounts matches each order to Flipkart's monthly payout. See FollowUps.js. Header cells are filled in automatically.
+  'Flipkart Settlement', 'Flipkart Settlement UTR', 'Flipkart Settled By', 'Flipkart Settled At'
 ];
 
 var DISPATCH_VEHICLE = 'Vehicle';
@@ -1512,6 +1514,14 @@ function getCREActionItems_() {
   var otCfg = getOrderTypeSettings_();
   var owners = readOrderOwners_(sheet, numRows);
   var scope = creScope_();
+  // 13 Nov 2026: Logged orders Accounts can't verify (PO missing) and courier orders held for the balance.
+  var termsVals = sheet.getRange(2, getHeaderIndex('Payment Terms Type'), numRows, 1).getValues();
+  var crmVals = sheet.getRange(2, getHeaderIndex('CRM PO URL'), numRows, 1).getValues();
+  var custPoVals = sheet.getRange(2, getHeaderIndex('Customer PO URL'), numRows, 1).getValues();
+  var totalVals = sheet.getRange(2, getHeaderIndex('Total Order Value'), numRows, 1).getValues();
+  var advVals = sheet.getRange(2, getHeaderIndex('Advance Received'), numRows, 1).getValues();
+  var dispTsVals = sheet.getRange(2, getHeaderIndex('Dispatch Timestamp'), numRows, 1).getValues();
+  var fu = (typeof getFollowUpSettings_ === 'function') ? getFollowUpSettings_() : null;
 
   var results = [];
   for (var i = numRows - 1; i >= 0; i--) { // most recently dispatched first
@@ -1524,8 +1534,19 @@ function getCREActionItems_() {
 
     // Ops login (Oct 2026): Ops records the postal receipt themselves, so a
     // courier order at "Sent to Ops" no longer waits on the CRE.
+    var kind = '', balanceDue = 0, missingDocs = '', overdueDays = null;
     if (status === STATUS_READY_PAY) {
       actionLabel = 'Payment needed for dispatch';   // goods ready, customer must pay (Oct 2026)
+    } else if (status === STATUS_HOLD_BALANCE) {
+      kind = 'courierBalance';
+      balanceDue = computeBalanceDue(totalVals[i][0], advVals[i][0]);
+      actionLabel = 'Courier \u2013 collect the balance before it can be posted';
+    } else if (status === 'Logged') {
+      var docsI = docsInfo_({ 'Status': status, 'Payment Terms Type': termsVals[i][0], 'CRM PO URL': crmVals[i][0], 'Customer PO URL': custPoVals[i][0] });
+      if (!docsI.missing.length) continue;
+      kind = 'docsMissing';
+      missingDocs = docsI.missing.join(' and ');
+      actionLabel = 'Upload the ' + missingDocs + ' \u2013 Accounts can\u2019t verify without it';
     } else if (isDispatchedStatus_(status)) {
       if (ds === 'Delivered' || ds === 'Returned') continue; // already closed out
       if (typeof gateWaitingFromValues_ === 'function' && gateWaitingFromValues_(status, dispatchVals[i][0], issuedVals[i][0], gateOutVals[i][0])) continue;
@@ -1547,16 +1568,23 @@ function getCREActionItems_() {
     } else if (orderType === ORDER_TYPE_FLIPKART && isDispatchedStatus_(status)) {
       actionLabel = 'Flipkart \u2013 ' + actionLabel;
     }
+    // Delivery not confirmed well past the wanted-by date (13 Nov 2026): same rule as the reminder email.
+    if (isDispatchedStatus_(status) && fu && orderType !== ORDER_TYPE_FLIPKART) {
+      var dueY = fuDeliveryDueYmd_(deliveryDateVals[i][0], gateOutVals[i][0] || dispTsVals[i][0]);
+      var lateD = dueY ? sbDaysBetween_(dueY, todayYmd_()) : 0;
+      if (lateD >= fu.deliveryRemindDays) { kind = 'deliveryOverdue'; overdueDays = lateD; }
+    }
     results.push({
       trackerId: idVals[i][0],
       institution: instVals[i][0],
       priority: priorityVals[i][0] || 'Normal',
+      kind: kind, balanceDue: balanceDue, missingDocs: missingDocs, deliveryOverdueDays: overdueDays,
       deliveryStatus: actionLabel,
       dispatchType: dispatchType,
       accessNote: access && access !== 'owner' ? access : '',
       daysUntilDelivery: daysUntil,
       orderType: orderType,
-      isUrgent: daccUrgent || (daysUntil !== null && daysUntil <= 3)
+      isUrgent: daccUrgent || kind === 'courierBalance' || kind === 'docsMissing' || kind === 'deliveryOverdue' || (daysUntil !== null && daysUntil <= 3)
     });
     if (results.length >= 50) break;
   }
@@ -2241,6 +2269,18 @@ function submitVerification_(form) {
   // Stored as text so a code like "70141742" isn't turned into a number.
   sheet.getRange(row, getHeaderIndex('Verification Code')).setNumberFormat('@').setValue(code);
 
+  // 13 Nov 2026: a courier order held for its balance waits on the CRE -- tell them now (FollowUps.js keeps reminding).
+  if (holdForBalance) {
+    try {
+      var hf = getRowFields(sheet, row, ['Institution / Customer', 'CRE Code', 'CRE Name']);
+      var holdText = trackerId + ' (' + hf['Institution / Customer'] + ') is verified, but \u20b9' + formatAmount(balanceDue) +
+        ' is still due. It\u2019s a courier order, so Ops can\u2019t post it until the customer pays. Collect it, then tap \u201cCustomer has paid\u201d.';
+      notify_('COURIER_BALANCE_HOLD', trackerId, creRecipientsOrFallback_(hf['CRE Code'], hf['CRE Name']), {
+        subject: 'Collect the balance before posting: ' + trackerId, text: holdText, email: true, link: appUrl_(), linkLabel: 'Open the CRE page',
+        html: '<p>' + opsEsc_(holdText) + '</p>' });
+    } catch (e) { Logger.log('courier hold notice failed: ' + e); }
+  }
+
   return { trackerId: trackerId, verificationCode: code, dispatchType: dispatchType, heldForBalance: holdForBalance, balanceDue: balanceDue,
            noAdvance: advanceAmt <= 0 && !credit, approvedBy: verifyException ? verifyException.decidedBy : '',
            newPaymentRecorded: newPaymentRecorded, advanceAmount: advanceAmt, returnCredit: credit };
@@ -2661,7 +2701,9 @@ function getDashboardData_() {
     dispatchType: col('Dispatch Type'), payHoldH: col('Payment Hold Hours'), payHoldFrom: col('Payment Hold From'),
     // Owner dashboard beta (Oct 2026): who did each step, and the gate times. Extra fields only.
     verifiedBy: col('Verified By'), pickedUpBy: col('Picked Up By'), gpReqBy: col('Gate Pass Requested By'),
-    gpIssued: col('Gate Pass Issued Timestamp'), gateOut: col('Gate Out Timestamp'), gateOutBy: col('Gate Out By')
+    gpIssued: col('Gate Pass Issued Timestamp'), gateOut: col('Gate Out Timestamp'), gateOutBy: col('Gate Out By'),
+    // Flipkart kept apart on the owner dashboard (13 Nov 2026).
+    orderType: col('Order Type'), fkSettlement: col('Flipkart Settlement'), fkSettledAt: col('Flipkart Settled At')
   };
 
   var out = [];
@@ -2712,7 +2754,10 @@ function getDashboardData_() {
       verifiedBy: C.verifiedBy >= 0 ? String(r[C.verifiedBy] || '') : '',
       pickedUpBy: C.pickedUpBy >= 0 ? String(r[C.pickedUpBy] || '') : '',
       gatePassRequestedBy: C.gpReqBy >= 0 ? String(r[C.gpReqBy] || '') : '',
-      gateOutBy: C.gateOutBy >= 0 ? String(r[C.gateOutBy] || '').replace(/\s*\([^)]*\)\s*$/, '') : ''
+      gateOutBy: C.gateOutBy >= 0 ? String(r[C.gateOutBy] || '').replace(/\s*\([^)]*\)\s*$/, '') : '',
+      orderType: C.orderType >= 0 ? normalizeOrderType_(r[C.orderType]) : 'Standard',
+      fkSettled: C.fkSettlement >= 0 && String(r[C.fkSettlement] || '') === 'Settled',
+      fkSettledDate: C.fkSettledAt >= 0 ? dashDate_(r[C.fkSettledAt]) : null
     });
     if (out.length >= 2000) break;
   }
@@ -2990,6 +3035,11 @@ function apiMap_() {
     var extra12 = inductionApiMap_();
     for (var k12 in extra12) map[k12] = extra12[k12];
   }
+  // Workflow-review follow-ups (13 Nov 2026) -- FollowUps.gs.
+  if (typeof followUpApiMap_ === 'function') {
+    var extra13 = followUpApiMap_();
+    for (var k13 in extra13) map[k13] = extra13[k13];
+  }
   return map;
 }
 
@@ -3062,6 +3112,7 @@ function activityDetail_(fnName, a, result) {
       if (!d && typeof orderTypesActivityDetail_ === 'function') d = orderTypesActivityDetail_(fnName, a, result);
       if (!d && typeof returnsActivityDetail_ === 'function') d = returnsActivityDetail_(fnName, a, result);
       if (!d && typeof inductionActivityDetail_ === 'function') d = inductionActivityDetail_(fnName, a, result);
+      if (!d && typeof followUpActivityDetail_ === 'function') d = followUpActivityDetail_(fnName, a, result);
       return d;
   }
 }
@@ -4469,6 +4520,10 @@ function checkApprovalAlerts() {
     if (typeof standbyAlertJob_ === 'function') {
       try { jobs.push(standbyAlertJob_()); } catch (e) { Logger.log('Standby alert job failed: ' + e); }
     }
+    // Cancellation and return requests waiting for the admin (13 Nov 2026, FollowUps.js).
+    if (typeof followUpApprovalJobs_ === 'function') {
+      try { jobs = jobs.concat(followUpApprovalJobs_(cfg)); } catch (e) { Logger.log('Follow-up approval jobs failed: ' + e); }
+    }
 
     jobs.forEach(function (job) {
       job.list.forEach(function (r) {
@@ -4522,6 +4577,10 @@ function checkApprovalAlerts() {
     }
     if (typeof flipkartSweep_ === 'function') {
       try { sent += flipkartSweep_(now, staffMap, cfg); } catch (e) { Logger.log('Flipkart sweep failed: ' + e); }
+    }
+    // Workflow-review follow-ups (13 Nov 2026, FollowUps.js): verification, courier balances, delivery, cancellations, refunds.
+    if (typeof followUpSweep_ === 'function') {
+      try { sent += followUpSweep_(now, staffMap, cfg); } catch (e) { Logger.log('Follow-up sweep failed: ' + e); }
     }
     return sent;
   } finally {

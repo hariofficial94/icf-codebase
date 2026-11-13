@@ -357,6 +357,10 @@
     .waiting .wl { display: flex; flex-direction: column; justify-content: center; padding: 0 6px 0 2px; }
     .waiting .wl b { font-size: 13.5px; }
     .waiting .wl span { font-size: 12px; color: var(--text-3); }
+    .fk-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+    .fk-note { font-size: 12.5px; color: var(--text-3); margin-top: 8px; }
+    .lazy-wait { padding: 18px 8px; text-align: center; color: var(--text-3); font-size: 13px; }
+    @media (max-width: 900px) { .fk-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
     .wbox { padding: 11px 13px; border: 1px dashed var(--border-2); border-radius: 9px; background: var(--bg-2); cursor: pointer; }
     .wbox:hover { border-color: var(--hover-bd); background: var(--hover-card); }
     .wbox .nm { font-size: 12.5px; font-weight: 600; display: flex; justify-content: space-between; gap: 6px; align-items: center; }
@@ -635,15 +639,23 @@
         <div class="flow-foot" id="flowFoot"></div>
       </div>
 
-      <!-- 3. Departments -->
-      <div class="section">
+      <!-- 2b. Flipkart, kept apart (13 Nov 2026): slow monthly payouts would otherwise inflate the stuck numbers -->
+      <div class="section" id="fkSection">
+        <div class="sec-head"><h2>Flipkart orders <button class="info" type="button" data-info="flipkart">i</button> <span class="live-tag">Live</span></h2>
+          <span class="sec-note">Kept separate from everything above and below. Closed once Accounts matches them to Flipkart’s monthly payout.</span></div>
+        <div class="fk-grid" id="fkGrid"></div>
+        <div class="fk-note" id="fkNote"></div>
+      </div>
+
+      <!-- 3. Departments -- this and everything below draw when scrolled near (13 Nov 2026) -->
+      <div class="section" id="secDepts">
         <div class="sec-head"><h2>Departments <button class="info" type="button" data-info="depts">i</button></h2>
           <div class="pane-tools"><span class="sec-note" id="deptNote"></span><div class="pc" id="pc-depts"></div></div></div>
-        <div class="grid g-depts" id="depts"></div>
+        <div class="grid g-depts" id="depts"><div class="lazy-wait">Loading…</div></div>
       </div>
 
       <!-- 4. Attention + standby -->
-      <div class="section grid g-2">
+      <div class="section grid g-2" id="secAttention">
         <div class="card">
           <div class="card-head"><h3>Needs attention</h3><span class="live-tag">Live</span></div>
           <div class="tabs" id="attTabs">
@@ -664,15 +676,15 @@
       </div>
 
       <!-- 5. Where sales come from -->
-      <div class="section">
+      <div class="section" id="secStates">
         <div class="sec-head"><h2>Where sales come from <button class="info" type="button" data-info="states">i</button></h2>
           <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;"><div class="pc" id="pc-states"></div><span class="sec-note">Rank by</span>
             <div class="seg sm" id="geoSeg"><button type="button" data-m="value" class="on">Value</button><button type="button" data-m="count">Orders</button></div></div></div>
-        <div class="card lb" style="padding:6px 8px;" id="states"></div>
+        <div class="card lb" style="padding:6px 8px;" id="states"><div class="lazy-wait">Loading…</div></div>
       </div>
 
       <!-- 6. Trend + products -->
-      <div class="section grid g-trend">
+      <div class="section grid g-trend" id="secTrend">
         <div class="card">
           <div class="card-head"><h3>Monthly trend <button class="info" type="button" data-info="trend">i</button></h3>
             <div style="display:flex; gap:8px;">
@@ -780,7 +792,7 @@
     // =====================================================================
     // State
     // =====================================================================
-    var orders = [], lineItems = null, SB = { records: [], byId: {}, usage: null, pending: 0, withDirector: 0, loaded: false };
+    var orders = [], fkOrders = [], lineItems = null, SB = { records: [], byId: {}, usage: null, pending: 0, withDirector: 0, loaded: false };
     var TARGETS = { accVerify: 4, opsPickup: 9, opsReady: 27, accGatePass: 2, gateOut: 6, onTimePct: 90, stuckDays: 3 };
     var geoMetric = 'value', trendMetric = 'value', trendType = 'bar', prodMetric = 'units', attTab = 'stuck';
     try {
@@ -839,7 +851,13 @@
       for (var j = 0; j < WAITING.length; j++) if (WAITING[j].test(o)) return WAITING[j];
       return { key: 'other', name: o.status || 'Unknown' };
     }
+    function fkStage(o) {
+      if (o.fkSettled) return 'Settled';
+      if (isDispatched(o)) return isDeliveredOrReturned(o) ? (o.deliveryStatus === 'Returned' ? 'Returned \u2013 awaiting payout' : 'Delivered \u2013 awaiting payout') : 'With Flipkart \u2013 awaiting payout';
+      return 'To hand over';
+    }
     function stageName(o) {
+      if (o.orderType === 'Flipkart') return fkStage(o);
       var st = stageOf(o);
       if (st.key === 'closed') return o.deliveryStatus === 'Returned' ? 'Returned' : 'Delivered, paid';
       return st.name;
@@ -945,7 +963,7 @@
     // ⓘ explanations
     // =====================================================================
     var INFO = {
-      howto: ['How to read this page', 'Panels marked Live (the top row, the pipeline, Needs attention, Standby now) show every open order today \u2013 dates don\u2019t apply to them. Every other panel has its own date filter (30 days, 90 days, All time, Custom) that changes only that panel and counts orders LOGGED in that time. A pop-up opens with the dates of the panel it came from and has its own filter too. Click a number to see the orders behind it, and an order to see its timeline.', 'Cancelled orders are left out everywhere. Each browser remembers the dates you last picked on each panel.'],
+      howto: ['How to read this page', 'Panels marked Live (the top row, the pipeline, Needs attention, Standby now) show every open order today \u2013 dates don\u2019t apply to them. Every other panel has its own date filter (30 days, 90 days, All time, Custom) that changes only that panel and counts orders LOGGED in that time. A pop-up opens with the dates of the panel it came from and has its own filter too. Click a number to see the orders behind it, and an order to see its timeline.', 'Cancelled orders are left out everywhere, and Flipkart orders have their own panel (they are not counted anywhere else). Each browser remembers the dates you last picked on each panel.'],
       outstanding: ['Outstanding balance', 'Money still owed on open orders: order value minus everything received so far. It is split into two parts that add up to the total, so nothing is counted twice.', 'Not yet dispatched is the normal case – for end customers it must be paid before the vehicle leaves. Already dispatched is the risk: the goods are with the customer and the money isn’t in.'],
       notDispatched: ['Not yet dispatched', 'Balance on open orders whose goods are still at the factory – including those at the gate with a gate pass but not yet out. End-customer orders can’t leave until this is paid.'],
       dispatched: ['Already dispatched', 'Balance on orders that have left the factory (or were posted by courier) and are not fully paid. Split by why it was allowed to leave unpaid.'],
@@ -970,6 +988,7 @@
       standbyHist: ['Standby history', 'Standbys that STARTED in the chosen dates, including any still running (marked \u201cstill on\u201d). Rate = orders that went on standby \u00f7 orders Accounts verified in the same dates. Days = total standby days; a running standby counts up to today.'],
       states: ['Where sales come from', 'States ranked by order value (or number of orders) logged in the selected period. Share = share of the period’s total. “vs before” compares with the same length of time just before. Balance due = what’s still owed on those orders today. Click a state for its full page: districts and pincodes, products, CREs, trend and every order.'],
       trend: ['Monthly trend', 'Orders logged per month in the selected period, as order value or number of orders. The pie shows each month’s share; with more than 12 months, the older ones are grouped as “Earlier”.'],
+      flipkart: ['Flipkart orders', 'Flipkart orders are shown here only \u2013 they are left out of every other panel (money, pipeline, stuck, departments, states, trend and products). Flipkart pays monthly, so a Flipkart order normally waits weeks for its payout; mixed in, it would make the stuck and outstanding numbers look worse than they are.', 'To hand over = still with Ops; late once the ship-by date has passed. Awaiting payout = handed over at the Flipkart office, not yet matched to a payout. Settled = Accounts matched it to a payout (UTR). Oldest = days since the oldest unsettled order was handed over.'],
       products: ['By product', 'Units ordered (or number of orders containing the product) for orders logged in the period. There’s no value per product: line items record product and quantity only.']
     };
     function openInfo(key) {
@@ -1806,11 +1825,93 @@
     // =====================================================================
     // Loading
     // =====================================================================
+    // =====================================================================
+    // 2b. Flipkart (13 Nov 2026)
+    // =====================================================================
+    var FK_SETS = {};
+    function renderFlipkart() {
+      var all = fkOrders;
+      $('fkSection').style.display = all.length ? '' : 'none';
+      if (!all.length) return;
+      var toHand = all.filter(function (o) { return !isDispatched(o) && !o.fkSettled; });
+      var lateHand = toHand.filter(function (o) { return daysPastDue(o) !== null; });
+      var awaiting = all.filter(function (o) { return isDispatched(o) && !o.fkSettled; });
+      var oldest = awaiting.reduce(function (m, o) { var d = daysSince(o.dispatchDate); return d !== null && d > m ? d : m; }, 0);
+      var since = Date.now() - 30 * DAY;
+      var settled30 = all.filter(function (o) { return o.fkSettled && o.fkSettledDate && o.fkSettledDate >= since; });
+      var returned = all.filter(function (o) { return o.deliveryStatus === 'Returned'; });
+      FK_SETS = { toHand: toHand, awaiting: awaiting, settled30: settled30, returned: returned };
+      var tiles = [
+        ['toHand', 'To hand over', toHand.length, lateHand.length ? lateHand.length + ' past the ship-by date' : 'Ship-by dates on track', lateHand.length ? 'bad' : ''],
+        ['awaiting', 'Awaiting Flipkart payout', awaiting.length, inr(sum(awaiting, function (o) { return o.total; })) + (awaiting.length ? ' · oldest ' + plural(oldest, 'day') : ''), oldest > 45 ? 'warn' : ''],
+        ['settled30', 'Settled, last 30 days', settled30.length, inr(sum(settled30, function (o) { return o.total; })), ''],
+        ['returned', 'Returned', returned.length, 'All time', '']
+      ];
+      $('fkGrid').innerHTML = tiles.map(function (t) {
+        return '<div class="now clickable ' + t[4] + '" data-fk="' + t[0] + '"><div class="l"><span>' + esc(t[1]) + '</span></div>' +
+          '<div class="v">' + t[2] + '</div><div class="s">' + esc(t[3]) + '</div></div>';
+      }).join('');
+      $('fkNote').textContent = plural(all.length, 'Flipkart order') + ' in all, ' + inr(sum(all, function (o) { return o.total; })) + ' sale value.';
+      each($('fkGrid').querySelectorAll('[data-fk]'), function (el) {
+        el.addEventListener('click', function () { var k = el.getAttribute('data-fk'); openList('Flipkart – ' + el.querySelector('.l span').textContent, FK_SETS[k], { age: k === 'awaiting', late: k === 'toHand' }); });
+      });
+    }
+
+    // =====================================================================
+    // Lazy drawing (13 Nov 2026): the top of the page (money, right now, pipeline,
+    // Flipkart) draws as soon as the data is in. The sections below draw when
+    // scrolled near, or when the browser is idle -- whichever comes first.
+    // Product line items are fetched only when the trend/products row is needed.
+    // =====================================================================
+    var LAZY = [
+      { id: 'secDepts', draw: function () { renderDepts(); } },
+      { id: 'secAttention', draw: function () { renderAttention(); renderStandby(); } },
+      { id: 'secStates', draw: function () { renderStates(); } },
+      { id: 'secTrend', draw: function () { renderTrend(); ensureLineItems(); renderProducts(); } }
+    ];
+    var lazyDone = {}, lazyObs = null, lazyIdle = null, lineItemsLoading = false;
+    function drawLazy(sec) {
+      if (lazyDone[sec.id]) return;
+      lazyDone[sec.id] = true;
+      try { sec.draw(); } catch (e) { if (window.console) console.error(e); }
+    }
+    function scheduleLazy() {
+      lazyDone = {};
+      if (lazyObs) lazyObs.disconnect();
+      if (lazyIdle) clearTimeout(lazyIdle);
+      if ('IntersectionObserver' in window) {
+        lazyObs = new IntersectionObserver(function (entries) {
+          entries.forEach(function (en) {
+            if (!en.isIntersecting) return;
+            var sec = LAZY.filter(function (x) { return x.id === en.target.id; })[0];
+            if (sec) { drawLazy(sec); lazyObs.unobserve(en.target); }
+          });
+        }, { rootMargin: '300px 0px' });
+        LAZY.forEach(function (sec) { var el = $(sec.id); if (el) lazyObs.observe(el); });
+      }
+      // Whatever is still undrawn: one section at a time once the page is idle, so scrolling later is instant.
+      var i = 0;
+      (function next() {
+        lazyIdle = setTimeout(function () {
+          while (i < LAZY.length && lazyDone[LAZY[i].id]) i++;
+          if (i >= LAZY.length) return;
+          drawLazy(LAZY[i]); i++; next();
+        }, i === 0 ? 1500 : 400);
+      })();
+    }
+    function ensureLineItems() {
+      if (lineItems !== null || lineItemsLoading) return;
+      lineItemsLoading = true;
+      authRun().withSuccessHandler(function (items) { lineItemsLoading = false; lineItems = items || []; if (orders.length) renderProducts(); })
+        .withFailureHandler(function () { lineItemsLoading = false; $('products').innerHTML = '<div class="empty">Could not load product data.</div>'; })
+        .getAllLineItems();
+    }
+
     function renderAll() {
-      renderMoney(); renderNow(); renderPipeline(); renderPeriod();
+      renderMoney(); renderNow(); renderPipeline(); renderFlipkart(); renderPeriod();
     }
     function renderPeriod() {
-      renderDepts(); renderAttention(); renderStandby(); renderStates(); renderTrend(); renderProducts();
+      scheduleLazy();
     }
     var loadSeq = 0;
     function loadAll() {
@@ -1827,21 +1928,23 @@
           SB.records.forEach(function (r) { var k = r.trackerId.toLowerCase(); (SB.byId[k] = SB.byId[k] || []).push(r); });
         }
         if (got.orders === 'error') return;
-        orders = (got.orders || []).filter(function (o) { return o.status !== 'Cancelled'; });
-        $('loading').style.display = orders.length ? 'none' : 'block';
-        $('loading').textContent = orders.length ? '' : 'No orders logged in the tracker yet.';
-        $('body').style.display = orders.length ? 'block' : 'none';
+        var live = (got.orders || []).filter(function (o) { return o.status !== 'Cancelled'; });
+        // Flipkart orders get their own panel and are left out of every other figure (13 Nov 2026).
+        orders = live.filter(function (o) { return o.orderType !== 'Flipkart'; });
+        fkOrders = live.filter(function (o) { return o.orderType === 'Flipkart'; });
+        $('loading').style.display = live.length ? 'none' : 'block';
+        $('loading').textContent = live.length ? '' : 'No orders logged in the tracker yet.';
+        $('body').style.display = live.length ? 'block' : 'none';
         $('updated').textContent = 'Updated ' + new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' });
-        if (orders.length) renderAll();
+        if (live.length) renderAll();
       }
       authRun().withSuccessHandler(function (d) { got.orders = d || []; done(); })
         .withFailureHandler(function (e) { got.orders = 'error'; $('loading').style.display = 'block'; $('loading').textContent = 'Could not load the dashboard: ' + errText(e); done(); })
         .getDashboardData();
       authRun().withSuccessHandler(function (d) { got.sb = d; done(); }).withFailureHandler(function () { done(); }).getStandbyDashboard();
       authRun().withSuccessHandler(function (d) { got.info = d; done(); }).withFailureHandler(function () { done(); }).getDashboardBetaInfo();
-      authRun().withSuccessHandler(function (items) { lineItems = items || []; if (orders.length) renderProducts(); })
-        .withFailureHandler(function () { $('products').innerHTML = '<div class="empty">Could not load product data.</div>'; })
-        .getAllLineItems();
+      // Product line items load only when the products panel is needed (ensureLineItems); a Refresh re-fetches them if they were loaded.
+      if (lineItems !== null) { lineItems = null; ensureLineItems(); }
       loadDirector();
     }
 
@@ -1862,7 +1965,7 @@
 
     window.ICF_RELOAD = loadAll;
     window.ICF_CLEAR = function () {
-      orders = []; lineItems = null;
+      orders = []; fkOrders = []; lineItems = null;
       $('body').style.display = 'none'; $('loading').style.display = 'block'; $('loading').textContent = 'Loading order data…';
       $('dirPanel').classList.remove('show'); $('dirPanel').innerHTML = '';
       each(document.querySelectorAll('.modal.show'), function (m) { m.classList.remove('show'); });

@@ -26,7 +26,9 @@ var CX_SHEET_NAME = 'Order Cancellations';
 var CX_HEADERS = ['Request ID', 'Requested At', 'Tracker ID', 'Institution / Customer', 'Owner Code', 'Requested By', 'Requested By Name',
   'Reason', 'Status Before', 'Order Value', 'Amount Received', 'Status', 'Decided By', 'Decided At', 'Admin Note',
   'Refund Amount', 'Refund Deadline', 'Refund Status', 'Refund UTR', 'Refund Note', 'Refund Processed By', 'Refund Processed At',
-  'Customer Informed By', 'Customer Informed At', 'History'];
+  'Customer Informed By', 'Customer Informed At', 'History',
+  // 13 Nov 2026 (FollowUps.js): Ops clear-out after a cancellation, and reminder/escalation marks. Appended at the end.
+  'Ops Clear Needed', 'Ops Cleared By', 'Ops Cleared At', 'Ops Clear Note', 'Alerts Sent'];
 var STATUS_CANCELLED = 'Cancelled';
 var CX_REFUND_PROCESSING = 'Processing';
 var CX_REFUND_PROCESSED = 'Processed';
@@ -44,8 +46,20 @@ function getOrCreateCancellationsSheet_() {
     sheet.setFrozenRows(1);
   } else {
     ensureColumns_(sheet, CX_HEADERS.length);
+    cxFillHeaders_(sheet);
   }
   return sheet;
+}
+
+/** Writes header names for columns added later (blank header cells only). Checked once every 6 hours. */
+function cxFillHeaders_(sheet) {
+  var cache = CacheService.getScriptCache(), key = 'cx_hdr_' + CX_HEADERS.length;
+  if (cache.get(key)) return;
+  var row = sheet.getRange(1, 1, 1, CX_HEADERS.length).getValues()[0];
+  for (var i = 0; i < CX_HEADERS.length; i++) {
+    if (String(row[i] || '').trim() === '') sheet.getRange(1, i + 1).setValue(CX_HEADERS[i]).setFontWeight('bold');
+  }
+  cache.put(key, '1', 21600);
 }
 
 function cxCol_(name) {
@@ -90,7 +104,11 @@ function readCancellations_() {
       refundProcessedAtMs: cxMs_(g('Refund Processed At')),
       informedBy: String(g('Customer Informed By') || ''),
       informedAtMs: cxMs_(g('Customer Informed At')),
-      history: String(g('History') || '')
+      history: String(g('History') || ''),
+      opsClearNeeded: String(g('Ops Clear Needed') || '') === 'Y',
+      opsClearedBy: String(g('Ops Cleared By') || ''),
+      opsClearedAtMs: cxMs_(g('Ops Cleared At')),
+      alertsSent: String(g('Alerts Sent') || '')
     };
   }).filter(function (r) { return r.requestId; });
 }
@@ -292,6 +310,8 @@ function decideCancellation_(form) {
       var f = getRowFields(sheet, row, ['Status', 'Advance Received']);
       if (isDispatchedStatus_(f['Status'])) throw new Error('The order was dispatched after this request was raised, so it can’t be cancelled now. Decline it and speak to the CRE.');
       var received = Number(f['Advance Received']) || 0;
+      // 13 Nov 2026: did Ops already have it? Then Ops is told and must clear it out (FollowUps.js).
+      var opsHadIt = typeof cxOpsHadIt_ === 'function' && cxOpsHadIt_(sheet, row);
 
       var refund = !!form.refund;
       var amount = 0, deadline = '';
@@ -317,15 +337,19 @@ function decideCancellation_(form) {
         'Refund Amount': refund ? amount : '',
         'Refund Deadline': refund ? new Date(+p[0], +p[1] - 1, +p[2]) : '',
         'Refund Status': refund ? CX_REFUND_PROCESSING : CX_REFUND_NONE,
-        'History': cxHistory_(r, 'Approved by ' + me.name + (refund ? ', refund ' + cxInr_(amount) + ' by ' + fmtYmd_(deadline) : ', no refund'))
+        'Ops Clear Needed': opsHadIt ? 'Y' : '',
+        'History': cxHistory_(r, 'Approved by ' + me.name + (refund ? ', refund ' + cxInr_(amount) + ' by ' + fmtYmd_(deadline) : ', no refund') +
+          (opsHadIt ? '; Ops had it (' + f['Status'] + ') \u2013 clear-out needed' : ''))
       });
-      out = { requestId: r.requestId, trackerId: r.trackerId, approved: true, refund: refund, refundAmount: amount, refundDeadline: refund ? fmtYmd_(deadline) : '' };
+      out = { requestId: r.requestId, trackerId: r.trackerId, approved: true, refund: refund, refundAmount: amount, refundDeadline: refund ? fmtYmd_(deadline) : '',
+              opsToClear: opsHadIt, statusBefore: f['Status'] };
     }
   } finally {
     lock.releaseLock();
   }
 
   // Emails (outside the lock)
+  if (out.opsToClear) { try { cxNotifyOps_(r, out.statusBefore, me); } catch (e) { Logger.log('cancel -> Ops notice failed: ' + e); } }
   var url = appUrl_();
   var creTo = [cxEmailOf_(r.requestedBy)], creCc = r.ownerCode && r.ownerCode !== r.requestedBy ? [cxEmailOf_(r.ownerCode)] : [];
   var head = '<p>Order: <b>' + cxEsc_(r.trackerId) + '</b> – ' + cxEsc_(r.institution) + '</p>';

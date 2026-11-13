@@ -20,8 +20,8 @@
  *                                    then shows the Print PO button and the
  *                                    verification code to write on it.
  *   Vehicle order: Ops enters the vehicle and site readiness and presses
- *     "Request gate pass"         -> status "Vehicle Confirmed" (or "On Hold -
- *                                    Site Not Ready"); it lands in Accounts'
+ *     "Request gate pass"         -> status "Vehicle Confirmed" (site not
+ *                                    ready = standby request, 13 Nov 2026); it lands in Accounts'
  *                                    Needs Action list. Accounts prints the
  *                                    gate pass as before; Sanju checks it at
  *                                    the gate, so dispatch can't happen
@@ -250,8 +250,9 @@ function getOpsQueue_() {
   var goLive = opsGoLiveMs_();
   var ends = opsStandbyEnds_();
   var data = opsReadOrders_();
-  var out = { newOrders: [], inHand: [], cleared: [], late: [], readyPay: [], siteHold: [], gatePass: [], dispatchedToday: [], standby: [] };
+  var out = { newOrders: [], inHand: [], cleared: [], late: [], readyPay: [], siteHold: [], gatePass: [], dispatchedToday: [], standby: [], cancelled: [] };
   var approvedSet = opsApprovedDispatchSet_();
+  var locks = (typeof pendingLockSet_ === 'function') ? pendingLockSet_() : {}; // 13 Nov 2026: shown on the card, and the clock doesn't nag
   var blockedOf = function (o) {
     return normalizeDispatchType_(o.get('Dispatch Type')) !== DISPATCH_COURIER &&
       opsBlockedFromValues_(o.get('Tracker ID'), o.get('Payment Terms Type'), o.get('Total Order Value'), o.get('Advance Received'), approvedSet);
@@ -280,29 +281,39 @@ function getOpsQueue_() {
     var endMs = ends[id.toLowerCase()] || 0;
     var acked = opsIsAcked_(o.get('Received by Ops Timestamp'), o.get('Ops Cutover'));
     var courier = normalizeDispatchType_(o.get('Dispatch Type')) === DISPATCH_COURIER;
+    var lockLabel = locks[id.toLowerCase()] || '';
     if (status === 'Sent to Ops' && !acked) {
       var nc = opsCard_(o, now, Math.max(opsMs_(o.get('Sent to Ops Timestamp')), endMs), cfg.ackHours);
       nc.paymentPending = blockedOf(o);
+      nc.locked = lockLabel;
+      if (lockLabel) nc.overdue = false;
       out.newOrders.push(nc);
     } else if (status === 'Sent to Ops') {
       var ackMs = opsMs_(o.get('Received by Ops Timestamp')) || goLive;
       var hc = opsCard_(o, now, Math.max(ackMs, endMs), courier ? cfg.postHours : 0);
       hc.paymentPending = blockedOf(o);
+      hc.locked = lockLabel;
+      if (lockLabel) hc.overdue = false;
       (hc.clearedNote ? out.cleared : out.inHand).push(hc);
     } else if (status === STATUS_READY_PAY) {
-      out.readyPay.push(opsCard_(o, now, opsMs_(o.get('Payment Hold From')), 0));
+      // 13 Nov 2026: a standby during the hold doesn't count as waiting time.
+      out.readyPay.push(opsCard_(o, now, Math.max(opsMs_(o.get('Payment Hold From')), endMs), 0));
     } else if (status === 'On Hold - Site Not Ready') {
       var sc = opsCard_(o, now, 0, 0);
       sc.paymentPending = blockedOf(o);
       out.siteHold.push(sc);
     } else if (status === 'Vehicle Confirmed') {
-      var gc = opsCard_(o, now, opsMs_(o.get('Vehicle Confirmed Timestamp')), cfg.acctEscDays * 24);
+      var gc = opsCard_(o, now, Math.max(opsMs_(o.get('Vehicle Confirmed Timestamp')), endMs), cfg.acctEscDays * 24);
       gc.paymentPending = blockedOf(o);
       out.gatePass.push(gc);
     } else if (typeof STATUS_STANDBY !== 'undefined' && status === STATUS_STANDBY) {
       out.standby.push(opsCard_(o, now, 0, 0));
     }
   });
+  // Cancelled after Ops picked it up (13 Nov 2026, FollowUps.js): goods to unload, POs to bin.
+  if (typeof getOpsCancelledToClear_ === 'function') {
+    try { out.cancelled = getOpsCancelledToClear_(); } catch (e) { Logger.log('cancelled-to-clear failed: ' + e); }
+  }
   // Flipkart (Oct 2026): due at the Flipkart office on the ship-by date, whatever the hours say.
   out.newOrders.concat(out.inHand).forEach(function (c) {
     if (c.orderType === ORDER_TYPE_FLIPKART && c.daysToShip !== null && c.daysToShip <= 0) c.overdue = true;
@@ -326,7 +337,8 @@ function getOpsQueue_() {
     late: out.late.length,
     dispatchedToday: out.dispatchedToday.length,
     cleared: out.cleared.length,
-    readyPay: out.readyPay.length
+    readyPay: out.readyPay.length,
+    cancelled: out.cancelled.length
   };
   out.ackHours = cfg.ackHours;
   out.postHours = cfg.postHours;
@@ -603,18 +615,23 @@ function getGatePassQueue_() {
 
 /**
  * Vehicle order is ready: Ops gives the vehicle and site readiness and asks
- * Accounts for the gate pass. form = { trackerId, vehicleNo, siteReadiness: 'Y'|'N' }.
- * Site not ready -> "On Hold - Site Not Ready"; Ops (or Accounts) presses
- * "Site ready now" later, which sends the same request to Accounts.
+ * Accounts for the gate pass. form = { trackerId, vehicleNo, siteReadiness: 'Y' }.
+ * Site not ready -> a standby request (13 Nov 2026), not a hold Ops sets itself.
+ * Orders on the old "On Hold - Site Not Ready" move on via confirmSiteReady_.
  */
 function requestGatePass_(form) {
   opsAssertLive_();
   form = form || {};
   var me = CURRENT_STAFF_;
   var vehicleNo = String(form.vehicleNo || '').trim().toUpperCase();
-  var site = form.siteReadiness === 'Y' ? 'Y' : (form.siteReadiness === 'N' ? 'N' : '');
+  // 13 Nov 2026 (Hari): Ops no longer puts an order on "Site Not Ready" hold itself -- that was a
+  // pause with no approval, no limit and no clock. A site that isn't ready is a customer delay:
+  // Ops asks for standby and an admin decides. Orders already on the old hold still move on
+  // through confirmSiteReady_.
+  if (form.siteReadiness === 'N') throw new Error('Site not ready? Ask for standby instead (reason "Site not ready") \u2013 an admin decides on it.');
+  var site = form.siteReadiness === 'Y' ? 'Y' : '';
   if (!vehicleNo) throw new Error('Enter the vehicle number.');
-  if (!site) throw new Error('Say whether the customer has confirmed the site is ready.');
+  if (!site) throw new Error('Confirm that the customer has said the site is ready. If it isn\u2019t, ask for standby instead.');
   var sheet = getSheet();
   var row = resolveTrackerId(sheet, String(form.trackerId || ''));
   if (row === -1) throw new Error('Order not found.');
@@ -644,7 +661,7 @@ function requestGatePass_(form) {
       'Site Readiness Confirmed': site,
       'Vehicle Confirmed Timestamp': new Date(),
       'Gate Pass Requested By': me.name,
-      'Status': site === 'Y' ? 'Vehicle Confirmed' : 'On Hold - Site Not Ready',
+      'Status': 'Vehicle Confirmed',
       'Cleared For Gate Pass': ''
     });
   } finally {
@@ -950,10 +967,14 @@ function opsSweep_(nowMs, staffMap, alertCfg) {
   var sent = 0;
 
   var fresh = [], untouched = [], ackNudge = [], ackEsc = [], postNudge = [], postEsc = [];
+  var locks = (typeof pendingLockSet_ === 'function') ? pendingLockSet_() : {};
   data.rows.forEach(function (o) {
     var status = String(o.get('Status') || '');
     if (status !== 'Sent to Ops') return;
     var id = String(o.get('Tracker ID'));
+    // 13 Nov 2026: a request waiting for the admin (e.g. a cancellation) locks the order -- Ops can't
+    // move it, so don't remind or escalate Ops about it. Picking up is still allowed, and still counted.
+    var lockedNow = !!locks[id.toLowerCase()];
     var cell = String(o.get('Ops Alerts Sent') || '');
     var endMs = ends[id.toLowerCase()] || 0;
     var acked = opsIsAcked_(o.get('Received by Ops Timestamp'), o.get('Ops Cutover'));
@@ -965,9 +986,10 @@ function opsSweep_(nowMs, staffMap, alertCfg) {
       untouched.push(card);
       if (!opsHasToken_(cell, 'New')) fresh.push(card);
       var h = opsWorkingHours_(startMs, nowMs);
+      if (lockedNow) return;
       if (h >= cfg.ackEscalateHours && !opsHasToken_(cell, 'AckEscalated')) ackEsc.push(card);
       else if (h >= cfg.ackHours && !opsHasToken_(cell, 'AckReminder')) ackNudge.push(card);
-    } else if (courier) {
+    } else if (courier && !lockedNow) {
       var ackMs = Math.max(opsMs_(o.get('Received by Ops Timestamp')) || goLive, endMs);
       var pc = opsCard_(o, nowMs, ackMs, cfg.postHours);
       pc._row = o.row; pc._cell = cell;
@@ -1301,11 +1323,12 @@ function opsStartPayHold_(sheet, row, me) {
   });
   try {
     var staffMap = getStaffMap_(false);
-    var owner = opsOwnerOf_(sheet, row, staffMap);
+    var cf = getRowFields(sheet, row, ['CRE Code', 'CRE Name']);
     var url = appUrl_();
     var text = 'Goods ready for ' + f['Tracker ID'] + ' (' + f['Institution / Customer'] + '), but the customer still has to pay before dispatch. ' +
       'Please collect the payment and tell Accounts – or, if there is an arrangement, ask the admin to dispatch without full payment.';
-    notify_('PAYMENT_NEEDED_FOR_DISPATCH', String(f['Tracker ID']), owner ? [staffRecipient_(owner)] : [], {
+    // 13 Nov 2026: if the CRE is no longer active, the first approver gets it instead of nobody.
+    notify_('PAYMENT_NEEDED_FOR_DISPATCH', String(f['Tracker ID']), creRecipientsOrFallback_(cf['CRE Code'], cf['CRE Name'], staffMap), {
       subject: 'Payment needed for dispatch: ' + f['Tracker ID'], text: text, email: true,
       link: url, linkLabel: 'Open the CRE page', html: '<p>' + opsEsc_(text) + '</p>'
     });
@@ -1522,10 +1545,12 @@ function opsPaymentSweep_(nowMs, staffMap, alertCfg, data, cfg, escalateTo) {
   var accEmails = accounts.map(function (p) { return p.email; }).filter(Boolean);
   var dayMins = Math.max(60, alertCfg.closeMin - alertCfg.openMin);
   var sent = 0;
+  var ends = opsStandbyEnds_(); // 13 Nov 2026: time on standby doesn't count towards these reminders
   data.rows.forEach(function (o) {
     var status = String(o.get('Status') || '');
     var id = String(o.get('Tracker ID'));
     var cell = String(o.get('Ops Alerts Sent') || '');
+    var sbEnd = ends[id.toLowerCase()] || 0;
     var blocked = opsBlockedFromValues_(id, o.get('Payment Terms Type'), o.get('Total Order Value'), o.get('Advance Received'), approved);
     if (status === STATUS_READY_PAY) {
       if (!blocked) { // paid or approved through some other path -- back to Ops
@@ -1534,9 +1559,9 @@ function opsPaymentSweep_(nowMs, staffMap, alertCfg, data, cfg, escalateTo) {
       }
       var fromMs = opsMs_(o.get('Payment Hold From'));
       if (!fromMs) return;
-      var wh = opsWorkingHours_(fromMs, nowMs);
+      var wh = opsWorkingHours_(Math.max(fromMs, sbEnd), nowMs); // tokens stay keyed to fromMs, so nothing is re-sent
       var owner = staffMap[resolveOwnerCode_(o.get('CRE Code'), o.get('CRE Name'), staffMap)];
-      var ownerR = owner && owner.active ? [staffRecipient_(owner)] : [];
+      var ownerR = creRecipientsOrFallback_(o.get('CRE Code'), o.get('CRE Name'), staffMap);
       var line = id + ' (' + String(o.get('Institution / Customer') || '') + ') has been ready for ' + Math.floor(wh / 24) + ' working day(s), waiting for the customer’s payment.';
       if (wh >= cfg.creEscDays * 24 && !opsHasToken_(cell, 'PayEscalated-' + fromMs)) {
         sent += notify_('PAYMENT_FOR_DISPATCH_ESCALATION', id, escalateTo, { subject: 'OVERDUE: payment needed for dispatch – ' + id,
@@ -1551,7 +1576,7 @@ function opsPaymentSweep_(nowMs, staffMap, alertCfg, data, cfg, escalateTo) {
     } else if (status === 'Vehicle Confirmed' && !blocked) {
       var vcMs = opsMs_(o.get('Vehicle Confirmed Timestamp'));
       if (!vcMs) return;
-      var mins = officeMinutesBetween_(vcMs, nowMs, alertCfg);
+      var mins = officeMinutesBetween_(Math.max(vcMs, sbEnd), nowMs, alertCfg);
       var gl = id + ' (' + String(o.get('Institution / Customer') || '') + ') – gate pass requested by ' + (String(o.get('Gate Pass Requested By') || '') || 'Ops') +
         ' at ' + opsFmt_(vcMs) + ', vehicle ' + String(o.get('Vehicle No.') || '') + '.';
       if (mins >= cfg.acctEscDays * dayMins && !opsHasToken_(cell, 'GPEscalated-' + vcMs)) {

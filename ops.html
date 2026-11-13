@@ -152,11 +152,12 @@
     var CURRENT = null;           // order open in the sheet
     var TABS = [
       ['newOrders', 'New orders', 'Verified by Accounts and waiting for you. Pick it up here before you start – that records the time and prepares the PO.'],
+      ['cancelled', 'Cancelled – clear out', 'The customer cancelled after you picked these up. Stop work, unload the goods and put them back, bin the Internal PO and the CRM PO printout – then tap “Cancelled order cleared”.'],
       ['inHand', 'In hand', 'Picked up. Vehicle orders: request the gate pass when ready. Courier orders: record the posting.'],
       ['cleared', 'Cleared – request gate pass', 'The customer’s payment came in (or the admin allowed dispatch). Confirm the vehicle and request the gate pass.'],
       ['late', 'Late for delivery', 'Still with Ops and past the date the customer wanted. Move these first – or, if the customer is causing the delay, ask for standby.'],
       ['readyPay', 'Ready – payment pending', 'Ready to go, waiting for the customer to pay. The CRE is collecting it; your clock is paused. It comes back to “Cleared” when it’s sorted.'],
-      ['siteHold', 'Site not ready', 'Waiting for the customer’s site. Tap “Site is ready now” when they confirm.'],
+      ['siteHold', 'Site not ready (old)', 'Put on hold before 13 Nov 2026, when “site not ready” was still an Ops choice. Tap “Site is ready now” when the customer confirms – or ask for standby. New delays go through standby only.'],
       ['gatePass', 'Gate pass with Accounts', 'With Accounts for the e-way bill and gate pass. Nothing for you until it’s printed.'],
       ['dispatchedToday', 'Dispatched today', 'Gate passes issued and postings recorded today.'],
       ['standby', 'On standby', 'Paused for a customer delay. They come back to “In hand” by themselves on the resume date.'],
@@ -201,10 +202,13 @@
       if (!Q) return;
       document.getElementById('notLive').classList.toggle('show', !Q.live);
       var s = Q.summary;
-      var alertFor = { newOrders: s.newOverdue > 0, inHand: s.inHandOverdue > 0, late: (Q.late || []).length > 0, myRequests: !!(MYREQ && MYREQ.declinedRecent) };
-      var quiet = { siteHold: true, gatePass: true, dispatchedToday: true, standby: true, myRequests: true, readyPay: true, cleared: true };
+      var alertFor = { newOrders: s.newOverdue > 0, inHand: s.inHandOverdue > 0, late: (Q.late || []).length > 0, myRequests: !!(MYREQ && MYREQ.declinedRecent), cancelled: (Q.cancelled || []).length > 0 };
+      var quiet = { cancelled: true, siteHold: true, gatePass: true, dispatchedToday: true, standby: true, myRequests: true, readyPay: true, cleared: true };
       var green = { cleared: (Q.cleared || []).length > 0 };
-      document.getElementById('tabs').innerHTML = TABS.map(function (t) {
+      document.getElementById('tabs').innerHTML = TABS.filter(function (t) {
+        // Shown only while something sits there (13 Nov 2026): the old site-not-ready hold, and cancelled orders to clear.
+        return (t[0] !== 'siteHold' && t[0] !== 'cancelled') || (Q[t[0]] || []).length || TAB === t[0];
+      }).map(function (t) {
         var n = t[0] === 'myRequests' ? (MYREQ ? MYREQ.items.length : 0) : (Q[t[0]] || []).length;
         return '<div class="tile' + (t[0] === TAB ? ' active' : '') + (alertFor[t[0]] ? ' alert' : '') + (green[t[0]] ? ' green' : '') + (quiet[t[0]] && !n ? ' quiet' : '') + '" data-tab="' + t[0] + '">' +
           '<div class="v">' + n + '</div><div class="l">' + esc(t[1]) + '</div></div>';
@@ -224,6 +228,7 @@
         : 'Nothing new waiting.';
 
       if (TAB === 'myRequests') { renderMyRequests(); return; }
+      if (TAB === 'cancelled') { renderCancelled(); return; }
       var items = Q[TAB] || [];
       var list = document.getElementById('list');
       if (!items.length) {
@@ -273,6 +278,33 @@
       });
     }
 
+    // Cancelled after pick-up (13 Nov 2026): confirm the goods are back and the paperwork binned.
+    function renderCancelled() {
+      var list = document.getElementById('list');
+      var items = Q.cancelled || [];
+      if (!items.length) { list.innerHTML = '<div class="empty">No cancelled orders to clear out.</div>'; return; }
+      list.innerHTML = items.map(function (c) {
+        return '<div class="card overdue" data-req="' + esc(c.requestId) + '" style="border-left-color:#B00020;">' +
+          '<div class="row1"><div><div class="inst">' + esc(c.institution) + '<span class="tag pay">CANCELLED</span></div><div class="id">' + esc(c.trackerId) + '</div></div></div>' +
+          '<div class="meta">Cancelled ' + esc(c.cancelledAt) + (c.cancelledBy ? ' by ' + esc(c.cancelledBy) : '') + (c.statusBefore ? '<br>It was at: ' + esc(c.statusBefore === 'Vehicle Confirmed' ? 'gate pass asked' : c.statusBefore === 'Sent to Ops' ? 'in hand' : c.statusBefore) : '') +
+            (c.reason ? '<br>Reason: ' + esc(c.reason) : '') + '</div>' +
+          (c.products ? '<div class="meta">Goods: ' + esc(c.products) + '</div>' : '') +
+          '<textarea class="clr-note" rows="2" placeholder="Note (optional) – e.g. where the goods were put back" style="width:100%;box-sizing:border-box;margin-top:8px;"></textarea>' +
+          '<div class="acts"><button type="button" class="btn green clr">Cancelled order cleared</button></div><div class="err clr-err"></div></div>';
+      }).join('');
+      Array.prototype.forEach.call(list.querySelectorAll('.card'), function (el) {
+        var b = el.querySelector('.clr');
+        b.addEventListener('click', function () {
+          if (!confirm('Confirm: the goods are unloaded and back in place, and the Internal PO and CRM PO printout are binned?')) return;
+          b.disabled = true; b.textContent = 'Saving...';
+          authRun()
+            .withSuccessHandler(function () { toast('Cleared. Thank you.'); loadQueue(); })
+            .withFailureHandler(function (e) { b.disabled = false; b.textContent = 'Cancelled order cleared'; var er = el.querySelector('.clr-err'); er.textContent = e.message; er.classList.add('show'); })
+            .opsClearCancelled({ requestId: el.getAttribute('data-req'), note: el.querySelector('.clr-note').value.trim() });
+        });
+      });
+    }
+
     function cardHtml(c) {
       var waitLine = '';
       if (TAB === 'newOrders') waitLine = 'Waiting ' + hoursText(c.hoursWaiting) + (c.overdue ? ' – OVERDUE' : '');
@@ -295,6 +327,7 @@
           : c.requestedDelivery ? 'Wanted by ' + c.requestedDelivery + (dueText(c.daysUntilDelivery) ? ' (' + dueText(c.daysUntilDelivery) + ')' : '') : '',
           c.orderType === 'DACC' && c.daccTransporter ? 'DACC via ' + c.daccTransporter : '', c.creName ? 'CRE: ' + c.creName : '']
           .filter(Boolean).map(esc).join('<br>') + '</div>' +
+        (c.locked ? '<div class="wait" style="color:#9a5b00;">Locked: ' + esc(c.locked) + ' is with the admin – no reminders while it waits</div>' : '') +
         (waitLine ? '<div class="wait"' + ({ late: 1, dispatchedToday: 1, cleared: 1 }[TAB] || (TAB === 'gatePass' && c.paymentPending) ? ' style="color:' + (TAB === 'late' || TAB === 'gatePass' ? '#B00020' : '#2c7a3f') + ';"' : '') + '>' + esc(waitLine) + '</div>' : '') +
         (TAB === 'newOrders' ? '<div class="acts"><button type="button" class="btn green ack">Acknowledge &amp; pick up</button></div>' : '') +
         '</div>';
@@ -457,9 +490,8 @@
       var pay = !!o.paymentPending;
       return '<div class="panel"><h2>' + (pay ? 'Ready to go? Tell the CRE to collect payment' : 'Ready to go? Request the gate pass') + '</h2>' +
         '<label for="gpVehicle">Vehicle number</label><input type="text" id="gpVehicle" autocapitalize="characters" placeholder="e.g. KL 13 AB 1234" value="' + esc(o.vehicleNo) + '">' +
-        '<label>Customer confirmed the site is ready?</label>' +
-        '<div class="yn"><label id="gpYesL"><input type="radio" name="gpSite" value="Y"> Yes</label><label id="gpNoL"><input type="radio" name="gpSite" value="N"> No – hold</label></div>' +
-        '<div class="hint">“No” puts it on hold here; tap “Site is ready now” when they confirm. If the customer is delaying for days, use standby instead.</div>' +
+        '<label class="chk" style="display:flex;gap:8px;align-items:flex-start;margin-top:12px;"><input type="checkbox" id="gpSiteOk" style="width:auto;margin-top:3px;"> <span>The customer has confirmed the site is ready</span></label>' +
+        '<div class="hint">Site not ready, or the customer is delaying? Don’t request the gate pass – ask for standby below. An admin decides on it.</div>' +
         (pay ? '<div class="hint">Payment is pending, so this goes to the CRE (not Accounts) and your clock stops until it’s paid or approved.</div>' : '') +
         '<div style="display:flex;margin-top:14px;"><button type="button" class="btn" id="gpBtn">' + (pay ? 'Ready – ask CRE to collect payment' : 'Request gate pass') + '</button></div><div class="err" id="gpErr"></div></div>';
     }
@@ -525,25 +557,20 @@
       });
 
       // Gate pass
-      Array.prototype.forEach.call(document.querySelectorAll('input[name=gpSite]'), function (r) {
-        r.addEventListener('change', function () {
-          document.getElementById('gpYesL').classList.toggle('on', r.value === 'Y' && r.checked);
-          document.getElementById('gpNoL').classList.toggle('on', r.value === 'N' && r.checked);
-        });
-      });
       var gpBtn = document.getElementById('gpBtn');
       if (gpBtn) gpBtn.addEventListener('click', function () {
         hideErr('gpErr');
         var v = document.getElementById('gpVehicle').value.trim();
-        var site = (document.querySelector('input[name=gpSite]:checked') || {}).value || '';
+        var siteBox = document.getElementById('gpSiteOk');
+        var site = siteBox && siteBox.checked ? 'Y' : '';
         if (!v) return showErr('gpErr', 'Enter the vehicle number.');
-        if (!site) return showErr('gpErr', 'Choose Yes or No for the site.');
+        if (!site) return showErr('gpErr', 'Tick that the customer confirmed the site is ready. If it isn’t ready, ask for standby instead.');
         var label = gpBtn.textContent;
         gpBtn.disabled = true; gpBtn.textContent = 'Sending...';
         var runner = authRun()
           .withSuccessHandler(function (r) {
             toast(o.paymentPending && site === 'Y' ? 'Sent to the CRE to collect payment – your clock is paused.'
-              : r.siteReady ? 'Gate pass requested – it’s with Accounts now.' : 'Saved. On hold until the site is ready.');
+              : 'Gate pass requested – it’s with Accounts now.');
             openOrder(o.trackerId); loadQueue();
           })
           .withFailureHandler(function (e) { gpBtn.disabled = false; gpBtn.textContent = label; showErr('gpErr', e.message); });

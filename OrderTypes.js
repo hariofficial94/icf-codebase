@@ -227,6 +227,7 @@ function otIntakeRowFields_(ot, me, total) {
     f['Verified By'] = 'Flipkart order (logged by ' + (me ? me.name : 'CRE') + ')';
     f['Verified Date'] = now;
     f['Bank Reference / UTR'] = 'Flipkart – paid through the marketplace settlement';
+    f['Flipkart Settlement'] = 'Awaiting'; // 13 Nov 2026: Accounts matches it to Flipkart's monthly payout (FollowUps.js)
     f['Verification Code'] = generateVerificationCode();
     f['Status'] = 'Sent to Ops';
     f['Sent to Ops Timestamp'] = now;
