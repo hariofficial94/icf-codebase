@@ -89,6 +89,10 @@
     var badge = document.getElementById('fkAccCount');
     var handed = items.filter(function (i) { return i.handedOver; });
     badge.textContent = handed.length; badge.style.display = handed.length ? 'inline-block' : 'none';
+    // The tile in the top strip (the page shows its panes as tiles since Oct 2026).
+    var tv = document.getElementById('statFlipkart'), ts = document.getElementById('statFlipkartSub');
+    if (tv) tv.textContent = handed.length;
+    if (ts) ts.textContent = handed.length ? inr(handed.reduce(function (t, i) { return t + (Number(i.value) || 0); }, 0)) + ' sale value' : 'nothing to match';
     document.getElementById('fkAccSum').textContent = items.length ? items.length + ' unsettled – ' + inr(r.total) + ' sale value (' + handed.length + ' handed over to Flipkart)' : '';
     if (!items.length) { list.className = 'pending-empty'; list.textContent = 'Every Flipkart order is settled.'; syncPay(); return; }
     list.className = '';

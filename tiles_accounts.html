@@ -45,7 +45,8 @@
     payments: function () { var l = document.getElementById('paymentsList'); return l ? l.closest('.side-panel') : null; },
     admin:    function () { return document.querySelector('.side-panel.approvals-panel'); },
     refunds:  function () { return document.querySelector('.side-panel.cx-acc'); },
-    standby:  function () { return document.querySelector('.side-panel.sb-panel'); }
+    standby:  function () { return document.querySelector('.side-panel.sb-panel'); },
+    flipkart: function () { return document.querySelector('.side-panel.fk-acc'); } // 13 Nov 2026 (flipkart_accounts.html)
   };
   var overlay = document.getElementById('tlOverlay');
   var slot = document.getElementById('tlSlot');
