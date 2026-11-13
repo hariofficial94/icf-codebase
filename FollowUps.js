@@ -484,6 +484,9 @@ function getCreStandbyPanel_() {
 // ================================================================
 var FK_SETTLED = 'Settled';
 var FK_AWAITING = 'Awaiting';
+var FK_RETURNED = 'Returned';                 // a Flipkart return was recorded (Returns.gs) -- payout unlikely
+var FK_NO_PAYOUT = 'No payout – returned';    // closed by Accounts: Flipkart won't pay for it
+function fkClosedSettlement_(v) { v = String(v || ''); return v === FK_SETTLED || v.indexOf('No payout') === 0; }
 
 /** Flipkart orders not yet matched to a payout (cancelled ones left out). */
 function getFlipkartSettlements_() {
@@ -493,7 +496,8 @@ function getFlipkartSettlements_() {
     if (normalizeOrderType_(o.get('Order Type')) !== ORDER_TYPE_FLIPKART) return;
     var status = String(o.get('Status') || '');
     if (status === 'Cancelled') return;
-    if (String(o.get('Flipkart Settlement') || '') === FK_SETTLED) return;
+    var fkSet = String(o.get('Flipkart Settlement') || '');
+    if (fkClosedSettlement_(fkSet)) return;
     var handedMs = isDispatchedStatus_(status) ? opsMs_(o.get('Dispatch Timestamp')) : null;
     items.push({
       trackerId: String(o.get('Tracker ID')), institution: String(o.get('Institution / Customer') || ''),
@@ -501,7 +505,8 @@ function getFlipkartSettlements_() {
       loggedAt: opsFmtDate_(o.get('Date Logged')), loggedMs: opsMs_(o.get('Date Logged')) || 0,
       handedOver: handedMs ? opsFmtDate_(o.get('Dispatch Timestamp')) : '', handedMs: handedMs || 0,
       stage: handedMs ? 'Handed over' : 'Not handed over yet', deliveryStatus: String(o.get('Delivery Status') || ''),
-      daysSinceHandover: handedMs ? Math.floor((Date.now() - handedMs) / 86400000) : null
+      daysSinceHandover: handedMs ? Math.floor((Date.now() - handedMs) / 86400000) : null,
+      returned: fkSet === FK_RETURNED || String(o.get('Delivery Status') || '') === 'Returned'
     });
   });
   items.sort(function (a, b) { return (a.handedMs || 9e15) - (b.handedMs || 9e15); }); // oldest hand-over first
@@ -511,9 +516,11 @@ function getFlipkartSettlements_() {
 /**
  * Accounts: one Flipkart payout settles several orders.
  * form = { trackerIds: [...], utr, payoutDate (yyyy-MM-dd), payoutAmount (optional), note }
+ * form.noPayout = true (13 Nov 2026): close returned orders Flipkart won't pay for -- no UTR needed.
  */
 function markFlipkartSettled_(form) {
   form = form || {};
+  if (form.noPayout) return markFlipkartNoPayout_(form);
   var me = CURRENT_STAFF_;
   var ids = (form.trackerIds || []).map(function (x) { return String(x || '').trim(); }).filter(Boolean);
   if (!ids.length) throw new Error('Tick the orders this payout covers.');
@@ -537,7 +544,7 @@ function markFlipkartSettled_(form) {
       var f = getRowFields(sheet, row, ['Tracker ID', 'Order Type', 'Status', 'Flipkart Settlement']);
       if (normalizeOrderType_(f['Order Type']) !== ORDER_TYPE_FLIPKART) throw new Error(id + ' isn’t a Flipkart order.');
       if (f['Status'] === 'Cancelled') throw new Error(id + ' is cancelled.');
-      if (String(f['Flipkart Settlement'] || '') === FK_SETTLED) throw new Error(id + ' is already settled.');
+      if (fkClosedSettlement_(f['Flipkart Settlement'])) throw new Error(id + ' is already closed (' + f['Flipkart Settlement'] + ').');
       return row;
     });
     var payoutDate = sbYmdToDate_(payoutYmd);
@@ -550,6 +557,38 @@ function markFlipkartSettled_(form) {
     lock.releaseLock();
   }
   return { settled: done.length, trackerIds: done, utr: utr };
+}
+
+/** Accounts: returned Flipkart orders that won't be paid out. form = { trackerIds, note } */
+function markFlipkartNoPayout_(form) {
+  var me = CURRENT_STAFF_;
+  var ids = (form.trackerIds || []).map(function (x) { return String(x || '').trim(); }).filter(Boolean);
+  if (!ids.length) throw new Error('Tick the returned orders Flipkart won\u2019t pay for.');
+  var note = String(form.note || '').trim();
+  var sheet = getSheet();
+  var lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  var done = [];
+  try {
+    var rows = ids.map(function (id) {
+      var row = findRowByTrackerId(sheet, id);
+      if (row === -1) throw new Error(id + ' isn\u2019t in the tracker.');
+      var f = getRowFields(sheet, row, ['Order Type', 'Status', 'Flipkart Settlement', 'Delivery Status']);
+      if (normalizeOrderType_(f['Order Type']) !== ORDER_TYPE_FLIPKART) throw new Error(id + ' isn\u2019t a Flipkart order.');
+      if (fkClosedSettlement_(f['Flipkart Settlement'])) throw new Error(id + ' is already closed.');
+      var returned = f['Flipkart Settlement'] === FK_RETURNED || f['Delivery Status'] === 'Returned';
+      if (!returned && note.length < 5) throw new Error(id + ' has no Flipkart return recorded. Record the return on the order first, or add a note saying why Flipkart won\u2019t pay.');
+      return row;
+    });
+    rows.forEach(function (row, i) {
+      setRowFields(sheet, row, { 'Flipkart Settlement': FK_NO_PAYOUT, 'Flipkart Settled By': me.name, 'Flipkart Settled At': new Date() });
+      sheet.getRange(row, getHeaderIndex('Flipkart Settlement UTR')).setNumberFormat('@').setValue('No payout' + (note ? ' \u2013 ' + note : ' \u2013 returned'));
+      done.push(ids[i]);
+    });
+  } finally {
+    lock.releaseLock();
+  }
+  return { settled: done.length, trackerIds: done, noPayout: true };
 }
 
 // ================================================================
@@ -569,7 +608,7 @@ function followUpActivityDetail_(fnName, a, result) {
   a = a || {}; result = result || {};
   switch (fnName) {
     case 'opsClearCancelled': return (a.requestId || '') + (a.note ? ' – ' + a.note : '');
-    case 'markFlipkartSettled': return 'UTR ' + (a.utr || '') + ', ' + (result.settled || 0) + ' order(s): ' + (result.trackerIds || []).join(', ');
+    case 'markFlipkartSettled': return (a.noPayout ? 'No payout (returned)' : 'UTR ' + (a.utr || '')) + ', ' + (result.settled || 0) + ' order(s): ' + (result.trackerIds || []).join(', ');
     default: return '';
   }
 }

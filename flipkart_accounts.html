@@ -45,6 +45,7 @@
       '<input type="text" id="fkAmt" placeholder="Payout amount (optional, after Flipkart’s fees)">' +
       '<input type="text" id="fkNote" placeholder="Note (optional)">' +
       '<button type="button" class="fk-btn" id="fkSave">Mark ticked orders settled</button>' +
+      '<div style="margin-top:8px;font-size:12px;color:#555;">Returned and not in any payout? <button type="button" class="fk-btn" id="fkNoPay" style="background:#a33a32;">Close ticked as “No payout – returned”</button></div>' +
       '<div class="fk-msg" id="fkMsg"></div></div>' +
     '<div class="fk-ok" id="fkOk"></div>';
   // Left column, after the refunds pane (falls back to the right column if the layout changes).
@@ -73,7 +74,9 @@
       var old = i.daysSinceHandover !== null && i.daysSinceHandover > 45;
       return '<label class="fk-row' + (old ? ' old' : '') + '">' +
         '<input type="checkbox" class="fk-chk" value="' + esc(i.trackerId) + '" data-v="' + (Number(i.value) || 0) + '"' + (i.handedOver ? '' : ' disabled title="Not handed over to Flipkart yet"') + '>' +
-        '<span class="fk-main"><span class="fk-inst">' + esc(i.institution) + '</span><div class="fk-sub">' + esc(i.trackerId) + ' &middot; ' +
+        '<span class="fk-main"><span class="fk-inst">' + esc(i.institution) + '</span>' +
+          (i.returned ? ' <span style="background:#fdecee;color:#a33a32;font-size:10px;font-weight:700;padding:1px 6px;border-radius:8px;">RETURNED</span>' : '') +
+          '<div class="fk-sub">' + esc(i.trackerId) + ' &middot; ' +
           (i.handedOver ? 'handed over ' + esc(i.handedOver) + (i.daysSinceHandover !== null ? ' (' + i.daysSinceHandover + ' days ago)' : '') : 'not handed over yet') +
           (i.deliveryStatus ? ' &middot; ' + esc(i.deliveryStatus) : '') + '</div></span>' +
         '<span class="fk-val">' + inr(i.value) + '</span></label>';
@@ -101,6 +104,23 @@
       })
       .withFailureHandler(function (e) { btn.disabled = false; btn.textContent = 'Mark ticked orders settled'; msg.textContent = 'Error: ' + e.message; })
       .markFlipkartSettled({ trackerIds: ids, utr: utr, payoutDate: date, payoutAmount: document.getElementById('fkAmt').value.trim(), note: document.getElementById('fkNote').value.trim() });
+  });
+
+  document.getElementById('fkNoPay').addEventListener('click', function () {
+    var ids = picked(), btn = this, msg = document.getElementById('fkMsg');
+    msg.textContent = '';
+    if (!ids.length) { msg.textContent = 'Tick the returned orders.'; return; }
+    if (!window.confirm('Close ' + ids.length + ' Flipkart order' + (ids.length === 1 ? '' : 's') + ' as “No payout – returned”?\n\nOnly for orders Flipkart sent back and won’t pay for.')) return;
+    btn.disabled = true;
+    authRun()
+      .withSuccessHandler(function (r) {
+        btn.disabled = false;
+        document.getElementById('fkOk').textContent = r.settled + ' order' + (r.settled === 1 ? '' : 's') + ' closed as no payout.';
+        setTimeout(function () { document.getElementById('fkOk').textContent = ''; }, 6000);
+        load();
+      })
+      .withFailureHandler(function (e) { btn.disabled = false; msg.textContent = 'Error: ' + e.message; })
+      .markFlipkartSettled({ trackerIds: ids, noPayout: true, note: document.getElementById('fkNote').value.trim() });
   });
 
   function load() {

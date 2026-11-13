@@ -2759,8 +2759,9 @@ function getDashboardData_() {
       gatePassRequestedBy: C.gpReqBy >= 0 ? String(r[C.gpReqBy] || '') : '',
       gateOutBy: C.gateOutBy >= 0 ? String(r[C.gateOutBy] || '').replace(/\s*\([^)]*\)\s*$/, '') : '',
       orderType: C.orderType >= 0 ? normalizeOrderType_(r[C.orderType]) : 'Standard',
-      fkSettled: C.fkSettlement >= 0 && String(r[C.fkSettlement] || '') === 'Settled',
+      fkSettled: C.fkSettlement >= 0 && (String(r[C.fkSettlement] || '') === 'Settled' || String(r[C.fkSettlement] || '').indexOf('No payout') === 0),
       fkSettledDate: C.fkSettledAt >= 0 ? dashDate_(r[C.fkSettledAt]) : null,
+      fkNoPayout: C.fkSettlement >= 0 && String(r[C.fkSettlement] || '').indexOf('No payout') === 0,
       waived: C.waived >= 0 ? (Number(r[C.waived]) || 0) : 0
     });
     if (out.length >= 2000) break;
@@ -4826,7 +4827,8 @@ function getMyOrders_() {
   var col = function (h) { return sheet.getRange(2, getHeaderIndex(h), n, 1).getValues(); };
   var ids = col('Tracker ID'), inst = col('Institution / Customer'), phones = col('Customer Phone Number'),
       dates = col('Date Logged'), st = col('Status'), ds = col('Delivery Status'), tot = col('Total Order Value'),
-      adv = col('Advance Received'), pri = col('Priority Level'), terms = col('Payment Terms Type');
+      adv = col('Advance Received'), pri = col('Priority Level'), terms = col('Payment Terms Type'),
+      otypes = col('Order Type'); // 13 Nov 2026: for the CRE's Flipkart / DACC filter
   var owners = readOrderOwners_(sheet, n);
   // Gate pass issued but the vehicle not marked out yet (Oct 2026, for the CRE beta page's
   // stages) -- same test the order lookup uses (gateWaitingFromValues_ in Gate.gs).
@@ -4857,6 +4859,7 @@ function getMyOrders_() {
       status: status, deliveryStatus: dstat, total: isCancelledStatus_(status) ? 0 : (Number(tot[i][0]) || 0),
       balance: isCancelledStatus_(status) ? 0 : computeBalanceDue(tot[i][0], adv[i][0]), priority: String(pri[i][0] || 'Normal'),
       paymentTerms: String(terms[i][0] || 'End Customer'),
+      orderType: normalizeOrderType_(otypes[i][0]),
       dateLoggedMs: logged ? logged.getTime() : 0,
       // same rules as getCreSummary_ -- tile number and pop-up always agree
       loggedToday: !!logged && Utilities.formatDate(logged, tz, 'yyyy-MM-dd') === todayStr,

@@ -852,6 +852,7 @@
       return { key: 'other', name: o.status || 'Unknown' };
     }
     function fkStage(o) {
+      if (o.fkNoPayout) return 'Returned – no payout';
       if (o.fkSettled) return 'Settled';
       if (isDispatched(o)) return isDeliveredOrReturned(o) ? (o.deliveryStatus === 'Returned' ? 'Returned \u2013 awaiting payout' : 'Delivered \u2013 awaiting payout') : 'With Flipkart \u2013 awaiting payout';
       return 'To hand over';
@@ -1841,7 +1842,7 @@
       var awaiting = all.filter(function (o) { return isDispatched(o) && !o.fkSettled; });
       var oldest = awaiting.reduce(function (m, o) { var d = daysSince(o.dispatchDate); return d !== null && d > m ? d : m; }, 0);
       var since = Date.now() - 30 * DAY;
-      var settled30 = all.filter(function (o) { return o.fkSettled && o.fkSettledDate && o.fkSettledDate >= since; });
+      var settled30 = all.filter(function (o) { return o.fkSettled && !o.fkNoPayout && o.fkSettledDate && o.fkSettledDate >= since; });
       var returned = all.filter(function (o) { return o.deliveryStatus === 'Returned'; });
       FK_SETS = { toHand: toHand, awaiting: awaiting, settled30: settled30, returned: returned };
       var tiles = [

@@ -53,7 +53,9 @@ var RT_HEADERS = ['Return ID', 'Requested At', 'Tracker ID', 'Institution / Cust
   'Status', 'Decided By', 'Decided At', 'Admin Note', 'Goods Value', 'Reduce Order Value By', 'Resolution', 'Resolution Amount',
   'Refund Days', 'Refund Now', 'Refund Deadline', 'Refund Status', 'Refund UTR', 'Refund Note', 'Refund Processed By', 'Refund Processed At',
   'Credit Used', 'Credit Used On', 'Arrived At', 'Arrived By', 'Inspected At', 'Inspected By', 'Inspection Note', 'Full Return',
-  'Customer Informed By', 'Customer Informed At', 'Alerts Sent', 'History'];
+  'Customer Informed By', 'Customer Informed At', 'Alerts Sent', 'History',
+  // Flipkart returns (13 Nov 2026) -- appended at the end; header cells are filled in automatically.
+  'Flipkart Return ID', 'Flipkart Claim Status', 'Flipkart Claim ID', 'Flipkart Claim Amount', 'Flipkart Claim Note'];
 var RT_LINE_HEADERS = ['Return ID', 'Tracker ID', 'Product', 'Qty Requested', 'Qty Received', 'Outcome', 'Condition Note'];
 
 var RT_REASONS = ['Damaged in transit', 'Wrong product sent', 'Defective product', 'Customer refused at delivery',
@@ -67,6 +69,25 @@ var RT_REFUND_PROCESSED = 'Processed';
 var RT_REFUND_NONE = 'Not required';
 var RT_OPEN_STATUSES = ['Approved', 'Arrived', 'Inspected'];
 
+/*
+ * FLIPKART RETURNS (13 Nov 2026). Flipkart decides a return, not ICF, and Flipkart
+ * refunds the buyer -- so a Flipkart return skips the admin and the money step:
+ *   1. The CRE records it from the order: which kind (courier return before delivery,
+ *      or the buyer returned it), Flipkart's return / shipment ID, what's coming back.
+ *      It is approved at once and goes on Sanju's list ("coming in").
+ *   2. The order's Flipkart Settlement becomes "Returned", so Accounts doesn't wait for
+ *      a payout that won't come (or knows to expect a deduction) -- they close it from
+ *      the Flipkart settlements pane as "No payout – returned".
+ *   3. Sanju logs it in and inspects it as usual. Anything damaged (Repair / Scrap)
+ *      opens a Flipkart claim: the CRE files it on the seller panel, enters the claim ID,
+ *      and later whether Flipkart approved it (and how much) or rejected it.
+ *   4. The CRE closes the return once it's inspected and any claim is decided.
+ */
+var RT_FK_REASONS = ['Flipkart – courier return (not delivered)', 'Flipkart – customer return'];
+var RT_FK_RESOLUTION = 'Flipkart refunds the buyer';
+var FK_CLAIM_TO_FILE = 'To file', FK_CLAIM_FILED = 'Filed', FK_CLAIM_APPROVED = 'Approved', FK_CLAIM_REJECTED = 'Rejected', FK_CLAIM_NONE = 'Not claiming';
+function rtIsFlipkart_(r) { return r.orderType === 'Flipkart' || r.reason === 'Flipkart return' || RT_FK_REASONS.indexOf(r.reason) !== -1; }
+
 // ================================================================
 // Tabs
 // ================================================================
@@ -79,6 +100,12 @@ function rtSheet_() {
     sheet.setFrozenRows(1);
   } else {
     ensureColumns_(sheet, RT_HEADERS.length);
+    var cache = CacheService.getScriptCache(), key = 'rt_hdr_' + RT_HEADERS.length;
+    if (!cache.get(key)) { // columns added later (13 Nov 2026): fill in blank header cells
+      var hdr = sheet.getRange(1, 1, 1, RT_HEADERS.length).getValues()[0];
+      for (var i = 0; i < RT_HEADERS.length; i++) if (!String(hdr[i] || '').trim()) sheet.getRange(1, i + 1).setValue(RT_HEADERS[i]).setFontWeight('bold');
+      cache.put(key, '1', 21600);
+    }
   }
   return sheet;
 }
@@ -153,7 +180,12 @@ function readReturns_() {
       informedBy: String(g('Customer Informed By') || ''),
       informedAtMs: rtMs_(g('Customer Informed At')),
       alertsSent: String(g('Alerts Sent') || ''),
-      history: String(g('History') || '')
+      history: String(g('History') || ''),
+      fkReturnId: String(g('Flipkart Return ID') || ''),
+      fkClaimStatus: String(g('Flipkart Claim Status') || ''),
+      fkClaimId: String(g('Flipkart Claim ID') || ''),
+      fkClaimAmount: Number(g('Flipkart Claim Amount')) || 0,
+      fkClaimNote: String(g('Flipkart Claim Note') || '')
     };
   }).filter(function (r) { return r.returnId; });
 }
@@ -229,11 +261,13 @@ function rtInfoForOrder_(trackerId, raw) {
   var returnable = rtReturnable_(trackerId, all, lines);
   var pending = mine.filter(function (r) { return r.status === 'Pending'; })[0];
   var canRaise = isDispatchedStatus_(status) && !atGate && !pending && returnable.some(function (l) { return l.available > 0; });
+  var fk = normalizeOrderType_(raw['Order Type']) === ORDER_TYPE_FLIPKART;
   return {
+    flipkart: fk,
     canRaise: canRaise,
     whyNot: !isDispatchedStatus_(status) ? (status === 'Cancelled' ? 'Cancelled order.' : 'Not dispatched yet – use a cancellation instead.')
       : atGate ? 'Still at the gate.' : pending ? 'A return request is already waiting for the admin.' : !canRaise ? 'Everything on this order is already being returned.' : '',
-    reasons: RT_REASONS, resolutions: RT_RESOLUTIONS, comingBack: RT_COMING_BACK,
+    reasons: fk ? RT_FK_REASONS : RT_REASONS.filter(function (x) { return x !== 'Flipkart return'; }), resolutions: RT_RESOLUTIONS, comingBack: RT_COMING_BACK,
     returnable: returnable,
     amountReceived: Number(raw['Advance Received']) || 0,
     balanceDue: computeBalanceDue(raw['Total Order Value'], raw['Advance Received']),
@@ -251,9 +285,10 @@ function rtItem_(r, lines) {
     case 'Pending': stageText = 'Waiting for the admin'; break;
     case 'Declined': stageText = 'Declined' + (r.adminNote ? ' – ' + r.adminNote : ''); break;
     case 'Withdrawn': stageText = 'Withdrawn'; break;
-    case 'Approved': stageText = 'Approved – waiting for the goods at the gate' + (r.expectedYmd ? ' (expected ' + fmtYmd_(r.expectedYmd) + ')' : ''); break;
+    case 'Approved': stageText = (rtIsFlipkart_(r) ? 'Recorded – waiting for the packet at the gate' : 'Approved – waiting for the goods at the gate') + (r.expectedYmd ? ' (expected ' + fmtYmd_(r.expectedYmd) + ')' : ''); break;
     case 'Arrived': stageText = 'Goods in at the gate – waiting for inspection'; break;
-    case 'Inspected': stageText = 'Goods in and inspected'; break;
+    case 'Inspected': stageText = r.fkClaimStatus === FK_CLAIM_TO_FILE ? 'Inspected – damaged: file a claim with Flipkart'
+      : r.fkClaimStatus === FK_CLAIM_FILED ? 'Claim filed with Flipkart – waiting for their decision' : 'Goods in and inspected'; break;
     case 'Closed': stageText = 'Closed – customer informed'; break;
     default: stageText = r.status;
   }
@@ -268,6 +303,8 @@ function rtItem_(r, lines) {
     refundProcessedAt: rtFmt_(r.refundProcessedAtMs), creditLeft: credit, creditUsed: r.creditUsed, creditUsedOn: r.creditUsedOn,
     arrivedAt: rtFmt_(r.arrivedAtMs), arrivedBy: r.arrivedBy, inspectedAt: rtFmt_(r.inspectedAtMs), inspectedBy: r.inspectedBy,
     inspectionNote: r.inspectionNote, fullReturn: r.fullReturn, informedAt: rtFmt_(r.informedAtMs),
+    flipkart: rtIsFlipkart_(r), fkReturnId: r.fkReturnId, fkClaimStatus: r.fkClaimStatus, fkClaimId: r.fkClaimId,
+    fkClaimAmount: r.fkClaimAmount, fkClaimNote: r.fkClaimNote,
     lines: ls.map(function (l) { return { product: l.product, qtyRequested: l.qtyRequested, qtyReceived: l.qtyReceived, outcome: l.outcome, note: l.note }; })
   };
 }
@@ -283,10 +320,12 @@ function requestReturn_(form) {
   form = form || {};
   var me = CURRENT_STAFF_;
   var reason = String(form.reason || '').trim();
-  if (RT_REASONS.indexOf(reason) === -1) throw new Error('Choose why the goods are coming back.');
+  if (RT_REASONS.indexOf(reason) === -1 && RT_FK_REASONS.indexOf(reason) === -1) throw new Error('Choose why the goods are coming back.');
   var details = String(form.details || '').trim().slice(0, 1000);
   if (details.length < 5) throw new Error('Add a line on what happened' + (reason.indexOf('DACC') === 0 ? ' – and, if the customer took part of it, what they accepted.' : '.'));
   var comingBack = String(form.comingBackBy || '').trim();
+  var fkReturnId = String(form.flipkartReturnId || '').trim().slice(0, 100);
+  if (RT_FK_REASONS.indexOf(reason) !== -1) comingBack = 'Courier / Flipkart'; // Flipkart sends it back
   if (RT_COMING_BACK.indexOf(comingBack) === -1) throw new Error('Say how the goods are coming back.');
   var expected = String(form.expectedBy || '').trim();
   if (expected && !/^\d{4}-\d{2}-\d{2}$/.test(expected)) throw new Error('Choose the date the goods are expected back, or leave it blank.');
@@ -303,6 +342,11 @@ function requestReturn_(form) {
   if (!isDispatchedStatus_(f['Status'])) {
     throw new Error(f['Status'] === 'Cancelled' ? 'This order is cancelled.' : 'This order hasn’t been dispatched yet – nothing to return. If the customer doesn’t want it, request a cancellation instead.');
   }
+  // Flipkart (13 Nov 2026): Flipkart decides the return and refunds the buyer -- recorded, not requested.
+  var isFk = normalizeOrderType_(f['Order Type']) === ORDER_TYPE_FLIPKART;
+  if (isFk && RT_FK_REASONS.indexOf(reason) === -1) throw new Error('Choose which kind of Flipkart return it is.');
+  if (!isFk && RT_FK_REASONS.indexOf(reason) !== -1) throw new Error('That reason is only for Flipkart orders.');
+  if (isFk && fkReturnId.length < 3) throw new Error('Enter Flipkart’s return or shipment ID (from the seller panel).');
   if (typeof gateWaitingFromValues_ === 'function' && gateWaitingFromValues_(f['Status'], f['Dispatch Type'], f['Gate Pass Issued Timestamp'], f['Gate Out Timestamp'])) {
     throw new Error('The vehicle hasn’t left the gate yet – speak to Ops instead of raising a return.');
   }
@@ -348,6 +392,12 @@ function requestReturn_(form) {
     set('Proposed Resolution', proposed);
     set('Status', 'Pending');
     set('History', Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd-MMM HH:mm') + ' Requested by ' + me.name);
+    if (isFk) {
+      set('Status', 'Approved'); set('Decided By', 'Flipkart return – no approval needed'); set('Decided At', new Date());
+      set('Resolution', RT_FK_RESOLUTION); set('Refund Status', RT_REFUND_NONE); set('Flipkart Return ID', fkReturnId);
+      set('Proposed Resolution', '');
+      set('History', Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd-MMM HH:mm') + ' Flipkart return recorded by ' + me.name + ' (' + fkReturnId + ')');
+    }
     rtSheet_().appendRow(vals);
     var ls = rtLinesSheet_();
     var start = ls.getLastRow() + 1;
@@ -358,6 +408,7 @@ function requestReturn_(form) {
     lock.releaseLock();
   }
 
+  if (isFk) return rtFlipkartRecorded_(trackerId, returnId, reason, fkReturnId, details, cleanLines, expected, me, f);
   var url = appUrl_();
   cxMail_(cxEmailsFor_(['Admin']), [], 'Return request: ' + trackerId + ' – ' + f['Institution / Customer'],
     '<p><b>' + cxEsc_(me.name) + '</b> is asking to take goods back.</p>' +
@@ -379,8 +430,14 @@ function withdrawReturn_(form) {
   try {
     var r = rtFind_((form || {}).returnId);
     if (!r) throw new Error('Return not found.');
-    if (r.status !== 'Pending') throw new Error('This return is already ' + r.status.toLowerCase() + ' – nothing to withdraw.');
+    // A Flipkart return is recorded straight away (13 Nov 2026), so it can be withdrawn until the packet is in.
+    var fkUndo = rtIsFlipkart_(r) && r.status === 'Approved';
+    if (r.status !== 'Pending' && !fkUndo) throw new Error('This return is already ' + r.status.toLowerCase() + ' – nothing to withdraw.');
     if (me.role !== 'Admin' && me.code !== r.requestedBy && me.code !== r.ownerCode) throw new Error('Only ' + r.requestedByName + ' or an admin can withdraw it.');
+    if (fkUndo) {
+      var sh = getSheet(), rw = findRowByTrackerId(sh, r.trackerId);
+      if (rw !== -1 && String(getRowFields(sh, rw, ['Flipkart Settlement'])['Flipkart Settlement']) === 'Returned') setRowFields(sh, rw, { 'Flipkart Settlement': 'Awaiting' });
+    }
     rtWrite_(r.row, { 'Status': 'Withdrawn', 'Decided By': 'Withdrawn by ' + me.name, 'Decided At': new Date(), 'Customer Informed At': new Date(),
       'History': rtHistory_(r, 'Withdrawn by ' + me.name) });
     return { returnId: r.returnId, trackerId: r.trackerId };
@@ -605,6 +662,7 @@ function logReturnArrival_(form) {
     // Is the whole order back now?
     var full = rtReturnable_(r.trackerId).every(function (x) { return x.available === 0; }) && short.length === 0;
     if (full) fields['Full Return'] = 'Y';
+    if (form.inspectNow && rtIsFlipkart_(r) && rtNeedsClaim_(lines)) { fields['Flipkart Claim Status'] = FK_CLAIM_TO_FILE; hist += '; damaged – Flipkart claim to file'; }
     fields['History'] = rtHistory_(r, hist);
     rtWrite_(r.row, fields);
     if (full) {
@@ -649,7 +707,9 @@ function recordReturnInspection_(form) {
     });
     var ls = rtLinesSheet_();
     lines.forEach(function (l) { ls.getRange(l.row, 6, 1, 2).setValues([[l.outcome, l.note]]); });
+    var claim = rtIsFlipkart_(r) && rtNeedsClaim_(lines);
     rtWrite_(r.row, { 'Status': 'Inspected', 'Inspected At': new Date(), 'Inspected By': me.name + ' (' + me.code + ')',
+      'Flipkart Claim Status': claim ? FK_CLAIM_TO_FILE : r.fkClaimStatus,
       'Inspection Note': String(form.note || '').trim().slice(0, 500),
       'History': rtHistory_(r, 'Inspected by ' + me.name + ': ' + lines.filter(function (l) { return l.outcome; }).map(function (l) { return l.product + ' → ' + l.outcome; }).join(', ')) });
   } finally {
@@ -721,8 +781,9 @@ function getReturnsPanel_() {
   }).map(function (r) {
     var it = rtItem_(r, lines);
     it.canAck = rtCanClose_(r);
-    it.ackLabel = r.status === 'Declined' ? 'Seen' : 'Informed the customer';
+    it.ackLabel = r.status === 'Declined' ? 'Seen' : rtIsFlipkart_(r) ? 'Done – nothing more to do' : 'Informed the customer';
     it.waitingOn = r.status === 'Pending' ? 'admin' : r.status === 'Approved' ? 'gate' : r.status === 'Arrived' ? 'inspection'
+      : r.fkClaimStatus === FK_CLAIM_TO_FILE ? 'you (file the Flipkart claim)' : r.fkClaimStatus === FK_CLAIM_FILED ? 'Flipkart (claim)'
       : r.refundStatus === RT_REFUND_PROCESSING ? 'accounts' : '';
     it.whenMs = Math.max(r.requestedAtMs || 0, r.decidedAtMs || 0, r.arrivedAtMs || 0, r.inspectedAtMs || 0, r.refundProcessedAtMs || 0);
     return it;
@@ -732,6 +793,7 @@ function getReturnsPanel_() {
 function rtCanClose_(r) {
   if (r.status === 'Declined') return true;
   if (r.status !== 'Inspected') return false;
+  if (r.fkClaimStatus === FK_CLAIM_TO_FILE || r.fkClaimStatus === FK_CLAIM_FILED) return false; // the Flipkart claim isn't settled yet
   return r.refundStatus !== RT_REFUND_WAITING && r.refundStatus !== RT_REFUND_PROCESSING;
 }
 
@@ -741,7 +803,9 @@ function acknowledgeReturn_(form) {
   var r = rtFind_((form || {}).returnId);
   if (!r) throw new Error('Return not found.');
   if (me.role !== 'Admin' && r.requestedBy !== me.code && r.ownerCode !== me.code) throw new Error('This isn’t your return.');
-  if (!rtCanClose_(r)) throw new Error(r.refundStatus === RT_REFUND_PROCESSING ? 'Wait until Accounts has paid the refund.' : 'Not finished yet – the goods have to be in and inspected first.');
+  if (!rtCanClose_(r)) throw new Error(r.refundStatus === RT_REFUND_PROCESSING ? 'Wait until Accounts has paid the refund.'
+    : (r.fkClaimStatus === FK_CLAIM_TO_FILE || r.fkClaimStatus === FK_CLAIM_FILED) ? 'Record the Flipkart claim first (filed, then approved or rejected) – or mark it “Not claiming”.'
+    : 'Not finished yet – the goods have to be in and inspected first.');
   rtWrite_(r.row, { 'Status': r.status === 'Declined' ? 'Declined' : 'Closed', 'Customer Informed By': me.name, 'Customer Informed At': new Date(),
     'History': rtHistory_(r, (r.status === 'Declined' ? 'Seen by ' : 'Customer informed by ') + me.name) });
   return { returnId: r.returnId, trackerId: r.trackerId };
@@ -807,6 +871,81 @@ function rtPendingList_() {
   });
 }
 
+// ================================================================
+// Flipkart returns (13 Nov 2026) -- see FLIPKART RETURNS at the top
+// ================================================================
+/** Anything damaged needs a claim with Flipkart. */
+function rtNeedsClaim_(lines) {
+  return (lines || []).some(function (l) { return l.qtyReceived > 0 && (l.outcome === 'Scrap' || l.outcome === 'Repair'); });
+}
+
+/** After a Flipkart return is recorded: the order's settlement, and Sanju + the admins are told. */
+function rtFlipkartRecorded_(trackerId, returnId, reason, fkReturnId, details, lines, expected, me, f) {
+  var settleNote = '';
+  try {
+    var sheet = getSheet();
+    var row = findRowByTrackerId(sheet, trackerId);
+    var cur = String(getRowFields(sheet, row, ['Flipkart Settlement'])['Flipkart Settlement'] || '');
+    if (cur === 'Settled') settleNote = 'This order was already settled in a payout – expect Flipkart to deduct it from a later one.';
+    else if (cur.indexOf('No payout') !== 0) setRowFields(sheet, row, { 'Flipkart Settlement': 'Returned' });
+  } catch (e) { Logger.log('flipkart return -> settlement failed: ' + e); }
+  var url = appUrl_();
+  var head = '<p>Flipkart return <b>' + cxEsc_(returnId) + '</b> for order <b>' + cxEsc_(trackerId) + '</b> – ' + cxEsc_(f['Institution / Customer']) + '<br>' +
+    cxEsc_(reason) + ' · Flipkart ID ' + cxEsc_(fkReturnId) + '<br>' + cxEsc_(details) + '</p>' +
+    '<p>Coming back: ' + lines.map(function (l) { return l.qty + ' × ' + cxEsc_(l.product); }).join(', ') + (expected ? ', expected ' + fmtYmd_(expected) : '') + '</p>';
+  var gate = cxEmailsFor_(['Gate']);
+  if (gate.length) cxMail_(gate, [], 'Flipkart return coming in: ' + trackerId, head + '<p>Log it in on the Gate page when the packet arrives, and check its condition.</p>',
+    url ? url + '?page=gate' : '', 'Open the Gate page');
+  cxMail_(cxEmailsFor_(['Admin']), [], 'Flipkart return recorded: ' + trackerId, head + '<p>Recorded by ' + cxEsc_(me.name) + '. No approval needed – Flipkart refunds the buyer.</p>' +
+    (settleNote ? '<p>' + cxEsc_(settleNote) + '</p>' : ''), '', '');
+  return { returnId: returnId, trackerId: trackerId, flipkart: true, settleNote: settleNote };
+}
+
+/**
+ * CRE: the Flipkart claim for damaged returned goods.
+ * form = { returnId, status: 'Filed' | 'Approved' | 'Rejected' | 'Not claiming', claimId, amount, note }
+ */
+function recordFlipkartClaim_(form) {
+  form = form || {};
+  var me = CURRENT_STAFF_;
+  var lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  var r;
+  try {
+    r = rtFind_(form.returnId);
+    if (!r) throw new Error('Return not found.');
+    if (me.role !== 'Admin' && r.requestedBy !== me.code && r.ownerCode !== me.code) throw new Error('This isn’t your return.');
+    if (r.fkClaimStatus !== FK_CLAIM_TO_FILE && r.fkClaimStatus !== FK_CLAIM_FILED) throw new Error('There’s no open Flipkart claim on this return.');
+    var st = String(form.status || '');
+    var note = String(form.note || '').trim().slice(0, 500);
+    var fields = {};
+    if (st === FK_CLAIM_FILED) {
+      var cid = String(form.claimId || '').trim();
+      if (cid.length < 3) throw new Error('Enter the claim ID from the seller panel.');
+      fields = { 'Flipkart Claim Status': FK_CLAIM_FILED, 'Flipkart Claim ID': cid };
+    } else if (st === FK_CLAIM_APPROVED) {
+      if (r.fkClaimStatus !== FK_CLAIM_FILED) throw new Error('Record the claim as filed first.');
+      var amt = rtNum_(form.amount);
+      if (!(amt > 0)) throw new Error('Enter the amount Flipkart approved.');
+      fields = { 'Flipkart Claim Status': FK_CLAIM_APPROVED, 'Flipkart Claim Amount': amt };
+    } else if (st === FK_CLAIM_REJECTED) {
+      if (r.fkClaimStatus !== FK_CLAIM_FILED) throw new Error('Record the claim as filed first.');
+      if (note.length < 3) throw new Error('Add Flipkart’s reason for rejecting it.');
+      fields = { 'Flipkart Claim Status': FK_CLAIM_REJECTED };
+    } else if (st === FK_CLAIM_NONE) {
+      if (note.length < 3) throw new Error('Say why no claim is being filed.');
+      fields = { 'Flipkart Claim Status': FK_CLAIM_NONE };
+    } else throw new Error('Unknown claim step.');
+    if (note) fields['Flipkart Claim Note'] = (r.fkClaimNote ? r.fkClaimNote + ' | ' : '') + note;
+    fields['History'] = rtHistory_(r, 'Flipkart claim ' + st.toLowerCase() + ' – ' + me.name + (fields['Flipkart Claim ID'] ? ' (' + fields['Flipkart Claim ID'] + ')' : '') +
+      (fields['Flipkart Claim Amount'] ? ', ' + rtInr_(fields['Flipkart Claim Amount']) : '') + (note ? ': ' + note : ''));
+    rtWrite_(r.row, fields);
+  } finally {
+    lock.releaseLock();
+  }
+  return { returnId: r.returnId, trackerId: r.trackerId, status: form.status };
+}
+
 function returnsApiMap_() {
   return {
     requestReturn:           { fn: requestReturn_,           roles: ['CRE'], log: 'Requested return' },
@@ -818,7 +957,8 @@ function returnsApiMap_() {
     decideReturn:            { fn: decideReturn_,            roles: [], log: 'Decided return' },
     getReturnsGate:          { fn: getReturnsGate_,          roles: ['Gate'] },
     logReturnArrival:        { fn: logReturnArrival_,        roles: ['Gate'], log: 'Return goods in at gate' },
-    recordReturnInspection:  { fn: recordReturnInspection_,  roles: ['Gate'], log: 'Inspected returned goods' }
+    recordReturnInspection:  { fn: recordReturnInspection_,  roles: ['Gate'], log: 'Inspected returned goods' },
+    recordFlipkartClaim:     { fn: recordFlipkartClaim_,     roles: ['CRE'], log: 'Flipkart claim' }
   };
 }
 
@@ -831,6 +971,7 @@ function returnsActivityDetail_(fnName, a, result) {
     case 'logReturnArrival': return (result.returnId || a.returnId || '') + (result.inspected ? ' – in and inspected' : ' – in, inspection later') + (result.fullReturn ? ' (whole order back)' : '') + (result.short ? ' – ' + result.short + ' line(s) short' : '');
     case 'recordReturnInspection': return result.returnId || a.returnId || '';
     case 'acknowledgeReturn': return a.returnId || '';
+    case 'recordFlipkartClaim': return (a.returnId || '') + ' – ' + (a.status || '') + (a.claimId ? ' ' + a.claimId : '') + (a.amount ? ', Rs. ' + a.amount : '') + (a.note ? ': ' + a.note : '');
     default: return '';
   }
 }

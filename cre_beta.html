@@ -649,8 +649,9 @@
                 <div class="field"><label class="lbl">Delivery</label><select class="inp" id="oDelivery">
                   <option value="all">All</option><option value="none">Not dispatched yet</option><option value="Pending">Pending</option>
                   <option value="In Transit">In Transit</option><option value="Delivered">Delivered</option><option value="Returned">Returned</option></select></div>
-                <div class="field"><label class="lbl">Order type</label><select class="inp" id="oType">
-                  <option value="all">All</option><option value="End Customer">End Customer</option><option value="PO Customer">PO Customer</option></select></div>
+                <div class="field"><label class="lbl">Payment terms / order type</label><select class="inp" id="oType">
+                  <option value="all">All</option><option value="End Customer">End Customer</option><option value="PO Customer">PO Customer</option>
+                  <option value="Flipkart">Flipkart</option><option value="DACC">DACC</option></select></div>
                 <div class="field row2">
                   <div><label class="lbl">Logged from</label><input class="inp" type="date" id="oFrom"></div>
                   <div><label class="lbl">Logged to</label><input class="inp" type="date" id="oTo"></div>
@@ -1181,7 +1182,10 @@
         if (fromMs && o.dateLoggedMs < fromMs) return false;
         if (toMs && o.dateLoggedMs > toMs) return false;
         if (stage !== 'all' && o.status !== stage) return false;
-        if (type !== 'all' && o.paymentTerms !== type) return false;
+        // 13 Nov 2026: Flipkart and DACC too. Flipkart = its own payment terms; DACC = an End Customer order type.
+        if (type === 'Flipkart' && o.paymentTerms !== 'Flipkart' && o.orderType !== 'Flipkart') return false;
+        else if (type === 'DACC' && o.orderType !== 'DACC') return false;
+        else if (type !== 'all' && type !== 'Flipkart' && type !== 'DACC' && o.paymentTerms !== type) return false;
         if (del !== 'all') {
           if (del === 'none') { if (isDispatched(o.status)) return false; }
           else if (!isDispatched(o.status) || (o.deliveryStatus || 'Pending') !== del) return false;

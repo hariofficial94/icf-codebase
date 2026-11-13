@@ -147,7 +147,7 @@
         (info.shipBy ? ' by <b>' + esc(info.shipBy) + '</b>' + (late ? ' – <b>' + (-due) + ' day' + (due === -1 ? '' : 's') + ' late</b>' : today ? ' – <b>today</b>' : '') : '') + '.</div></div>';
     }
     return h + '<div class="act-card teal"><div class="msg">Handed over at the Flipkart office' + (o.courierName && o.courierName !== 'Flipkart' ? ' (' + esc(o.courierName) + ')' : '') +
-      (o.trackingNo ? ' – shipment ' + esc(o.trackingNo) : '') + '. Mark it <b>Delivered</b> once the seller panel shows it delivered. If Flipkart sends it back, raise a return (“Flipkart return”).</div></div>';
+      (o.trackingNo ? ' – shipment ' + esc(o.trackingNo) : '') + '. Mark it <b>Delivered</b> once the seller panel shows it delivered. If Flipkart sends it back, record it under Returns (“Flipkart sent it back?”).</div></div>';
   }
 
   // ---------- Returns ----------
@@ -161,7 +161,51 @@
     else if (r.resolution === 'Replacement order' || r.resolution === 'Credit on a future order') {
       bits.push(esc(r.resolution) + ': credit ' + inr(r.resolutionAmount) + (r.creditUsedOn ? ', used on ' + esc(r.creditUsedOn) : '') + (r.creditLeft > 0 ? ' – <b>' + inr(r.creditLeft) + ' left</b>: log the new PO with “Apply return credit” = ' + esc(r.returnId) : ''));
     } else if (r.resolution) bits.push(esc(r.resolution));
+    if (r.fkReturnId) bits.push('Flipkart ID ' + esc(r.fkReturnId));
+    if (r.fkClaimStatus) bits.push('Flipkart claim: ' + esc(r.fkClaimStatus) + (r.fkClaimId ? ' (' + esc(r.fkClaimId) + ')' : '') +
+      (r.fkClaimAmount ? ' – ' + inr(r.fkClaimAmount) + ' approved' : '') + (r.fkClaimNote ? ' – ' + esc(r.fkClaimNote) : ''));
     return bits.join('<br>');
+  }
+
+  // Flipkart claim for damaged returned goods (13 Nov 2026): file it on the seller panel, then record each step here.
+  function claimHtml(r, mine) {
+    if (!mine || (r.fkClaimStatus !== 'To file' && r.fkClaimStatus !== 'Filed')) return '';
+    var id = esc(r.returnId);
+    if (r.fkClaimStatus === 'To file') {
+      return '<div class="act-card red fk-claim" data-rid="' + id + '" style="margin-top:8px;"><h4>Damaged – claim it from Flipkart</h4>' +
+        '<div class="msg">Sanju found damage. File a claim on the Flipkart seller panel (with the photos), then enter the claim ID here.</div>' +
+        '<div class="field"><input class="inp fkc-id" type="text" placeholder="Claim ID from the seller panel"></div>' +
+        '<div class="act-actions"><button class="btn primary sm fkc-go" type="button" data-st="Filed">Claim filed</button>' +
+        '<button class="btn ghost sm fkc-go" type="button" data-st="Not claiming">Not claiming…</button></div>' +
+        '<div class="field fkc-notebox" style="display:none;"><input class="inp fkc-note" type="text" placeholder="Why no claim (e.g. damage too small, past Flipkart’s window)"></div>' +
+        '<div class="err fkc-err"></div></div>';
+    }
+    return '<div class="act-card amber fk-claim" data-rid="' + id + '" style="margin-top:8px;"><h4>Flipkart claim ' + esc(r.fkClaimId) + ' – waiting for Flipkart</h4>' +
+      '<div class="msg">When Flipkart decides, record it here. An approved amount comes in a later payout.</div>' +
+      '<div class="field row2"><div><input class="inp mono fkc-amt" type="number" min="0" step="1" placeholder="Amount approved (₹)"></div>' +
+        '<div><input class="inp fkc-note" type="text" placeholder="Note / Flipkart’s reason if rejected"></div></div>' +
+      '<div class="act-actions"><button class="btn primary sm fkc-go" type="button" data-st="Approved">Approved</button>' +
+      '<button class="btn danger sm fkc-go" type="button" data-st="Rejected">Rejected</button></div><div class="err fkc-err"></div></div>';
+  }
+  function bindClaims(root, after) {
+    C.each(root.querySelectorAll('.fk-claim'), function (card) {
+      C.each(card.querySelectorAll('.fkc-go'), function (b) {
+        b.addEventListener('click', function (ev) {
+          ev.stopPropagation();
+          var st = b.getAttribute('data-st'), err = card.querySelector('.fkc-err');
+          var nb = card.querySelector('.fkc-notebox');
+          if (st === 'Not claiming' && nb && nb.style.display === 'none') { nb.style.display = ''; card.querySelector('.fkc-note').focus(); return; }
+          var form = { returnId: card.getAttribute('data-rid'), status: st,
+            claimId: (card.querySelector('.fkc-id') || {}).value || '', amount: (card.querySelector('.fkc-amt') || {}).value || '',
+            note: (card.querySelector('.fkc-note') || {}).value || '' };
+          C.busy(b, 'Saving…');
+          authRun().withSuccessHandler(function () { after(); })
+            .withFailureHandler(function (e) { C.unbusy(b); C.showErr(err, errText(e)); })
+            .recordFlipkartClaim(form);
+        });
+      });
+      C.each(card.querySelectorAll('input'), function (i) { i.addEventListener('click', function (ev) { ev.stopPropagation(); }); });
+    });
   }
   function toneOf(r) {
     return r.status === 'Pending' ? 'amber' : r.status === 'Declined' ? 'red' : r.status === 'Closed' || r.status === 'Withdrawn' ? 'grey' : r.status === 'Inspected' ? 'teal' : 'blue';
@@ -174,7 +218,8 @@
       (r.details ? '<div class="rt-sub">' + esc(r.details) + '</div>' : '') +
       (money(r) ? '<div class="rt-l">' + money(r) + '</div>' : '') +
       (r.adminNote ? '<div class="rt-sub">Admin: ' + esc(r.adminNote) + '</div>' : '') +
-      (r.status === 'Pending' && mine ? '<div class="act-actions"><button class="btn danger sm rt-wd" type="button" data-id="' + esc(r.returnId) + '">Withdraw request</button></div>' : '') +
+      ((r.status === 'Pending' || (r.flipkart && r.status === 'Approved')) && mine ? '<div class="act-actions"><button class="btn danger sm rt-wd" type="button" data-id="' + esc(r.returnId) + '">' + (r.flipkart && r.status === 'Approved' ? 'Recorded by mistake – withdraw' : 'Withdraw request') + '</button></div>' : '') +
+      claimHtml(r, mine) +
       '</div>';
   }
 
@@ -188,10 +233,11 @@
     box.style.display = '';
     box.innerHTML = '<div class="dr-sec-title">Returns</div>' +
       R.list.map(function (r) { return returnCardHtml(r, me.code && (r.requestedBy === me.code || r.ownerCode === me.code || me.role === 'Admin')); }).join('') +
-      (canAct && R.canRaise ? '<button class="btn ghost sm" type="button" id="rtToggle" style="margin:8px 0 0 -10px;">&#8634;&nbsp; Goods coming back?</button><div id="rtFormBox"></div>' : '') +
+      (canAct && R.canRaise ? '<button class="btn ghost sm" type="button" id="rtToggle" style="margin:8px 0 0 -10px;">&#8634;&nbsp; ' + (R.flipkart ? 'Flipkart sent it back?' : 'Goods coming back?') + '</button><div id="rtFormBox"></div>' : '') +
       '<div class="err" id="rtErr"></div>';
     var tg = $('rtToggle');
     if (tg) tg.addEventListener('click', function () { if ($('rtFormBox').innerHTML) $('rtFormBox').innerHTML = ''; else openReturnForm(o, '', ''); });
+    bindClaims(box, function () { reopen(o.trackerId); });
     C.each(box.querySelectorAll('.rt-wd'), function (b) {
       b.addEventListener('click', function () {
         if (!window.confirm('Withdraw return request ' + b.getAttribute('data-id') + '?')) return;
@@ -207,6 +253,46 @@
     return (blank ? '<option value="">' + esc(blank) + '</option>' : '') + list.map(function (x) { return '<option value="' + esc(x) + '"' + (x === sel ? ' selected' : '') + '>' + esc(x) + '</option>'; }).join('');
   }
 
+  // Flipkart (13 Nov 2026): recorded, not requested -- Flipkart decides and refunds the buyer.
+  function openFlipkartReturnForm(o, fb) {
+    var R = o.returns;
+    var rows = R.returnable.map(function (l, i) {
+      return '<tr><td>' + esc(l.product) + '</td><td class="mono">' + l.ordered + (l.returned ? ' <span class="faint">(' + l.returned + ' already)</span>' : '') + '</td>' +
+        '<td><input class="inp mono rt-q" type="number" min="0" max="' + l.available + '" step="1" data-i="' + i + '" value="' + l.available + '"' + (l.available ? '' : ' disabled') + '></td></tr>';
+    }).join('');
+    fb.innerHTML = '<div class="act-card amber" style="margin-top:8px;"><h4>Flipkart return</h4>' +
+      '<div class="msg">No admin approval – Flipkart has already accepted it and refunds the buyer. Sanju logs the packet in when it reaches ICF and checks it; ' +
+        'if it’s damaged you’ll be asked to claim it from Flipkart. Accounts is told not to expect this order in the payout.</div>' +
+      '<div class="field"><label class="lbl" for="rtReason">What kind?</label><select class="inp" id="rtReason">' + opt(R.reasons, '', '– choose –') + '</select>' +
+        '<div class="hint">Courier return = it never reached the buyer (RTO). Customer return = the buyer had it and sent it back.</div></div>' +
+      '<div class="field"><label class="lbl" for="rtFkId">Flipkart return / shipment ID</label><input class="inp mono" type="text" id="rtFkId" placeholder="From the seller panel"></div>' +
+      '<div class="field"><label class="lbl">What’s coming back</label><table class="rt-lines"><tr><th>Product</th><th>Ordered</th><th>Qty back</th></tr>' + rows + '</table></div>' +
+      '<div class="field"><label class="lbl" for="rtDetails">Reason Flipkart gives</label><textarea class="inp" id="rtDetails" rows="2" placeholder="e.g. Buyer: packet leaking / Courier: address not found"></textarea></div>' +
+      '<div class="field"><label class="lbl" for="rtWhen">Expected at ICF<span class="opt">(optional)</span></label><input class="inp" type="date" id="rtWhen" min="' + esc(R.today) + '"></div>' +
+      '<div class="act-actions"><button class="btn primary" type="button" id="rtSend">Record Flipkart return</button><button class="btn ghost" type="button" id="rtCancel">Cancel</button></div>' +
+      '<div class="err" id="rtFormErr"></div></div>';
+    $('rtCancel').addEventListener('click', function () { fb.innerHTML = ''; });
+    $('rtSend').addEventListener('click', function () {
+      var btn = this, err = $('rtFormErr'); C.hideEl(err);
+      var lines = [];
+      C.each(fb.querySelectorAll('.rt-q'), function (inp) {
+        var q = parseInt(inp.value, 10);
+        if (q > 0) lines.push({ product: R.returnable[Number(inp.getAttribute('data-i'))].product, qty: q });
+      });
+      var form = { trackerId: o.trackerId, reason: $('rtReason').value, flipkartReturnId: $('rtFkId').value.trim(), details: $('rtDetails').value.trim(),
+        lines: lines, comingBackBy: 'Courier / Flipkart', expectedBy: $('rtWhen').value };
+      if (!form.reason) return C.showErr(err, 'Choose which kind of return it is.');
+      if (form.flipkartReturnId.length < 3) return C.showErr(err, 'Enter Flipkart’s return or shipment ID.');
+      if (!lines.length) return C.showErr(err, 'Enter how many are coming back.');
+      if (form.details.length < 5) return C.showErr(err, 'Add the reason Flipkart gives.');
+      C.busy(btn, 'Saving…');
+      authRun().withSuccessHandler(function (r) { if (r && r.settleNote) window.alert(r.settleNote); reopen(o.trackerId); })
+        .withFailureHandler(function (e) { C.unbusy(btn); C.showErr(err, errText(e)); })
+        .requestReturn(form);
+    });
+    fb.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
   function openReturnForm(o, reason, comingBack) {
     var R = o.returns;
     var fb = $('rtFormBox');
@@ -214,6 +300,7 @@
       var box = $('secReturns'); if (!box) return;
       renderReturns(o, true); fb = $('rtFormBox'); if (!fb) return;
     }
+    if (R.flipkart) return openFlipkartReturnForm(o, fb);
     if (!reason) reason = o.orderType === 'Flipkart' ? 'Flipkart return' : '';
     if (!comingBack && o.orderType === 'Flipkart') comingBack = 'Courier / Flipkart';
     var dacc = reason.indexOf('DACC') === 0;
@@ -275,7 +362,7 @@
   window.ICF_RETURNS_LOAD = loadReturns;
 
   function renderList() {
-    var ready = items.filter(function (it) { return it.canAck; }).length;
+    var ready = items.filter(function (it) { return it.canAck || it.fkClaimStatus === 'To file'; }).length;
     window.ICF_RETURNS_READY = ready;
     var c = $('rtCount'); c.textContent = items.length; c.style.display = items.length ? 'inline-flex' : 'none';
     C.updateReqBadge();
@@ -288,10 +375,12 @@
           pill(it.stageText, toneOf(it)) + '</div>' +
           '<div class="req-sub" style="margin-top:6px;">' + it.lines.map(lineText).join(', ') + '</div>' +
           (money(it) ? '<div class="req-sub" style="margin-top:4px;">' + money(it) + '</div>' : '') + '</div>' +
+        claimHtml(it, true) +
         (it.canAck ? '<div class="req-ack"><label class="check"><input type="checkbox" class="rt-chk"> ' + esc(it.ackLabel) + '</label><button class="btn primary sm rt-ok" type="button" disabled>OK</button></div>' : '') +
         '</div>';
     }).join('');
     C.each($('rtList').querySelectorAll('.req-open'), function (el) { el.addEventListener('click', function () { C.openOrder(el.getAttribute('data-id')); }); });
+    bindClaims($('rtList'), loadReturns);
     C.each($('rtList').querySelectorAll('.req'), function (item) {
       var chk = item.querySelector('.rt-chk'), ok = item.querySelector('.rt-ok');
       if (!chk) return;
