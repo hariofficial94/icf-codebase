@@ -14,7 +14,12 @@
   .fk-row .fk-main { flex: 1; min-width: 0; }
   .fk-row .fk-inst { font-size: 13px; font-weight: 600; color: #1F3864; }
   .fk-row .fk-sub { color: #777; margin-top: 2px; }
-  .fk-row .fk-val { font-weight: 700; white-space: nowrap; }
+  .fk-row .fk-val { font-weight: 700; white-space: nowrap; text-align: right; }
+  .fk-row input.fk-amt { display: none; width: 84px; margin: 4px 0 0; padding: 3px 5px; font-size: 12px; border: 1px solid #9db8e8; border-radius: 3px; text-align: right; }
+  .fk-row.on input.fk-amt { display: inline-block; }
+  .fk-row .fk-amt-l { display: none; font-size: 10.5px; color: #555; font-weight: 400; }
+  .fk-row.on .fk-amt-l { display: block; }
+  .fk-acc .fk-info { font-size: 12px; margin-top: 4px; color: #1F5FA8; }
   .fk-pay { display: none; margin-top: 8px; padding: 8px; border: 1px solid #c7d8f7; border-radius: 4px; background: #f3f7fe; }
   .fk-pay.show { display: block; }
   .fk-pay input { width: 100%; padding: 6px 8px; font-size: 12.5px; border: 1px solid #ccc; border-radius: 4px; margin: 3px 0 6px; box-sizing: border-box; }
@@ -35,14 +40,15 @@
   panel.innerHTML =
     '<div class="side-panel-header"><h3>Flipkart settlements<span class="fk-count" id="fkAccCount">0</span></h3>' +
     '<button class="refresh-btn" id="fkAccRefresh" type="button">&#8635; Refresh</button></div>' +
-    '<div class="field-hint" style="margin-top:0; margin-bottom:8px;">Flipkart orders not yet matched to a Flipkart payout. When the monthly payout arrives, tick the orders it covers (Flipkart’s settlement report lists them), enter the UTR and date, and save. That closes them.</div>' +
+    '<div class="field-hint" style="margin-top:0; margin-bottom:8px;">Flipkart orders not yet matched to a Flipkart payout. When the monthly payout arrives, tick the orders it covers (Flipkart\u2019s settlement report lists them) and enter what Flipkart paid for each \u2013 usually less than the sale price, depending on the buyer\u2019s distance; any amount is accepted. Then the UTR and date, and save. That closes them.</div>' +
     '<div id="fkAccSum" class="fk-sum"></div>' +
     '<div id="fkAccList" class="pending-empty">Loading...</div>' +
     '<div class="fk-pay" id="fkPay">' +
       '<b id="fkPicked">0 orders ticked</b>' +
       '<input type="text" id="fkUtr" placeholder="Payout UTR / bank reference">' +
       '<input type="date" id="fkDate" title="Date the payout reached the bank">' +
-      '<input type="text" id="fkAmt" placeholder="Payout amount (optional, after Flipkart’s fees)">' +
+      '<input type="text" id="fkAmt" placeholder="Total payout amount (optional \u2013 only to cross-check)">' +
+      '<div class="fk-info" id="fkCheck"></div>' +
       '<input type="text" id="fkNote" placeholder="Note (optional)">' +
       '<button type="button" class="fk-btn" id="fkSave">Mark ticked orders settled</button>' +
       '<div style="margin-top:8px;font-size:12px;color:#555;">Returned and not in any payout? <button type="button" class="fk-btn" id="fkNoPay" style="background:#a33a32;">Close ticked as “No payout – returned”</button></div>' +
@@ -53,12 +59,28 @@
   if (leftCol) leftCol.insertBefore(panel, leftCol.children[2] || null);
   var list = document.getElementById('fkAccList');
   document.getElementById('fkDate').max = todayYmd();
+  document.getElementById('fkAmt').addEventListener('input', function () { syncPay(); });
 
   function picked() { return Array.prototype.map.call(list.querySelectorAll('.fk-chk:checked'), function (c) { return c.value; }); }
+  function num(v) { var n = Number(String(v == null ? '' : v).replace(/[,\s₹]/g, '')); return isNaN(n) ? null : n; }
+  // What Flipkart paid per ticked order: blank = the sale value. Never checked against the sale value (13 Nov 2026).
+  function amounts() {
+    var out = {}, net = 0, sale = 0;
+    Array.prototype.forEach.call(list.querySelectorAll('.fk-chk:checked'), function (c) {
+      var row = c.closest('.fk-row'), v = Number(c.getAttribute('data-v')) || 0, a = row.querySelector('.fk-amt').value.trim();
+      var n = a === '' ? v : num(a);
+      out[c.value] = a; sale += v; net += (n === null ? 0 : n);
+    });
+    return { map: out, net: net, sale: sale };
+  }
   function syncPay() {
-    var p = picked(), sum = 0;
-    Array.prototype.forEach.call(list.querySelectorAll('.fk-chk:checked'), function (c) { sum += Number(c.getAttribute('data-v')) || 0; });
-    document.getElementById('fkPicked').textContent = p.length + ' order' + (p.length === 1 ? '' : 's') + ' ticked – ' + inr(sum) + ' sale value';
+    var p = picked(), a = amounts();
+    Array.prototype.forEach.call(list.querySelectorAll('.fk-row'), function (r) { var c = r.querySelector('.fk-chk'); r.classList.toggle('on', !!(c && c.checked)); });
+    document.getElementById('fkPicked').textContent = p.length + ' order' + (p.length === 1 ? '' : 's') + ' ticked \u2013 sale ' + inr(a.sale) + ', received ' + inr(a.net) +
+      (a.sale - a.net > 0.5 ? ' (Flipkart kept ' + inr(a.sale - a.net) + ')' : '');
+    var raw = document.getElementById('fkAmt').value.trim(), payout = num(raw), chk = document.getElementById('fkCheck');
+    chk.textContent = (raw === '' || payout === null) ? ''
+      : Math.abs(payout - a.net) < 1 ? 'Matches the payout amount.' : 'The orders add up to ' + inr(a.net) + ', the payout is ' + inr(payout) + ' (difference ' + inr(Math.abs(payout - a.net)) + '). Check the settlement report \u2013 you can still save.';
     document.getElementById('fkPay').classList.toggle('show', p.length > 0);
   }
 
@@ -79,9 +101,13 @@
           '<div class="fk-sub">' + esc(i.trackerId) + ' &middot; ' +
           (i.handedOver ? 'handed over ' + esc(i.handedOver) + (i.daysSinceHandover !== null ? ' (' + i.daysSinceHandover + ' days ago)' : '') : 'not handed over yet') +
           (i.deliveryStatus ? ' &middot; ' + esc(i.deliveryStatus) : '') + '</div></span>' +
-        '<span class="fk-val">' + inr(i.value) + '</span></label>';
+        '<span class="fk-val">' + inr(i.value) + '<span class="fk-amt-l">Flipkart paid</span><input type="text" inputmode="decimal" class="fk-amt" placeholder="' + (Number(i.value) || 0) + '" title="What Flipkart paid for this order. Blank = the sale price."></span></label>';
     }).join('');
     Array.prototype.forEach.call(list.querySelectorAll('.fk-chk'), function (c) { c.addEventListener('change', syncPay); });
+    Array.prototype.forEach.call(list.querySelectorAll('.fk-amt'), function (inp) {
+      inp.addEventListener('click', function (e) { e.preventDefault(); e.stopPropagation(); inp.focus(); });
+      inp.addEventListener('input', syncPay);
+    });
     syncPay();
   }
 
@@ -98,12 +124,12 @@
       .withSuccessHandler(function (r) {
         btn.disabled = false; btn.textContent = 'Mark ticked orders settled';
         ['fkUtr', 'fkAmt', 'fkNote'].forEach(function (id) { document.getElementById(id).value = ''; });
-        document.getElementById('fkOk').textContent = r.settled + ' order' + (r.settled === 1 ? '' : 's') + ' settled.';
+        document.getElementById('fkOk').textContent = r.settled + ' order' + (r.settled === 1 ? '' : 's') + ' settled \u2013 ' + inr(r.netTotal) + ' received' + (r.keptTotal > 0.5 ? ', Flipkart kept ' + inr(r.keptTotal) : '') + '.';
         setTimeout(function () { document.getElementById('fkOk').textContent = ''; }, 6000);
         load();
       })
       .withFailureHandler(function (e) { btn.disabled = false; btn.textContent = 'Mark ticked orders settled'; msg.textContent = 'Error: ' + e.message; })
-      .markFlipkartSettled({ trackerIds: ids, utr: utr, payoutDate: date, payoutAmount: document.getElementById('fkAmt').value.trim(), note: document.getElementById('fkNote').value.trim() });
+      .markFlipkartSettled({ trackerIds: ids, utr: utr, payoutDate: date, payoutAmount: document.getElementById('fkAmt').value.trim(), note: document.getElementById('fkNote').value.trim(), amounts: amounts().map });
   });
 
   document.getElementById('fkNoPay').addEventListener('click', function () {

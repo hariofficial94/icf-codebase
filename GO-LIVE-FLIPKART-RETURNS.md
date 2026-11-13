@@ -1,4 +1,4 @@
-# CRE order filter + Flipkart returns – go-live note (13 Nov 2026)
+# CRE order filter, Flipkart returns + Flipkart net payout – go-live note (13 Nov 2026)
 
 Code: `Returns.js`, `FollowUps.js`, `Code.js`, `orders_cre.html`, `cre_beta.html`, `flipkart_accounts.html`, `dashboard_beta.html`.
 
@@ -18,3 +18,17 @@ Code: `Returns.js`, `FollowUps.js`, `Code.js`, `orders_cre.html`, `cre_beta.html
 1. `git pull`, then `clasp push`, then deploy a **New version**.
 2. The **Returns** tab gets 5 new columns at the end (Flipkart Return ID … Flipkart Claim Note). Those cells must be empty, because the headers fill themselves in.
 3. Test with a "Test Customer" Flipkart order: record a return, log it in at the gate as **Scrap**, file a claim, mark it Rejected, close the return, then close the order as **No payout** in Accounts.
+
+## Flipkart net payout (added later the same day)
+
+Flipkart pays less than the ₹1,350 sale price. The amount depends on how far away the buyer is (for example ₹1,100 or ₹1,250).
+
+- **Accounts → Flipkart settlements:** ticking an order opens a **"Flipkart paid"** box beside it.
+  - Leave it blank if Flipkart paid the full sale price, or type what actually came in.
+  - **Any amount is accepted** and nothing is blocked.
+  - The pane shows the ticked total ("sale ₹X, received ₹Y, Flipkart kept ₹Z").
+  - If the total payout amount is entered, the pane compares it with the orders and only warns if they differ.
+- **What's recorded:** the order keeps its sale price, and nothing is ever shown as a balance due. Two new columns record **Flipkart Net Received** and **Flipkart Deductions** (sale − received).
+- **Owner dashboard → Flipkart orders:** "Settled, last 30 days" shows what was received against the sale value. The note under the panel shows how much Flipkart kept in total, as a percentage, and per order.
+
+On go-live day: the Tracker gets 2 new columns, **CO and CP**, after the waiver columns (CK–CN). They must be empty, because the headers fill themselves in.

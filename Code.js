@@ -286,7 +286,10 @@ var HEADERS = [
   // Flipkart settlements (13 Nov 2026) -- Accounts matches each order to Flipkart's monthly payout. See FollowUps.js. Header cells are filled in automatically.
   'Flipkart Settlement', 'Flipkart Settlement UTR', 'Flipkart Settled By', 'Flipkart Settled At',
   // Balance waivers (13 Nov 2026) -- see Waivers.js. Total Order Value is reduced by the waiver; the billed value stays in Original Order Value.
-  'Waived Amount', 'Waived By', 'Waived At', 'Waive Reason'
+  'Waived Amount', 'Waived By', 'Waived At', 'Waive Reason',
+  // Flipkart net payout (13 Nov 2026) -- what Flipkart actually paid for the order, and what it kept (sale value - net).
+  // Recorded beside the sale value, never as a balance: a Flipkart order is never "short" because of its payout.
+  'Flipkart Net Received', 'Flipkart Deductions'
 ];
 
 var DISPATCH_VEHICLE = 'Vehicle';
@@ -2706,7 +2709,7 @@ function getDashboardData_() {
     gpIssued: col('Gate Pass Issued Timestamp'), gateOut: col('Gate Out Timestamp'), gateOutBy: col('Gate Out By'),
     // Flipkart kept apart on the owner dashboard (13 Nov 2026).
     orderType: col('Order Type'), fkSettlement: col('Flipkart Settlement'), fkSettledAt: col('Flipkart Settled At'),
-    waived: col('Waived Amount')
+    waived: col('Waived Amount'), fkNet: col('Flipkart Net Received')
   };
 
   var out = [];
@@ -2762,6 +2765,7 @@ function getDashboardData_() {
       fkSettled: C.fkSettlement >= 0 && (String(r[C.fkSettlement] || '') === 'Settled' || String(r[C.fkSettlement] || '').indexOf('No payout') === 0),
       fkSettledDate: C.fkSettledAt >= 0 ? dashDate_(r[C.fkSettledAt]) : null,
       fkNoPayout: C.fkSettlement >= 0 && String(r[C.fkSettlement] || '').indexOf('No payout') === 0,
+      fkNet: C.fkNet >= 0 && r[C.fkNet] !== '' && r[C.fkNet] !== null ? Number(r[C.fkNet]) : null,
       waived: C.waived >= 0 ? (Number(r[C.waived]) || 0) : 0
     });
     if (out.length >= 2000) break;

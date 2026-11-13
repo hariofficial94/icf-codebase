@@ -1848,14 +1848,19 @@
       var tiles = [
         ['toHand', 'To hand over', toHand.length, lateHand.length ? lateHand.length + ' past the ship-by date' : 'Ship-by dates on track', lateHand.length ? 'bad' : ''],
         ['awaiting', 'Awaiting Flipkart payout', awaiting.length, inr(sum(awaiting, function (o) { return o.total; })) + (awaiting.length ? ' · oldest ' + plural(oldest, 'day') : ''), oldest > 45 ? 'warn' : ''],
-        ['settled30', 'Settled, last 30 days', settled30.length, inr(sum(settled30, function (o) { return o.total; })), ''],
+        ['settled30', 'Settled, last 30 days', settled30.length, inr(sum(settled30, function (o) { return o.fkNet !== null ? o.fkNet : o.total; })) + ' received of ' + inr(sum(settled30, function (o) { return o.total; })) + ' sale', ''],
         ['returned', 'Returned', returned.length, 'All time', '']
       ];
       $('fkGrid').innerHTML = tiles.map(function (t) {
         return '<div class="now clickable ' + t[4] + '" data-fk="' + t[0] + '"><div class="l"><span>' + esc(t[1]) + '</span></div>' +
           '<div class="v">' + t[2] + '</div><div class="s">' + esc(t[3]) + '</div></div>';
       }).join('');
-      $('fkNote').textContent = plural(all.length, 'Flipkart order') + ' in all, ' + inr(sum(all, function (o) { return o.total; })) + ' sale value.';
+      // What Flipkart actually paid (13 Nov 2026): recorded per order at settlement; the rest is Flipkart's fees and shipping.
+      var paid = all.filter(function (o) { return o.fkSettled && !o.fkNoPayout && o.fkNet !== null; });
+      var saleP = sum(paid, function (o) { return o.total; }), netP = sum(paid, function (o) { return o.fkNet; });
+      $('fkNote').textContent = plural(all.length, 'Flipkart order') + ' in all, ' + inr(sum(all, function (o) { return o.total; })) + ' sale value.' +
+        (paid.length ? ' On ' + plural(paid.length, 'settled order') + ' Flipkart paid ' + inr(netP) + ' of ' + inr(saleP) + ' – it kept ' + inr(saleP - netP) +
+          ' (' + (pct(saleP - netP, saleP) || 0) + '%, about ' + inr((saleP - netP) / paid.length) + ' an order).' : '');
       each($('fkGrid').querySelectorAll('[data-fk]'), function (el) {
         el.addEventListener('click', function () { var k = el.getAttribute('data-fk'); openList('Flipkart – ' + el.querySelector('.l span').textContent, FK_SETS[k], { age: k === 'awaiting', late: k === 'toHand' }); });
       });

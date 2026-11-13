@@ -515,7 +515,11 @@ function getFlipkartSettlements_() {
 
 /**
  * Accounts: one Flipkart payout settles several orders.
- * form = { trackerIds: [...], utr, payoutDate (yyyy-MM-dd), payoutAmount (optional), note }
+ * form = { trackerIds: [...], utr, payoutDate (yyyy-MM-dd), payoutAmount (optional), note,
+ *          amounts: { trackerId: net amount Flipkart paid for that order } (13 Nov 2026) }
+ * Flipkart pays less than the sale value (its fees and shipping depend on the buyer's distance),
+ * so the amount per order is whatever came in -- it is recorded, never checked against the
+ * sale value and never turned into a balance. Missing amount = the sale value.
  * form.noPayout = true (13 Nov 2026): close returned orders Flipkart won't pay for -- no UTR needed.
  */
 function markFlipkartSettled_(form) {
@@ -532,6 +536,8 @@ function markFlipkartSettled_(form) {
   var amount = String(form.payoutAmount || '').trim() === '' ? null : Number(String(form.payoutAmount).replace(/[,\s₹]/g, ''));
   if (amount !== null && (isNaN(amount) || amount <= 0)) throw new Error('Enter the payout amount as a number, or leave it blank.');
   var note = String(form.note || '').trim();
+  var amounts = form.amounts || {};
+  var nets = [];
   var sheet = getSheet();
   var ref = utr + ' – payout ' + fmtYmd_(payoutYmd) + (amount !== null ? ', Rs. ' + formatAmount(amount) + ' for ' + ids.length + ' order' + (ids.length === 1 ? '' : 's') : '') + (note ? ' – ' + note : '');
   var lock = LockService.getScriptLock();
@@ -541,22 +547,31 @@ function markFlipkartSettled_(form) {
     var rows = ids.map(function (id) {
       var row = findRowByTrackerId(sheet, id);
       if (row === -1) throw new Error(id + ' isn’t in the tracker.');
-      var f = getRowFields(sheet, row, ['Tracker ID', 'Order Type', 'Status', 'Flipkart Settlement']);
+      var f = getRowFields(sheet, row, ['Tracker ID', 'Order Type', 'Status', 'Flipkart Settlement', 'Total Order Value', 'Original Order Value']);
       if (normalizeOrderType_(f['Order Type']) !== ORDER_TYPE_FLIPKART) throw new Error(id + ' isn’t a Flipkart order.');
       if (f['Status'] === 'Cancelled') throw new Error(id + ' is cancelled.');
       if (fkClosedSettlement_(f['Flipkart Settlement'])) throw new Error(id + ' is already closed (' + f['Flipkart Settlement'] + ').');
+      var sale = Number(f['Original Order Value']) > 0 ? Number(f['Original Order Value']) : (Number(f['Total Order Value']) || 0);
+      var raw = amounts[id] !== undefined ? amounts[id] : (amounts[id.toLowerCase()] !== undefined ? amounts[id.toLowerCase()] : '');
+      var net = String(raw).trim() === '' ? sale : Number(String(raw).replace(/[,\s₹]/g, ''));
+      if (isNaN(net) || net < 0) throw new Error('Enter what Flipkart paid for ' + id + ' as a number (0 if nothing).');
+      nets.push({ net: Math.round(net * 100) / 100, kept: Math.round((sale - net) * 100) / 100 });
       return row;
     });
     var payoutDate = sbYmdToDate_(payoutYmd);
     rows.forEach(function (row, i) {
-      setRowFields(sheet, row, { 'Flipkart Settlement': FK_SETTLED, 'Flipkart Settled By': me.name, 'Flipkart Settled At': payoutDate });
+      setRowFields(sheet, row, { 'Flipkart Settlement': FK_SETTLED, 'Flipkart Settled By': me.name, 'Flipkart Settled At': payoutDate,
+        'Flipkart Net Received': nets[i].net, 'Flipkart Deductions': nets[i].kept });
       sheet.getRange(row, getHeaderIndex('Flipkart Settlement UTR')).setNumberFormat('@').setValue(ref);
       done.push(ids[i]);
     });
   } finally {
     lock.releaseLock();
   }
-  return { settled: done.length, trackerIds: done, utr: utr };
+  var netTotal = nets.reduce(function (t, n) { return t + n.net; }, 0);
+  return { settled: done.length, trackerIds: done, utr: utr, netTotal: Math.round(netTotal * 100) / 100,
+           keptTotal: Math.round(nets.reduce(function (t, n) { return t + n.kept; }, 0) * 100) / 100,
+           payoutDiff: amount !== null ? Math.round((amount - netTotal) * 100) / 100 : null };
 }
 
 /** Accounts: returned Flipkart orders that won't be paid out. form = { trackerIds, note } */
