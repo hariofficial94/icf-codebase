@@ -15,14 +15,18 @@ Opened with `…/exec?page=accounts-beta`. The classic Accounts page (`?page=acc
 - **Find any order** (top bar, Ctrl K) searches by quotation number, phone number or customer name.
 - **Grey lines** are waiting on someone else, such as the admin or the CRE. They don't count towards the red badge.
 
-## Still on the classic page
-These are used less often and stay on the classic page for now:
-- payments with an excess amount;
-- standby requests;
-- verified-payments history;
-- refunds report.
+## Also in the beta (13 Nov 2026 update)
+Everything that was only on the classic page is now here too:
+- **Pending payments filters:** search, payment terms (including Flipkart and DACC), stage, CRE, and sort order. The total due updates to match the filters.
+- **On standby** (third icon on the left): orders paused for the customer and standby requests waiting for a decision. From an order's panel you can request standby, or resume it early.
+- **Verified payments** (fourth icon on the left): history with a date range and filters for CRE, type, who verified it, and a search box.
+- **Payment with excess:** when the bank amount is more than the order needs, either at verification or when recording a payment. It goes to an admin first.
+- **Withdraw request:** a locked order shows what it is waiting for and lets you withdraw the request.
+- **Timeline** on every order.
+- **Courier orders on hold for their balance** now appear in the To do list.
+- The **At a glance** panel can be hidden (the icon at its top right) and brought back (the tab on the right edge). The page remembers your choice.
 
-The avatar menu has a link back to the classic page.
+Nothing on the Accounts side needs the classic page any more. It stays available until the team has switched over.
 
 ## Deploy
 1. Run `git pull` and then `clasp push`.

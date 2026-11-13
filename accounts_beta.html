@@ -564,6 +564,27 @@
     .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
     .check { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; cursor: pointer; }
     .check input { margin-top: 2px; }
+    .flt { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; margin-bottom: 14px; }
+    .flt > div { display: flex; flex-direction: column; gap: 4px; }
+    .flt label { font-size: 11px; font-weight: 600; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.05em; }
+    .flt .inp { height: 32px; font-size: 13px; }
+    .flt select.inp { width: auto; min-width: 130px; padding-right: 6px; }
+    .flt .grow { flex: 1 1 220px; }
+    .flt-sum { font-size: 12.5px; color: var(--text-2); margin: -4px 0 10px; }
+    .flt-sum b { color: var(--text); }
+    .tbl-wrap { overflow-x: auto; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+    .tbl { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+    .tbl th { text-align: left; font-size: 11px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-3); padding: 9px 12px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+    .tbl td { padding: 9px 12px; border-top: 1px solid var(--border); vertical-align: top; }
+    .tbl tr:first-child td { border-top: none; }
+    .tbl tbody tr { cursor: pointer; }
+    .tbl tbody tr:hover { background: var(--surface-2); }
+    .tbl .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .xs-split { margin-top: 10px; padding: 10px 12px; border-radius: 6px; background: var(--surface-2); border: 1px solid var(--border-2); font-size: 12.5px; }
+    .xs-line { display: flex; justify-content: space-between; gap: 10px; padding: 2px 0; }
+    .xs-line.extra { border-top: 1px dashed var(--border-2); margin-top: 4px; padding-top: 6px; color: var(--amber); font-weight: 600; }
+    textarea.inp { height: auto; padding: 8px 11px; resize: vertical; }
+    .locked-sec { opacity: 0.45; pointer-events: none; filter: grayscale(0.3); }
   </style>
 
   <!-- =================== TOP BAR =================== -->
@@ -613,6 +634,12 @@
     <button class="rail-btn" data-view="payments" type="button">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M8 7h8M8 11h8M13 11c0 3-2 4.5-5 4.5L13 20"/></svg>
       <span class="rail-tip">Pending payments</span></button>
+    <button class="rail-btn" data-view="standby" type="button">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M10 9v6M14 9v6"/></svg>
+      <span class="count" id="railStandby" style="display:none;">0</span><span class="rail-tip">On standby</span></button>
+    <button class="rail-btn" data-view="history" type="button">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 11l3 3 8-8"/><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9"/></svg>
+      <span class="rail-tip">Verified payments</span></button>
     <a class="rail-btn" href="<?= ScriptApp.getService().getUrl() ?>?page=rental" target="_top">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="6" y="3" width="12" height="18" rx="2"/><path d="M10 7h4"/><circle cx="12" cy="14" r="2.5"/></svg>
       <span class="rail-tip">Rentals</span></a>
@@ -629,24 +656,22 @@
         </div>
         <button class="btn" type="button" id="refreshBtn">&#8635; Refresh</button>
       </div>
-      <div class="layout">
+      <div class="layout" id="todoLayout">
         <div style="min-width:0;">
           <div class="q-tabs" id="qTabs"></div>
           <div class="q-list" id="qList"><div class="loading" style="padding:16px;">Loading…</div></div>
         </div>
         <aside class="side">
           <div class="side-block">
-            <div class="panel-title"><h3>At a glance</h3></div>
+            <div class="panel-title"><h3>At a glance</h3>
+              <button class="btn ghost icon-sm" type="button" id="sideHide" title="Hide this panel"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/><path d="m8 10 2 2-2 2"/></svg></button></div>
             <div class="panel-sub">Live figures. Click a line for the list.</div>
             <div id="glance"></div>
           </div>
-          <div class="side-block">
-            <div class="panel-title"><h3>Less often</h3></div>
-            <div class="panel-sub">Still on the classic page for now: payments with excess, standby requests, verified-payments history, refunds report.</div>
-            <a class="btn sm" id="classicLink" href="<?= ScriptApp.getService().getUrl() ?>?page=accounts" target="_top" style="margin-top:8px;">Open the classic page &rarr;</a>
-          </div>
         </aside>
       </div>
+      <button class="side-tab" type="button" id="sideShow" title="Show At a glance">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 18-6-6 6-6"/></svg>At a glance</button>
     </section>
 
     <!-- =================== PENDING PAYMENTS =================== -->
@@ -658,7 +683,52 @@
         </div>
         <button class="btn" type="button" id="refreshPay">&#8635; Refresh</button>
       </div>
+      <div class="flt">
+        <div class="grow"><label for="pfQ">Search</label><input class="inp" id="pfQ" type="text" placeholder="Customer or quotation no."></div>
+        <div><label for="pfTerms">Payment terms</label><select class="inp" id="pfTerms"><option value="">All</option><option>End Customer</option><option>PO Customer</option><option>Flipkart</option><option>DACC</option></select></div>
+        <div><label for="pfStage">Stage</label><select class="inp" id="pfStage">
+          <option value="">All</option><option value="says">CRE says paid</option><option value="ready">Goods ready – waiting for money</option>
+          <option value="held">Courier on hold</option><option value="notver">Not verified yet</option><option value="before">Not dispatched yet</option>
+          <option value="transit">Dispatched – not delivered</option><option value="delivered">Delivered / returned</option></select></div>
+        <div><label for="pfCre">CRE</label><select class="inp" id="pfCre"><option value="">All CREs</option></select></div>
+        <div><label for="pfSort">Sort</label><select class="inp" id="pfSort"><option value="">Most urgent first</option><option value="bal">Biggest balance</option><option value="old">Longest since dispatch</option><option value="new">Newest first</option></select></div>
+        <button class="btn sm ghost" type="button" id="pfClear">Clear</button>
+      </div>
+      <div class="flt-sum" id="pfSum"></div>
       <div class="q-list" id="payList"><div class="loading" style="padding:16px;">Loading…</div></div>
+    </section>
+
+    <!-- =================== STANDBY =================== -->
+    <section class="view" id="view-standby">
+      <div class="page-head">
+        <div>
+          <h1 class="page-title">On standby</h1>
+          <div class="page-sub" id="sbSub">Orders paused because of the customer, and standby requests waiting for a decision. To request standby for an order, open it and use the standby box.</div>
+        </div>
+        <button class="btn" type="button" id="refreshSb">&#8635; Refresh</button>
+      </div>
+      <div class="q-list" id="sbList"><div class="loading" style="padding:16px;">Loading…</div></div>
+    </section>
+
+    <!-- =================== VERIFIED PAYMENTS =================== -->
+    <section class="view" id="view-history">
+      <div class="page-head">
+        <div>
+          <h1 class="page-title">Verified payments</h1>
+          <div class="page-sub">Every advance verified and balance payment recorded. Click a line to open the order.</div>
+        </div>
+      </div>
+      <div class="flt">
+        <div><label>Range</label><div class="seg text" id="vhQuick"><button type="button" data-d="0">Today</button><button type="button" data-d="7">7 days</button><button type="button" data-d="30" class="on">30 days</button><button type="button" data-d="90">90 days</button></div></div>
+        <div><label for="vhFrom">From</label><input class="inp" id="vhFrom" type="date"></div>
+        <div><label for="vhTo">To</label><input class="inp" id="vhTo" type="date"></div>
+        <div><label for="vhCre">CRE</label><select class="inp" id="vhCre"><option value="">All CREs</option></select></div>
+        <div><label for="vhType">Type</label><select class="inp" id="vhType"><option value="">Both</option><option>Advance verified</option><option>Balance payment</option></select></div>
+        <div><label for="vhBy">Verified by</label><select class="inp" id="vhBy"><option value="">Anyone</option></select></div>
+        <div class="grow"><label for="vhQ">Search</label><input class="inp" id="vhQ" type="text" placeholder="Customer, quotation no. or UTR"></div>
+      </div>
+      <div class="flt-sum" id="vhSum"></div>
+      <div id="vhTable"><div class="loading">Pick a range.</div></div>
     </section>
   </main>
 
@@ -730,7 +800,18 @@
       each(document.querySelectorAll('.view'), function (v) { v.classList.toggle('show', v.id === 'view-' + view); });
       each(document.querySelectorAll('.rail-btn[data-view]'), function (b) { b.classList.toggle('active', b.getAttribute('data-view') === view); });
       if (view === 'payments') loadPayments();
+      if (view === 'standby') loadStandby();
+      if (view === 'history') { if (!$('vhFrom').value) vhRange(30); else vhFetch(); }
     }
+    // At a glance: hide / show (remembered in this browser)
+    function setSideHidden(h) {
+      $('todoLayout').classList.toggle('side-hidden', h);
+      $('sideShow').classList.toggle('show', h);
+      try { localStorage.setItem('icf_acc_beta_side', h ? 'hidden' : 'shown'); } catch (e) {}
+    }
+    $('sideHide').addEventListener('click', function () { setSideHidden(true); });
+    $('sideShow').addEventListener('click', function () { setSideHidden(false); });
+    try { if (localStorage.getItem('icf_acc_beta_side') === 'hidden') setSideHidden(true); } catch (e) {}
     each(document.querySelectorAll('.rail-btn[data-view]'), function (b) { b.addEventListener('click', function () { go(b.getAttribute('data-view')); }); });
 
     // ---------------- The queue ----------------
@@ -745,6 +826,13 @@
         rows.push({ kind: 'paid', tone: 'red', rank: n.readyForDispatch ? 0 : 1, id: n.trackerId, name: n.institution, o: n,
           why: (n.readyForDispatch ? 'Goods ready – waiting only for this payment. ' : '') + 'CRE says the customer has paid: ' + n.says,
           amt: inr(n.balanceDue), amtSub: 'due' });
+      });
+      var nudged = {}; (Q.nudges || []).forEach(function (n) { nudged[String(n.trackerId).toLowerCase()] = 1; });
+      (Q.held || []).forEach(function (h) {
+        if (nudged[String(h.trackerId).toLowerCase()]) return; // already listed as "CRE says paid"
+        rows.push({ kind: 'paid', tone: h.locked ? 'grey' : 'amber', rank: h.locked ? 6 : 2.2, id: h.trackerId, name: h.institution, o: h,
+          why: h.locked ? 'Waiting for the admin: ' + h.locked : 'Courier order on hold until the balance comes in – record it when it does',
+          amt: inr(h.balanceDue), amtSub: 'due' });
       });
       (Q.verify || []).forEach(function (v) {
         var says = v.customerSaysPaid || saysPaidLogged[String(v.trackerId).toLowerCase()];
@@ -808,19 +896,24 @@
     function renderGlance(rows) {
       var s = Q.summary || {};
       var by = function (k) { return rows.filter(function (r) { return r.kind === k; }).length; };
+      var sbItems = (Q.standby && Q.standby.items) || [];
+      var sbActive = sbItems.filter(function (i) { return i.status === 'Active'; }).length;
+      $('railStandby').textContent = sbItems.length; $('railStandby').style.display = sbItems.length ? 'inline-flex' : 'none';
       var lines = [
         ['Outstanding balance', s.outstandingTotal != null ? inr(s.outstandingTotal) : '–', 'payments'],
         ['Payments recorded today', s.paymentsToday != null ? s.paymentsToday : '–', 'payments'],
         ['To verify', by('verify'), 'verify'],
+        ['Courier orders on hold', (Q.held || []).length, 'paid'],
         ['Gate passes asked', by('gate'), 'gate'],
         ['Refunds to pay', by('refund'), 'refund'],
-        ['Flipkart to match', ((Q.flipkart && Q.flipkart.items) || []).filter(function (i) { return i.handedOver; }).length, 'flipkart']
+        ['Flipkart to match', ((Q.flipkart && Q.flipkart.items) || []).filter(function (i) { return i.handedOver; }).length, 'flipkart'],
+        ['On standby', sbActive, 'standby']
       ];
       $('glance').innerHTML = lines.map(function (l) {
         return '<button class="stat-row" type="button" data-k="' + l[2] + '"><span class="stat-label">' + esc(l[0]) + '</span><span class="stat-val">' + esc(l[1]) + '</span></button>';
       }).join('');
       each($('glance').querySelectorAll('.stat-row'), function (b) {
-        b.addEventListener('click', function () { var k = b.getAttribute('data-k'); if (k === 'payments') go('payments'); else { TAB = k; renderQueue(); } });
+        b.addEventListener('click', function () { var k = b.getAttribute('data-k'); if (k === 'payments' || k === 'standby') go(k); else { TAB = k; renderQueue(); } });
       });
     }
     function load() {
@@ -851,7 +944,11 @@
       if (e.key === 'Escape') closeDrawer();
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); $('findInput').focus(); }
     });
-    function afterAction() { load(); if ($('view-payments').classList.contains('show')) loadPayments(); }
+    function afterAction() {
+      load();
+      if ($('view-payments').classList.contains('show')) loadPayments();
+      if ($('view-standby').classList.contains('show')) loadStandby();
+    }
 
     function kv(rows) {
       return '<div class="kv">' + rows.filter(function (r) { return r[1] !== '' && r[1] !== null && r[1] !== undefined; }).map(function (r) {
@@ -875,10 +972,15 @@
         '<span class="chip">' + esc(o.paymentTermsType) + '</span>';
       var h = '';
       if (o.customerSaysPaid) h += '<div class="note info" style="margin-top:0;margin-bottom:12px;">CRE says the customer has paid: ' + esc(o.customerSaysPaid) + '</div>';
-      if (o.status === 'Logged') h += '<div class="dr-sec" id="secAct">' + verifyHtml(o) + '</div>';
+      var lk = o.pendingRequest;
+      if (lk) h += lockHtml(lk);
+      var standbyActive = o.standby && o.standby.onStandby;
+      if (standbyActive) { /* the standby box below carries the action */ }
+      else if (o.status === 'Logged') h += '<div class="dr-sec" id="secAct">' + verifyHtml(o) + '</div>';
       else if (o.status === 'Vehicle Confirmed') h += '<div class="dr-sec" id="secAct">' + gateHtml(o, gateItem) + '</div>';
       else if (o.status !== 'Cancelled' && Number(o.balanceDue) > 0 && o.orderType !== 'Flipkart') h += '<div class="dr-sec" id="secAct">' + payHtml(o) + '</div>';
       else if (o.gatePassPdfUrl) h += '<div class="dr-sec"><a class="btn sm" href="' + esc(o.gatePassPdfUrl) + '" target="_blank">Open the gate pass PDF</a></div>';
+      h += '<div id="xsDone"></div><div class="dr-sec" id="sbSec"></div>';
       h += '<div class="dr-sec"><div class="dr-sec-title">Order</div>' + kv([
         ['Customer', o.institution], ['Phone', o.phoneNumber], ['CRE', o.ownerName || o.creName],
         ['Order value', inr(o.totalOrderValue)], ['Received', inr(o.advanceReceived)], ['Balance', inr(o.balanceDue)],
@@ -891,11 +993,190 @@
       if (o.docs && (o.docs.crmUrl || o.docs.customerUrl) && o.status !== 'Logged') {
         h += '<div class="dr-sec"><div class="dr-sec-title">Purchase orders</div>' + window.ICF_DOCS.panel(o.docs, { title: 'Purchase orders' }) + '</div>';
       }
+      h += '<div class="dr-sec"><div class="dr-sec-title">Timeline</div><div id="tlBox" class="loading">Loading…</div></div>';
       $('drBody').innerHTML = h;
-      if (o.status === 'Logged') bindVerify(o);
-      else if (o.status === 'Vehicle Confirmed') bindGate(o, gateItem);
-      else if ($('payBtn')) bindPay(o);
+      if (!standbyActive) {
+        if (o.status === 'Logged') bindVerify(o);
+        else if (o.status === 'Vehicle Confirmed') bindGate(o, gateItem);
+        else if ($('payBtn')) bindPay(o);
+      }
+      if (lk) bindLock(o, lk);
+      renderStandby(o, !!lk);
+      showExcessOutcome(o);
+      loadTimeline(o.trackerId);
     }
+
+    // ----- Locked: a request is waiting for a decision -----
+    function lockHtml(p) {
+      var cancel = p.kind === 'cancel';
+      return '<div class="dr-sec"><div class="act-card amber"><h4>&#128274; Locked – waiting for ' + esc(p.waitingFor) + '</h4>' +
+        '<div class="msg"><b>' + esc(p.label) + '</b> (' + esc(p.requestId) + '), asked by ' + esc(p.requestedByName) + (p.requestedAt ? ' at ' + esc(p.requestedAt) : '') + '.</div>' +
+        (cancel ? '<div class="msg" style="margin-top:6px;">The CRE has asked to cancel this order. Wait for the admin’s decision – if it’s approved with a refund, it comes to your To do list.</div>'
+          : '<div class="msg" style="margin-top:6px;">Nothing on this order can be changed until it’s decided. If it isn’t needed any more – for example the customer has paid – withdraw it.</div>' +
+            '<div class="field"><input class="inp" id="lkNote" type="text" placeholder="Why withdraw? (optional)"></div>' +
+            '<div class="act-actions"><button class="btn danger sm" type="button" id="lkBtn">Withdraw request</button></div><div class="err" id="lkErr"></div>') +
+        '</div></div>';
+    }
+    function bindLock(o, p) {
+      var sec = $('secAct'); if (sec) sec.classList.add('locked-sec');
+      var b = $('lkBtn'); if (!b) return;
+      b.addEventListener('click', function () {
+        var err = $('lkErr'); hideErr(err);
+        if (!window.confirm('Withdraw ' + p.requestId + '? The admin will no longer see it, and the order unlocks straight away.')) return;
+        busy(b, 'Withdrawing…');
+        authRun()
+          .withSuccessHandler(function () { afterAction(); openOrder(o.trackerId); })
+          .withFailureHandler(function (e) { unbusy(b); showErr(err, errText(e)); })
+          .withdrawRequest({ requestId: p.requestId, note: $('lkNote').value.trim() });
+      });
+    }
+
+    // ----- Timeline -----
+    function loadTimeline(id) {
+      authRun()
+        .withSuccessHandler(function (t) {
+          if (!$('tlBox') || !CUR || CUR.trackerId !== id || !t) return;
+          var rows = [];
+          var add = function (l, v) { if (v) rows.push([l, v]); };
+          add('Enquiry', t.enquiryDate); add('Advance verified', t.advancePaymentVerifiedDate); add('Verified by', t.verifiedBy); add('Verification code', t.verificationCode);
+          add('Fully paid', t.fullPaymentDate); add('Sent to Ops', t.handoverToOpsDate); add('Picked up by Ops', t.pickupByOpsDate);
+          if (t.dispatchType !== 'Courier') add('Gate pass issued', t.gatePassIssuedDate);
+          if (t.dispatchDate) add(t.dispatchType === 'Courier' ? 'Posted' : 'Left the gate', t.dispatchDate + (t.gateOutBy ? ' – ' + String(t.gateOutBy).replace(/\s*\([^)]*\)\s*$/, '') : ''));
+          add('E-way bill', t.ewayBillNo); add('Dispatch', t.transportMode ? t.transportMode + (t.courierName ? ' – ' + t.courierName : '') : '');
+          if (t.dispatchType === 'Courier') add('Tracking no.', t.trackingNo);
+          add('Cancelled', t.cancelledDate ? t.cancelledDate + (t.cancelledBy ? ' – ' + t.cancelledBy : '') : '');
+          add('Refund', t.refundStatus ? t.refundStatus + (t.refundAmount ? ' – ' + inr(t.refundAmount) : '') : '');
+          add(t.deliveryDate ? 'Delivered' : 'Delivery', t.deliveryDate || t.deliveryStatus);
+          $('tlBox').className = 'tl';
+          $('tlBox').innerHTML = rows.length ? rows.map(function (r) { return '<div class="tl-item"><span class="tl-l">' + esc(r[0]) + '</span><span class="tl-v">' + esc(r[1]) + '</span></div>'; }).join('') : '<div class="faint">Nothing yet.</div>';
+        })
+        .withFailureHandler(function (e) { if ($('tlBox')) $('tlBox').textContent = 'Could not load the timeline: ' + errText(e); })
+        .getOrderTimeline(id);
+    }
+
+    // ----- Payment with excess -----
+    function showExcessOutcome(o) {
+      var ex = o.paymentExceptions && o.paymentExceptions.excess;
+      if (!ex) return;
+      if (ex.status === 'Pending') { $('xsDone').innerHTML = '<div class="note info" style="margin:0 0 12px;">A payment with excess is waiting for an admin (' + esc(ex.requestId) + (ex.amountNote ? ', ' + esc(ex.amountNote) : '') + '). Nothing is recorded until it’s approved.</div>'; return; }
+      if (ex.status !== 'Approved') return;
+      authRun()
+        .withSuccessHandler(function (r) {
+          if (!r || !r.found || !CUR || CUR.trackerId !== o.trackerId || !$('xsDone')) return;
+          $('xsDone').innerHTML = '<div class="ok-line" style="margin:0 0 12px;">Payment with excess approved by ' + esc(r.decidedBy) + ' (' + esc(r.requestId) + '): ' +
+            (r.share !== null ? inr(r.share) + ' recorded on this order, ' + inr(r.excess) + ' in Excess Payments.' : 'recorded.') +
+            (r.verificationCode ? '<div class="big-code">' + esc(r.verificationCode) + '</div>' : '') + '</div>';
+        })
+        .withFailureHandler(function () {})
+        .getExcessOutcome(o.trackerId);
+    }
+    function splitHtml(amount, share, line) {
+      return '<div class="xs-split"><div class="xs-line"><span>Bank shows</span><b>' + inr(amount) + '</b></div>' +
+        '<div class="xs-line"><span>Goes to this order</span><b>' + inr(share) + '</b></div>' +
+        '<div class="xs-line extra"><span>Excess (kept off the order)</span><span>' + inr(amount - share) + '</span></div>' +
+        '<div class="hint">' + line + '</div></div>';
+    }
+    // Sends the whole entry to an admin; nothing is recorded until it's approved.
+    function excessForm(box, o, amt, share, getUtr, onSent) {
+      box.innerHTML = splitHtml(amt, share, 'More than ' + (share === Number(o.totalOrderValue) ? 'this order’s value' : 'the balance due') + '. The whole entry goes to an admin first; on approval the order gets its share and the extra is recorded separately – never as order income.') +
+        '<div class="field"><label class="lbl">What is the extra ' + inr(amt - share) + ' for?</label><textarea class="inp" id="xsReason" rows="2" placeholder="e.g. Old invoice 2024-117 – credit confirmed with the customer"></textarea></div>' +
+        '<div class="act-actions"><button class="btn primary" type="button" id="xsBtn">Send to admin for approval</button></div><div class="err" id="xsErr"></div>';
+      $('xsBtn').addEventListener('click', function () {
+        var b = this, err = $('xsErr'); hideErr(err);
+        var ref = getUtr(), reason = $('xsReason').value.trim();
+        if (!ref) return showErr(err, 'Enter the bank reference / UTR.');
+        if (!reason) return showErr(err, 'Say what the extra amount is for.');
+        busy(b, 'Sending…');
+        authRun()
+          .withSuccessHandler(function (res) {
+            box.innerHTML = '<div class="note info">Sent to the admin (' + esc(res.requestId) + '). <b>Nothing is recorded yet.</b> Once it’s approved, the order gets its share and the excess goes to Excess Payments automatically.' +
+              (res.callName ? ' Call ' + esc(res.callName) + (res.callPhone ? ' on <a href="tel:' + esc(res.callPhone.replace(/[^0-9+]/g, '')) + '">' + esc(res.callPhone) + '</a>' : '') + ' so it gets decided quickly.' : '') + '</div>';
+            if (onSent) onSent();
+            afterAction();
+          })
+          .withFailureHandler(function (e) { unbusy(b); showErr(err, errText(e)); })
+          .requestPaymentException({ trackerId: o.trackerId, type: 'EXCESS_PAYMENT', reason: reason, amountReceived: amt, bankReference: ref });
+      });
+    }
+
+    // ----- Standby: on standby (resume early), requested (waiting), or request it -----
+    var SB_HELP = { 'Site not ready': 'e.g. foundation not done, access road blocked', 'Customer payment pending': 'e.g. balance promised by Friday',
+      'Delivery location changed': 'e.g. moving to the new site in Kakkanad', 'Customer asked to postpone': 'e.g. wants delivery after the festival', 'Other': 'Describe the delay' };
+    function ymdAdd(ymd, n) { var p = ymd.split('-'); return new Date(Date.UTC(+p[0], +p[1] - 1, +p[2] + n)).toISOString().slice(0, 10); }
+    function daysBetween(a, b) { var pa = a.split('-'), pb = b.split('-'); return Math.round((Date.UTC(+pb[0], +pb[1] - 1, +pb[2]) - Date.UTC(+pa[0], +pa[1] - 1, +pa[2])) / 86400000); }
+    function renderStandby(o, locked) {
+      var box = $('sbSec'), info = o.standby;
+      if (!box || !info) return;
+      var open = info.open;
+      if (info.onStandby && open && open.status === 'Active') {
+        box.innerHTML = '<div class="dr-sec-title">On standby</div><div class="act-card grey"><h4>Paused – customer delay</h4>' +
+          '<div class="msg"><b>Reason:</b> ' + esc(open.reason) + (open.note ? ' – ' + esc(open.note) : '') + '<br><b>Since</b> ' + esc(open.from) + ' · <b>resumes</b> ' + esc(open.resume) +
+            (open.daysLeft !== null && open.daysLeft !== undefined ? ' (' + open.daysLeft + ' day' + (open.daysLeft === 1 ? '' : 's') + ' left)' : '') +
+            '<br><b>Reported by</b> ' + esc(open.reportedBy) + ' · <b>approved by</b> ' + esc(open.directorDecision || open.decidedBy) + '</div>' +
+          '<div class="hint">Was at “' + esc(open.statusBefore) + '” – it goes back there when the standby ends, by itself on the resume date.</div>' +
+          '<div class="field"><label class="lbl" for="sbResNote">Customer ready early? Note<span class="opt">(optional)</span></label><input class="inp" id="sbResNote" type="text" placeholder="e.g. Site ready, customer called this morning"></div>' +
+          '<div class="act-actions"><button class="btn" type="button" id="sbResBtn">Resume now</button></div><div class="err" id="sbErr"></div></div>';
+        $('sbResBtn').addEventListener('click', function () {
+          var b = this, err = $('sbErr'); hideErr(err);
+          if (!window.confirm('Take ' + o.trackerId + ' off standby now? It goes back to “' + open.statusBefore + '” and its clock starts again.')) return;
+          busy(b, 'Resuming…');
+          authRun().withSuccessHandler(function () { afterAction(); openOrder(o.trackerId); })
+            .withFailureHandler(function (e) { unbusy(b); showErr(err, errText(e)); })
+            .resumeStandby({ trackerId: o.trackerId, note: $('sbResNote').value.trim() });
+        });
+        return;
+      }
+      if (open && (open.status === 'Pending' || open.status === 'Pending Director')) {
+        box.innerHTML = '<div class="dr-sec-title">Standby</div><div class="note info" style="margin-top:0;">Standby requested (' + esc(open.requestId) + ') – ' +
+          (open.status === 'Pending' ? 'waiting for an admin.' : 'approved by ' + esc(open.decidedBy) + ', now waiting for a director.') +
+          ' ' + esc(open.reason) + (open.note ? ' – ' + esc(open.note) : '') + ', ' + esc(open.from) + ' to ' + esc(open.resume) + '. The order stays live until it’s approved.</div>';
+        return;
+      }
+      if (!info.eligible || locked) { box.innerHTML = ''; return; }
+      var last = info.last;
+      box.innerHTML = '<button class="btn ghost sm" type="button" id="sbOpen">Customer causing a delay? Request standby ▾</button>' +
+        '<div id="sbForm" style="display:none;"><div class="act-card grey" style="margin-top:8px;">' +
+        (last && last.status === 'Declined' ? '<div class="note bad" style="margin-top:0;">The last request (' + esc(last.requestId) + ') was declined' + (last.decidedBy ? ' by ' + esc(last.decidedBy) : '') + '.</div>' : '') +
+        (info.timesOnStandby ? '<div class="hint">On standby ' + info.timesOnStandby + ' time' + (info.timesOnStandby === 1 ? '' : 's') + ' before.</div>' : '') +
+        '<div class="field"><label class="lbl" for="sbReason">Reason</label><select class="inp" id="sbReason">' + (info.reasons || []).map(function (r) { return '<option>' + esc(r) + '</option>'; }).join('') + '</select></div>' +
+        '<div class="field"><label class="lbl" for="sbNote">Details for the admin</label><textarea class="inp" id="sbNote" rows="2"></textarea></div>' +
+        '<div class="field"><label class="lbl" for="sbBy">Who reported it</label><input class="inp" id="sbBy" type="text" placeholder="Who spoke to the customer"></div>' +
+        '<div class="row2" style="margin-top:12px;"><div><label class="lbl" for="sbFrom">Delay started on</label><input class="inp" id="sbFrom" type="date" value="' + esc(info.today) + '" min="' + esc(info.earliestFromYmd) + '" max="' + esc(info.today) + '"></div>' +
+          '<div><label class="lbl" for="sbResume">Customer expects to be ready on</label><input class="inp" id="sbResume" type="date" min="' + ymdAdd(info.today, 1) + '" max="' + ymdAdd(info.today, info.ceilingDays) + '"></div></div>' +
+        '<div class="hint" id="sbPrev">Pick the resume date.</div>' +
+        '<div class="act-actions"><button class="btn primary" type="button" id="sbSend">Request standby approval</button></div><div class="err" id="sbErr"></div></div></div>';
+      $('sbOpen').addEventListener('click', function () { var f = $('sbForm'); f.style.display = f.style.display === 'none' ? '' : 'none'; });
+      var setPh = function () { $('sbNote').placeholder = SB_HELP[$('sbReason').value] || ''; };
+      $('sbReason').addEventListener('change', setPh); setPh();
+      var prev = function () {
+        var f = $('sbFrom').value, r = $('sbResume').value, el = $('sbPrev');
+        if (!f || !r) { el.textContent = 'Pick the resume date.'; return; }
+        var d = daysBetween(f, r), back = daysBetween(f, info.today), notes = [];
+        if (d > info.maxDays) notes.push(d + ' days is over the ' + info.maxDays + '-day limit');
+        if (back > info.maxBackdateDays) notes.push('starting ' + back + ' days back is over the ' + info.maxBackdateDays + '-day limit');
+        el.textContent = d + ' day' + (d === 1 ? '' : 's') + ' on standby.' + (notes.length ? ' A director will also need to approve: ' + notes.join('; ') + '.' : '');
+        el.style.color = notes.length ? 'var(--amber)' : '';
+      };
+      $('sbFrom').addEventListener('change', prev); $('sbResume').addEventListener('change', prev);
+      $('sbSend').addEventListener('click', function () {
+        var b = this, err = $('sbErr'); hideErr(err);
+        var form = { trackerId: o.trackerId, reason: $('sbReason').value, note: $('sbNote').value.trim(), reportedBy: $('sbBy').value.trim(), standbyFrom: $('sbFrom').value, resumeDate: $('sbResume').value };
+        if (!form.reportedBy) return showErr(err, 'Enter who reported the delay.');
+        if (!form.resumeDate) return showErr(err, 'Pick the date the customer expects to be ready.');
+        if (form.reason === 'Other' && !form.note) return showErr(err, 'Describe the reason.');
+        busy(b, 'Sending…');
+        authRun()
+          .withSuccessHandler(function (res) {
+            box.innerHTML = '<div class="note info">Standby requested (' + esc(res.requestId) + '). The order stays live until it’s approved.' +
+              (res.needsDirector ? ' It also needs a director: ' + esc((res.directorReasons || []).join('; ')) + '.' : '') +
+              (res.callName ? ' Call ' + esc(res.callName) + (res.callPhone ? ' on <a href="tel:' + esc(res.callPhone.replace(/[^0-9+]/g, '')) + '">' + esc(res.callPhone) + '</a>' : '') + ' so it gets decided today.' : '') + '</div>';
+            afterAction();
+          })
+          .withFailureHandler(function (e) { unbusy(b); showErr(err, errText(e)); })
+          .requestStandby(form);
+      });
+    }
+
 
     // ----- Verify (same rules as the classic page) -----
     function verifyHtml(o) {
@@ -961,7 +1242,14 @@
       var say = function (cls, t) { note.innerHTML = '<div class="' + cls + '">' + t + '</div>'; };
       if (amt === null) { btn.disabled = true; return; }
       if (isNaN(amt) || amt < 0) { say('note bad', 'Enter a valid amount (0 if nothing has come in).'); btn.disabled = true; return; }
-      if (total > 0 && amt > total) { say('note bad', 'That’s more than the order value (' + inr(total) + '). If the customer really paid extra, use “payment with excess” on the classic page.'); btn.disabled = true; return; }
+      if (total > 0 && amt > total) {
+        btn.style.display = 'none';
+        if (ex.excess && ex.excess.status === 'Pending') { say('note info', 'A payment with excess is already waiting for an admin (' + esc(ex.excess.requestId) + '). Nothing is recorded until it’s approved.'); return; }
+        $('vUtrBox').style.display = '';
+        if (ex.excess && ex.excess.status === 'Declined') say('note bad', 'The last excess entry was declined by ' + esc(ex.excess.decidedBy) + '. Check the amount against the bank before sending again.');
+        excessForm(exBox, o, amt, total, function () { return $('vUtr').value.trim(); }, function () { $('vUtrBox').style.display = 'none'; $('vAmt').disabled = true; });
+        return;
+      }
       if (logged > 0 && amt !== logged) {
         btn.style.display = 'none';
         say('note', 'The bank amount (' + inr(amt) + ') differs from the ' + inr(logged) + ' the CRE logged. Changing it needs an admin’s approval.');
@@ -1006,9 +1294,17 @@
         '<div class="msg"><b>' + inr(o.balanceDue) + '</b> still due' + (o.status === 'Ready - Payment Pending' ? ' – the goods are ready and waiting only for this.' : o.status === 'On Hold - Balance Due' ? ' – courier order on hold until it’s paid.' : '.') + '</div>' +
         '<div class="row2" style="margin-top:12px;"><div><label class="lbl" for="pAmt">Amount received</label><input class="inp" id="pAmt" type="number" min="0" step="0.01"></div>' +
         '<div><label class="lbl" for="pUtr">Bank reference / UTR</label><input class="inp" id="pUtr" type="text"></div></div>' +
-        '<div class="act-actions"><button class="btn primary" type="button" id="payBtn">Record payment</button></div><div class="err" id="pErr"></div><div id="pDone"></div></div>';
+        '<div id="pXs"></div>' +
+        '<div class="act-actions" id="pActs"><button class="btn primary" type="button" id="payBtn">Record payment</button></div><div class="err" id="pErr"></div><div id="pDone"></div></div>';
     }
     function bindPay(o) {
+      var bal = Number(o.balanceDue) || 0;
+      $('pAmt').addEventListener('input', function () {
+        var amt = Number(this.value);
+        if (!amt || amt <= bal + 1) { $('pXs').innerHTML = ''; $('pActs').style.display = ''; return; }
+        $('pActs').style.display = 'none';
+        excessForm($('pXs'), o, amt, bal, function () { return $('pUtr').value.trim(); }, function () { $('pAmt').value = ''; });
+      });
       $('payBtn').addEventListener('click', function () {
         var b = this, err = $('pErr'); hideErr(err);
         var amt = parseFloat($('pAmt').value), utr = $('pUtr').value.trim();
@@ -1165,25 +1461,153 @@
       });
     }
 
-    // ---------------- Pending payments view ----------------
+    // ---------------- Pending payments view (with filters, 13 Nov 2026) ----------------
+    var PAY = [];
+    function payStage(it) {
+      if (it.customerSaysPaid) return 'says';
+      if (it.readyForDispatch) return 'ready';
+      if (it.workflowStatus === 'On Hold - Balance Due') return 'held';
+      if (it.workflowStatus === 'Logged') return 'notver';
+      if (it.deliveryStatus === 'Delivered' || it.deliveryStatus === 'Returned') return 'delivered';
+      if (it.dispatched) return 'transit';
+      return 'before';
+    }
+    function payTerms(it) { return it.orderType === 'Flipkart' || it.orderType === 'DACC' ? it.orderType : (it.paymentTermsType || 'End Customer'); }
+    function payWhy(it) {
+      var st = payStage(it);
+      if (st === 'says') return 'CRE says paid: ' + it.customerSaysPaid;
+      if (st === 'ready') return 'Goods ready – waiting only for this payment';
+      if (st === 'held') return 'Courier order on hold until it’s paid';
+      if (st === 'notver') return 'Not verified yet – verify the advance first';
+      if (st === 'delivered') return it.deliveryStatus + ' – balance still pending';
+      if (st === 'transit') return 'Dispatched ' + (it.dispatchedOn || '') + (it.daysSinceDispatch !== null ? ' (' + it.daysSinceDispatch + ' days ago)' : '') + (it.deliveryStatus ? ' · ' + it.deliveryStatus : '');
+      return 'Not dispatched yet' + (it.daysUntilDelivery !== null && it.daysUntilDelivery !== undefined ? (it.daysUntilDelivery < 0 ? ' · wanted ' + (-it.daysUntilDelivery) + ' days ago' : ' · wanted in ' + it.daysUntilDelivery + ' days') : '');
+    }
     function loadPayments() {
       $('payList').innerHTML = '<div class="loading" style="padding:16px;">Loading…</div>';
       authRun()
         .withSuccessHandler(function (items) {
-          items = items || [];
-          $('payList').innerHTML = items.length ? items.map(function (it, i) {
-            var tone = it.customerSaysPaid || it.readyForDispatch ? 'red' : it.isUrgent ? 'amber' : 'blue';
-            return '<div class="act-row ' + tone + '" data-id="' + esc(it.trackerId) + '"><span class="act-bar"></span><div class="act-main"><div class="act-top"><span class="act-name">' + esc(it.institution) + '</span>' +
-              '<span class="faint" style="font-size:12px;">' + esc(it.trackerId) + '</span><span class="chip">' + esc(it.paymentTermsType) + '</span></div>' +
-              '<div class="act-sub act-why">' + esc(it.customerSaysPaid ? 'CRE says paid: ' + it.customerSaysPaid : it.readyForDispatch ? 'Goods ready – waiting only for this payment' : it.workflowStatus === 'Logged' ? 'Not verified yet' : (it.deliveryStatus || 'Not dispatched yet')) + '</div></div>' +
-              '<div class="act-amt">' + inr(it.balanceDue) + '<small>due</small></div></div>';
-          }).join('') : '<div class="empty">No outstanding balances.</div>';
-          each($('payList').querySelectorAll('.act-row'), function (el) { el.addEventListener('click', function () { openOrder(el.getAttribute('data-id')); }); });
+          PAY = items || [];
+          var cres = PAY.map(function (i) { return i.cre; }).filter(function (v, i, a) { return v && a.indexOf(v) === i; }).sort();
+          var keep = $('pfCre').value;
+          $('pfCre').innerHTML = '<option value="">All CREs</option>' + cres.map(function (c) { return '<option>' + esc(c) + '</option>'; }).join('');
+          if (cres.indexOf(keep) !== -1) $('pfCre').value = keep;
+          renderPayments();
         })
         .withFailureHandler(function (e) { $('payList').innerHTML = '<div class="empty">' + esc(errText(e)) + '</div>'; })
         .getPendingPayments();
     }
+    function renderPayments() {
+      var q = $('pfQ').value.trim().toLowerCase(), terms = $('pfTerms').value, stage = $('pfStage').value, cre = $('pfCre').value, sort = $('pfSort').value;
+      var rows = PAY.filter(function (it) {
+        if (q && (String(it.institution) + ' ' + String(it.trackerId)).toLowerCase().indexOf(q) === -1) return false;
+        if (terms && payTerms(it) !== terms) return false;
+        if (stage && payStage(it) !== stage) return false;
+        if (cre && it.cre !== cre) return false;
+        return true;
+      });
+      if (sort === 'bal') rows.sort(function (a, b) { return b.balanceDue - a.balanceDue; });
+      else if (sort === 'old') rows.sort(function (a, b) { return (b.daysSinceDispatch === null ? -1 : b.daysSinceDispatch) - (a.daysSinceDispatch === null ? -1 : a.daysSinceDispatch); });
+      else if (sort === 'new') rows.sort(function (a, b) { return PAY.indexOf(a) - PAY.indexOf(b); });
+      var total = rows.reduce(function (t, r) { return t + (Number(r.balanceDue) || 0); }, 0);
+      var filtered = q || terms || stage || cre;
+      $('pfSum').innerHTML = '<b>' + rows.length + '</b> order' + (rows.length === 1 ? '' : 's') + ' · <b>' + inr(total) + '</b> due' + (filtered ? ' (filtered from ' + PAY.length + ')' : '') + (PAY.length >= 200 ? ' · showing the 200 most recent' : '');
+      $('payList').innerHTML = rows.length ? rows.map(function (it) {
+        var st = payStage(it);
+        var tone = st === 'says' || st === 'ready' ? 'red' : st === 'held' || it.isUrgent ? 'amber' : st === 'notver' ? 'grey' : 'blue';
+        return '<div class="act-row ' + tone + '" data-id="' + esc(it.trackerId) + '"><span class="act-bar"></span><div class="act-main"><div class="act-top"><span class="act-name">' + esc(it.institution) + '</span>' +
+          '<span class="faint" style="font-size:12px;">' + esc(it.trackerId) + '</span><span class="chip' + (payTerms(it) === 'Flipkart' ? ' flipkart' : payTerms(it) === 'DACC' ? ' dacc' : '') + '">' + esc(payTerms(it)) + '</span>' +
+          (it.cre ? '<span class="faint" style="font-size:12px;">' + esc(it.cre) + '</span>' : '') + '</div>' +
+          '<div class="act-sub act-why">' + esc(payWhy(it)) + (it.followUpLater ? ' · CRE calls on ' + esc(it.followUp) : '') + '</div></div>' +
+          '<div class="act-amt">' + inr(it.balanceDue) + '<small>of ' + inr(it.totalOrderValue) + '</small></div></div>';
+      }).join('') : '<div class="empty">' + (PAY.length ? 'Nothing matches these filters.' : 'No outstanding balances.') + '</div>';
+      each($('payList').querySelectorAll('.act-row'), function (el) { el.addEventListener('click', function () { openOrder(el.getAttribute('data-id')); }); });
+    }
     $('refreshPay').addEventListener('click', loadPayments);
+    ['pfTerms', 'pfStage', 'pfCre', 'pfSort'].forEach(function (id) { $(id).addEventListener('change', renderPayments); });
+    $('pfQ').addEventListener('input', renderPayments);
+    $('pfClear').addEventListener('click', function () { ['pfQ', 'pfTerms', 'pfStage', 'pfCre', 'pfSort'].forEach(function (id) { $(id).value = ''; }); renderPayments(); });
+
+    // ---------------- On standby view ----------------
+    function loadStandby() {
+      $('sbList').innerHTML = '<div class="loading" style="padding:16px;">Loading…</div>';
+      authRun()
+        .withSuccessHandler(function (data) {
+          var items = (data && data.items) || [], u = data && data.usage;
+          $('sbSub').textContent = (u ? 'Using ' + u.count + ' of ' + u.maxOrders + ' standby slots · ' + inr(Math.round(u.value)) + ' of ' + inr(Math.round(u.maxValue)) + '. ' : '') +
+            'To request standby for an order, open it and use the standby box.';
+          $('sbList').innerHTML = items.length ? items.map(function (it) {
+            var tone = it.status === 'Active' ? 'grey' : it.status === 'Declined' ? 'red' : 'amber';
+            var tag = it.status === 'Active' ? 'On standby until ' + it.resume + (it.daysLeft !== null && it.daysLeft !== undefined ? ' (' + it.daysLeft + ' days left)' : '')
+              : it.status === 'Pending' ? 'Requested – waiting for an admin' : it.status === 'Pending Director' ? 'Waiting for a director' : 'Declined';
+            return '<div class="act-row ' + tone + '" data-id="' + esc(it.trackerId) + '"><span class="act-bar"></span><div class="act-main"><div class="act-top"><span class="act-name">' + esc(it.institution) + '</span>' +
+              '<span class="faint" style="font-size:12px;">' + esc(it.trackerId) + '</span></div>' +
+              '<div class="act-sub act-why">' + esc(tag) + ' · ' + esc(it.reason) + (it.note ? ' – ' + esc(it.note) : '') + '</div></div>' +
+              '<div class="act-amt">' + (it.orderValue ? inr(it.orderValue) : '') + '<small>' + esc(it.from ? 'since ' + it.from : '') + '</small></div></div>';
+          }).join('') : '<div class="empty">No orders on standby.</div>';
+          each($('sbList').querySelectorAll('.act-row'), function (el) { el.addEventListener('click', function () { openOrder(el.getAttribute('data-id')); }); });
+        })
+        .withFailureHandler(function (e) { $('sbList').innerHTML = '<div class="empty">' + esc(errText(e)) + '</div>'; })
+        .getStandbyPanel();
+    }
+    $('refreshSb').addEventListener('click', loadStandby);
+
+    // ---------------- Verified payments view ----------------
+    var VH = [], vhLoaded = '';
+    function ymdLocal(d) { return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10); }
+    function vhRange(days) {
+      var d = new Date(); d.setDate(d.getDate() - days);
+      $('vhFrom').value = ymdLocal(d); $('vhTo').value = ymdLocal(new Date());
+      each($('vhQuick').querySelectorAll('button'), function (b) { b.classList.toggle('on', Number(b.getAttribute('data-d')) === days); });
+      vhFetch();
+    }
+    function vhFetch() {
+      var from = $('vhFrom').value, to = $('vhTo').value;
+      if (!from || !to) return;
+      if (from > to) { $('vhTable').innerHTML = '<div class="empty">“From” is after “To”.</div>'; return; }
+      if (vhLoaded === from + '|' + to) return vhRender();
+      $('vhTable').innerHTML = '<div class="loading">Loading…</div>'; $('vhSum').textContent = '';
+      authRun()
+        .withSuccessHandler(function (res) {
+          VH = (res && res.rows) || []; vhLoaded = from + '|' + to;
+          vhFill('vhCre', VH.map(function (r) { return r.cre; }), 'All CREs');
+          vhFill('vhBy', VH.map(function (r) { return r.by; }), 'Anyone');
+          vhRender();
+        })
+        .withFailureHandler(function (e) { $('vhTable').innerHTML = '<div class="empty">Could not load: ' + esc(errText(e)) + '</div>'; })
+        .getVerificationHistory({ from: from, to: to });
+    }
+    function vhFill(id, vals, all) {
+      var sel = $(id), keep = sel.value;
+      var u = vals.filter(function (v, i) { return v && vals.indexOf(v) === i; }).sort();
+      sel.innerHTML = '<option value="">' + all + '</option>' + u.map(function (v) { return '<option>' + esc(v) + '</option>'; }).join('');
+      if (u.indexOf(keep) !== -1) sel.value = keep;
+    }
+    function vhRender() {
+      var cre = $('vhCre').value, type = $('vhType').value, by = $('vhBy').value, q = $('vhQ').value.trim().toLowerCase();
+      var rows = VH.filter(function (r) {
+        if (cre && r.cre !== cre) return false;
+        if (type && r.type !== type) return false;
+        if (by && r.by !== by) return false;
+        if (q && (r.institution + ' ' + r.trackerId + ' ' + (r.utr || '')).toLowerCase().indexOf(q) === -1) return false;
+        return true;
+      });
+      var total = rows.reduce(function (s, r) { return s + (Number(r.amount) || 0); }, 0);
+      var missing = rows.filter(function (r) { return r.amount === null; }).length;
+      $('vhSum').innerHTML = '<b>' + rows.length + '</b> entr' + (rows.length === 1 ? 'y' : 'ies') + ' · total <b>' + inr(total) + '</b>' + (missing ? ' · ' + missing + ' older verification' + (missing === 1 ? '' : 's') + ' without an amount on record' : '');
+      if (!rows.length) { $('vhTable').innerHTML = '<div class="empty">Nothing matches these filters.</div>'; return; }
+      $('vhTable').innerHTML = '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Date &amp; time</th><th>Type</th><th>Customer</th><th>Quotation no.</th><th>CRE</th><th class="num">Amount</th><th>UTR / reference</th><th>Verified by</th></tr></thead><tbody>' +
+        rows.map(function (r) {
+          return '<tr data-id="' + esc(r.trackerId) + '"><td style="white-space:nowrap;">' + esc(r.at) + '</td><td>' + pill(r.type, r.type === 'Balance payment' ? 'blue' : 'teal') + '</td>' +
+            '<td>' + esc(r.institution) + '</td><td>' + esc(r.trackerId) + '</td><td>' + esc(r.cre) + '</td><td class="num">' + (r.amount === null ? '–' : inr(r.amount)) + '</td>' +
+            '<td>' + (r.utr ? esc(r.utr) : r.noAdvance ? '<span class="faint">No advance</span>' : '') + '</td><td>' + esc(r.by) + '</td></tr>';
+        }).join('') + '</tbody></table></div>';
+      each($('vhTable').querySelectorAll('tbody tr'), function (tr) { tr.addEventListener('click', function () { openOrder(tr.getAttribute('data-id')); }); });
+    }
+    each($('vhQuick').querySelectorAll('button'), function (b) { b.addEventListener('click', function () { vhRange(Number(b.getAttribute('data-d'))); }); });
+    ['vhFrom', 'vhTo'].forEach(function (id) { $(id).addEventListener('change', function () { each($('vhQuick').querySelectorAll('button'), function (b) { b.classList.remove('on'); }); vhFetch(); }); });
+    ['vhCre', 'vhType', 'vhBy'].forEach(function (id) { $(id).addEventListener('change', vhRender); });
+    $('vhQ').addEventListener('input', vhRender);
 
     // ---------------- Find any order ----------------
     var findInput = $('findInput'), findPop = $('findPop');
@@ -1207,7 +1631,7 @@
 
     // ---------------- Start ----------------
     window.ICF_RELOAD = function () { load(); };
-    window.ICF_CLEAR = function () { Q = null; closeDrawer(); $('qList').innerHTML = '<div class="loading" style="padding:16px;">Loading…</div>'; $('glance').innerHTML = ''; };
+    window.ICF_CLEAR = function () { Q = null; closeDrawer(); $('qList').innerHTML = '<div class="loading" style="padding:16px;">Loading…</div>'; $('glance').innerHTML = ''; PAY = []; VH = []; vhLoaded = ''; $('payList').innerHTML = ''; $('sbList').innerHTML = ''; $('vhTable').innerHTML = ''; };
     load(); // queued until sign-in, then sent
     if (window.ICF_STAFF) applyStaff(window.ICF_STAFF);
   })();

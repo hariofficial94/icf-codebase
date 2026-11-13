@@ -3,8 +3,10 @@
  * ---------------------------------------------------------------------
  * Same look as the CRE beta. It opens on ONE "to do" queue: everything waiting
  * on Accounts, most urgent first, each item opening in a side drawer with its
- * action. The classic Accounts page is untouched and stays for anything rarer
- * (payment-with-excess, standby requests, verification history, refunds report).
+ * action. The classic Accounts page is untouched. Since 13 Nov 2026 the beta
+ * also covers what used to be classic-only: payment with excess, standby
+ * (list, request, resume early), withdrawing a request, and verified-payments
+ * history -- so the classic page can eventually be retired.
  *
  * This file only adds getAccountsQueue_: the whole queue in one call (one tracker
  * read plus the small request tabs), so the page loads in a single round trip.
@@ -18,9 +20,19 @@ function getAccountsQueue_() {
   var cfg = getAlertSettings_();
   var now = Date.now();
   var locks = (typeof pendingLockSet_ === 'function') ? pendingLockSet_() : {};
-  var verify = [];
+  var verify = [], held = [];
   data.rows.forEach(function (o) {
-    if (String(o.get('Status') || '') !== 'Logged') return;
+    var st = String(o.get('Status') || '');
+    if (st === STATUS_HOLD_BALANCE) { // courier order verified, held until its balance comes in
+      var hid = String(o.get('Tracker ID'));
+      var bal = computeBalanceDue(Number(o.get('Total Order Value')) || 0, Number(o.get('Advance Received')) || 0);
+      held.push({ trackerId: hid, institution: String(o.get('Institution / Customer') || ''), cre: String(o.get('CRE Name') || ''),
+        balanceDue: bal, priority: normalizePriority_(o.get('Priority Level')), dispatchType: 'Courier',
+        orderType: normalizeOrderType_(o.get('Order Type')), customerSaysPaid: String(o.get('Customer Says Paid') || ''),
+        locked: locks[hid.toLowerCase()] || '' });
+      return;
+    }
+    if (st !== 'Logged') return;
     var id = String(o.get('Tracker ID'));
     var docs = docsInfo_({ 'Status': 'Logged', 'Payment Terms Type': o.get('Payment Terms Type'),
       'CRM PO URL': o.get('CRM PO URL'), 'Customer PO URL': o.get('Customer PO URL'), 'CRM PO Printed': o.get('CRM PO Printed') });
@@ -40,6 +52,8 @@ function getAccountsQueue_() {
   var fu = (typeof getFollowUpSettings_ === 'function') ? safe(getFollowUpSettings_) : null;
   return {
     verify: verify,
+    held: held,
+    standby: safe(getStandbyPanel_) || { items: [] },
     verifyRemindMins: fu ? fu.verifyRemindHours * 60 : 240,
     gatePasses: safe(getGatePassQueue_) || [],
     nudges: safe(getPaymentNudges_) || [],

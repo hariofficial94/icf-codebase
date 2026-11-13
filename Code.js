@@ -1662,6 +1662,9 @@ function getPendingPayments_() {
   var daysFrom = function (ymd) { return ymd ? Math.round((Date.parse(todayP + 'T00:00:00Z') - Date.parse(ymd + 'T00:00:00Z')) / 86400000) : null; };
   var owners = readOrderOwners_(sheet, numRows);
   var scope = creScope_(); // null for Accounts/Admin -- they see every balance
+  // Accounts beta filters (13 Nov 2026): who the order belongs to and its order type.
+  var creNameVals = sheet.getRange(2, getHeaderIndex('CRE Name'), numRows, 1).getValues();
+  var orderTypeVals = sheet.getRange(2, getHeaderIndex('Order Type'), numRows, 1).getValues();
 
   var results = [];
   for (var i = numRows - 1; i >= 0; i--) { // most recent first
@@ -1692,6 +1695,8 @@ function getPendingPayments_() {
       followUpYmd: ymdOf(fuDateVals[i][0]),
       followUp: ymdOf(fuDateVals[i][0]) ? fmtYmd_(ymdOf(fuDateVals[i][0])) : '',
       followUpNote: String(fuNoteVals[i][0] || ''),
+      cre: String(creNameVals[i][0] || ''),
+      orderType: normalizeOrderType_(orderTypeVals[i][0]),
       followUpLater: ymdOf(fuDateVals[i][0]) > todayP,   // waiting for its date -> "Follow-ups" pane
       // CRE page red rule (Hari, 23 Oct 2026): only once 3+ days have passed since it went in transit, and not while a follow-up date is pending.
       creUrgent: isDispatchedStatus_(statusVals[i][0]) && daysFrom(ymdOf(dispatchVals[i][0])) >= 3 && !(ymdOf(fuDateVals[i][0]) > todayP)
