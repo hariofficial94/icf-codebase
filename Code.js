@@ -535,6 +535,7 @@ function doGet(e) {
     gate: 'gate',        // Gate login (Oct 2026) -- Sanju marks vehicles out
     'dashboard-beta': 'dashboard_beta', // Owner dashboard, new layout on trial (Oct 2026) -- the classic dashboard is untouched
     'cre-beta': 'cre_beta', // CRE page, new layout on trial (Oct 2026) -- a separate file; the classic CRE page is untouched
+    'accounts-beta': 'accounts_beta', // Accounts page, new layout on trial (13 Nov 2026) -- the classic Accounts page is untouched
     rental: 'rental'     // Rentals (Oct 2026) -- one page for CRE, Accounts, Ops and Ananthu; see Rental.js
   };
   var file = fileMap[page] || 'index';
@@ -549,6 +550,7 @@ function doGet(e) {
     settings: 'ICF Settings',
     gate: 'ICF Gate',
     'cre-beta': 'ICF CRE (Beta)',
+    'accounts-beta': 'ICF Accounts (Beta)',
     'dashboard-beta': 'ICF Dashboard (Beta)',
     rental: 'ICF Rentals'
   };
@@ -3048,6 +3050,11 @@ function apiMap_() {
   if (typeof followUpApiMap_ === 'function') {
     var extra13 = followUpApiMap_();
     for (var k13 in extra13) map[k13] = extra13[k13];
+  }
+  // Accounts beta page (13 Nov 2026) -- AccountsBeta.gs.
+  if (typeof accountsBetaApiMap_ === 'function') {
+    var extra15 = accountsBetaApiMap_();
+    for (var k15 in extra15) map[k15] = extra15[k15];
   }
   // Balance waivers + CRE payment requests pane (13 Nov 2026) -- Waivers.gs.
   if (typeof waiverApiMap_ === 'function') {

@@ -1,0 +1,1216 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <script>try { if (localStorage.getItem('icf_cre_beta_theme') === 'light') document.documentElement.setAttribute('data-theme', 'light'); } catch (e) {}</script>
+  <!--
+    Accounts page -- new layout, BETA (Nov 2026). Opened with ?page=accounts-beta.
+    The classic Accounts page is untouched. This signs in as the Accounts page
+    (ICF_PAGE = 'accounts') and calls the same server functions with the same
+    role checks. Home is one "To do" queue (verify, payments in, gate passes,
+    refunds, admin replies, Flipkart payouts) built by getAccountsQueue
+    (AccountsBeta.js); each line opens a drawer with its action. Styles are the
+    CRE beta's, copied so both pages look the same.
+  -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+  <style>
+    :root {
+      --bg: #121314; --bg-2: #171819; --surface: #1c1d1f; --surface-2: #232427; --surface-3: #2a2c2f;
+      --border: #2c2e31; --border-2: #3a3d41;
+      --text: #ededed; --text-2: #a3a6ab; --text-3: #6f7278;
+      --leaf-a: #9bcb4a; --leaf-b: #4fa845; --leaf: #6db851; --on-leaf: #0e1a0b;
+      --leaf-grad: linear-gradient(135deg, var(--leaf-a), var(--leaf-b));
+      --red: #f26b6b;   --red-bg: rgba(242,107,107,0.12);   --red-bd: rgba(242,107,107,0.35);
+      --amber: #f0b44c; --amber-bg: rgba(240,180,76,0.12);  --amber-bd: rgba(240,180,76,0.35);
+      --teal: #3cc9b8;  --teal-bg: rgba(60,201,184,0.12);
+      --blue: #6aa8f7;  --blue-bg: rgba(106,168,247,0.12);
+      --grey: #8b8f96;  --grey-bg: rgba(139,143,150,0.14);
+      --radius: 8px; --rail-w: 60px; --top-h: 56px;
+      --leaf-ink: var(--leaf-a); --hover-card: #202123; --hover-bd: #45484d; --btn-hover-bd: #4a4d52;
+      --pop-shadow: 0 16px 40px rgba(0,0,0,0.5); --scrim: rgba(0,0,0,0.5); --drawer-shadow: -20px 0 50px rgba(0,0,0,0.45);
+      --scheme: dark;
+    }
+    /* Light theme: same layout, swapped tokens (toggle in the top bar) */
+    :root[data-theme="light"] {
+      --bg: #f6f7f8; --bg-2: #ffffff; --surface: #ffffff; --surface-2: #f1f2f4; --surface-3: #e5e7ea;
+      --border: #e3e5e8; --border-2: #d2d5da;
+      --text: #17181a; --text-2: #565a62; --text-3: #8a8e96;
+      --leaf-ink: #3d8a2a; --on-leaf: #0e1a0b;
+      --red: #cf3f3f;   --red-bg: rgba(207,63,63,0.09);   --red-bd: rgba(207,63,63,0.35);
+      --amber: #a86a0c; --amber-bg: rgba(214,150,30,0.12); --amber-bd: rgba(214,150,30,0.4);
+      --teal: #13897c;  --teal-bg: rgba(19,137,124,0.1);
+      --blue: #2a64c8;  --blue-bg: rgba(42,100,200,0.09);
+      --grey: #6b7079;  --grey-bg: rgba(107,112,121,0.11);
+      --hover-card: #fbfbfc; --hover-bd: #c4c8ce; --btn-hover-bd: #bfc3c9;
+      --pop-shadow: 0 12px 32px rgba(20,24,30,0.14); --scrim: rgba(20,24,30,0.32); --drawer-shadow: -16px 0 40px rgba(20,24,30,0.14);
+      --scheme: light;
+    }
+    html { color-scheme: var(--scheme); }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 'Inter', 'Segoe UI', Arial, sans-serif; -webkit-font-smoothing: antialiased; }
+    a { color: var(--leaf-ink); }
+    button { font: inherit; color: inherit; }
+    input, select, textarea { font: inherit; }
+    ::-webkit-scrollbar { width: 10px; height: 10px; }
+    ::-webkit-scrollbar-thumb { background: var(--surface-3); border-radius: 6px; border: 2px solid var(--bg); }
+    ::-webkit-scrollbar-track { background: transparent; }
+    .muted { color: var(--text-2); }
+    .faint { color: var(--text-3); }
+    .mono { font-variant-numeric: tabular-nums; letter-spacing: 0.01em; }
+
+    /* ---------- Buttons ---------- */
+    .btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 34px; padding: 0 14px; border-radius: 6px; border: 1px solid var(--border-2);
+           background: var(--surface-2); color: var(--text); font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; transition: background .12s, border-color .12s; }
+    .btn:hover { background: var(--surface-3); border-color: var(--btn-hover-bd); }
+    .btn:disabled { opacity: 0.55; cursor: not-allowed; }
+    .btn svg { width: 15px; height: 15px; flex: 0 0 auto; }
+    .btn.primary { background: var(--leaf-grad); color: var(--on-leaf); border: 1px solid rgba(155,203,74,0.6); }
+    .btn.primary:hover { filter: brightness(1.08); }
+    .btn.primary:disabled { filter: grayscale(0.6); }
+    .btn.danger { background: var(--red-bg); color: var(--red); border-color: var(--red-bd); }
+    .btn.danger:hover { background: rgba(242,107,107,0.2); }
+    .btn.ghost { background: transparent; border-color: transparent; color: var(--text-2); }
+    .btn.ghost:hover { background: var(--surface-2); color: var(--text); }
+    .btn.sm { height: 28px; padding: 0 10px; font-size: 12px; }
+    .btn.block { width: 100%; }
+    .icon-btn { width: 34px; height: 34px; padding: 0; border-radius: 50%; }
+
+    /* ---------- Form controls ---------- */
+    .field { margin-top: 14px; }
+    .field:first-child { margin-top: 0; }
+    .lbl { display: block; font-size: 12.5px; font-weight: 600; color: var(--text); margin-bottom: 6px; }
+    .lbl .rq { color: var(--red); margin-left: 2px; }
+    .lbl .opt { color: var(--text-3); font-weight: 500; margin-left: 4px; }
+    .inp { width: 100%; height: 36px; padding: 0 11px; background: var(--bg); color: var(--text); border: 1px solid var(--border-2); border-radius: 6px; font-size: 13.5px; }
+    textarea.inp { height: auto; padding: 8px 11px; resize: vertical; }
+    select.inp { appearance: none; -webkit-appearance: none; padding-right: 30px; cursor: pointer;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23a3a6ab' stroke-width='2.5'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+      background-repeat: no-repeat; background-position: right 10px center; }
+    .inp:focus { outline: none; border-color: var(--leaf); box-shadow: 0 0 0 3px rgba(109,184,81,0.18); }
+    .inp::placeholder { color: var(--text-3); }
+    input[type=date].inp, input[type=datetime-local].inp { color-scheme: var(--scheme); }
+    .hint { font-size: 11.5px; color: var(--text-3); margin-top: 5px; line-height: 1.45; }
+    .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .check { display: flex; gap: 9px; align-items: flex-start; font-size: 13px; color: var(--text); cursor: pointer; }
+    .check input { margin: 2px 0 0; width: 15px; height: 15px; accent-color: var(--leaf); flex: 0 0 auto; }
+    .err { display: none; margin-top: 10px; padding: 8px 11px; border-radius: 6px; background: var(--red-bg); border: 1px solid var(--red-bd); color: var(--red); font-size: 12.5px; }
+    .err.show { display: block; }
+    .ok-msg { display: none; margin-top: 10px; padding: 8px 11px; border-radius: 6px; background: var(--teal-bg); color: var(--teal); font-size: 12.5px; }
+    .ok-msg.show { display: block; }
+    .note { margin-top: 10px; padding: 9px 11px; border-radius: 6px; background: var(--amber-bg); border: 1px solid var(--amber-bd); color: var(--amber); font-size: 12.5px; }
+    .note.info { background: var(--blue-bg); border-color: rgba(106,168,247,0.3); color: var(--blue); }
+    .note.bad { background: var(--red-bg); border-color: var(--red-bd); color: var(--red); }
+
+    /* ---------- Pills & chips ---------- */
+    .pill { display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 9px; border-radius: 11px; font-size: 11.5px; font-weight: 600; white-space: nowrap; }
+    .pill .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+    .pill svg { width: 12px; height: 12px; }
+    .t-red { color: var(--red); background: var(--red-bg); }
+    .t-amber { color: var(--amber); background: var(--amber-bg); }
+    .t-teal { color: var(--teal); background: var(--teal-bg); }
+    .t-blue { color: var(--blue); background: var(--blue-bg); }
+    .t-grey { color: var(--grey); background: var(--grey-bg); }
+    .chip { display: inline-flex; align-items: center; height: 20px; padding: 0 7px; border-radius: 4px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; border: 1px solid var(--border-2); color: var(--text-2); }
+    .chip.high { color: var(--red); border-color: var(--red-bd); }
+    .chip.medium { color: var(--amber); border-color: var(--amber-bd); }
+    .chip.courier { color: var(--blue); border-color: rgba(106,168,247,0.35); }
+    .chip.dacc { color: #a88be0; border-color: rgba(168,139,224,0.4); }
+    .chip.flipkart { color: #f0b429; border-color: rgba(240,180,41,0.45); }
+    .chip.cover { color: var(--amber); border-color: var(--amber-bd); text-transform: none; letter-spacing: 0; }
+    .count { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; font-size: 10.5px; font-weight: 700; background: var(--surface-3); color: var(--text-2); }
+    .count.hot { background: var(--red); color: #fff; }
+
+    /* ---------- Top bar ---------- */
+    .topbar { position: fixed; top: 0; left: 0; right: 0; height: var(--top-h); z-index: 50; display: flex; align-items: center; gap: 14px; padding: 0 16px 0 14px; background: var(--bg-2); border-bottom: 1px solid var(--border); }
+    .brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+    .brand-mark { width: 30px; height: 30px; flex: 0 0 auto; }
+    .brand-name { font-weight: 700; font-size: 15px; letter-spacing: -0.01em; white-space: nowrap; }
+    .brand-sep { color: var(--text-3); font-size: 18px; font-weight: 300; }
+    .brand-user { display: flex; align-items: center; gap: 8px; font-weight: 600; white-space: nowrap; min-width: 0; }
+    .brand-user span { overflow: hidden; text-overflow: ellipsis; }
+    .beta { display: inline-flex; align-items: center; height: 20px; padding: 0 7px; border-radius: 10px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.06em; color: var(--leaf-ink); border: 1px solid rgba(155,203,74,0.45); }
+    .role-tag { display: inline-flex; align-items: center; height: 20px; padding: 0 7px; border-radius: 4px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.05em; color: var(--text-2); border: 1px solid var(--border-2); text-transform: uppercase; }
+    .top-spacer { flex: 1 1 auto; }
+    .top-search { position: relative; width: 340px; max-width: 34vw; }
+    .top-search .inp { padding-left: 34px; padding-right: 62px; height: 34px; background: var(--surface); border-radius: 17px; }
+    .top-search .s-icon { position: absolute; left: 12px; top: 9px; width: 16px; height: 16px; color: var(--text-3); pointer-events: none; }
+    .top-search .kbd { position: absolute; right: 10px; top: 8px; font-size: 11px; color: var(--text-3); border: 1px solid var(--border-2); border-radius: 4px; padding: 0 5px; line-height: 17px; pointer-events: none; }
+    .search-pop { display: none; position: absolute; top: 40px; right: 0; width: 460px; max-width: calc(100vw - 24px); max-height: 70vh; overflow-y: auto; background: var(--surface); border: 1px solid var(--border-2); border-radius: 10px; box-shadow: var(--pop-shadow); z-index: 60; }
+    .search-pop.show { display: block; }
+    .sp-head { padding: 10px 14px; font-size: 12px; color: var(--text-2); border-bottom: 1px solid var(--border); }
+    .sp-row { padding: 10px 14px; border-bottom: 1px solid var(--border); cursor: pointer; }
+    .sp-row:last-child { border-bottom: none; }
+    .sp-row:hover, .sp-row.kb { background: var(--surface-2); }
+    .sp-top { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; font-weight: 600; }
+    .sp-sub { font-size: 11.5px; color: var(--text-2); margin-top: 2px; }
+    .sp-why { font-size: 10px; font-weight: 700; color: var(--leaf-ink); border: 1px solid rgba(155,203,74,0.35); border-radius: 8px; padding: 0 6px; margin-left: 6px; }
+    .sp-msg { padding: 14px; font-size: 12.5px; color: var(--text-2); }
+    .bell { position: relative; }
+    .theme-btn .i-sun { display: none; }
+    :root[data-theme="light"] .theme-btn .i-sun { display: block; }
+    :root[data-theme="light"] .theme-btn .i-moon { display: none; }
+    .bell .count { position: absolute; top: -3px; right: -4px; }
+    .avatar { width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--border-2); background: var(--surface-2); color: var(--text); font-weight: 700; font-size: 13px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+    .avatar:hover { border-color: var(--leaf); }
+    .menu { display: none; position: absolute; top: 48px; right: 12px; width: 260px; background: var(--surface); border: 1px solid var(--border-2); border-radius: 10px; box-shadow: var(--pop-shadow); z-index: 60; padding: 6px; }
+    .menu.show { display: block; }
+    .menu-head { padding: 10px 10px 12px; border-bottom: 1px solid var(--border); margin-bottom: 6px; }
+    .menu-head b { display: block; font-size: 14px; }
+    .menu-head span { font-size: 12px; color: var(--text-2); }
+    .menu-item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border-radius: 6px; background: none; border: none; text-align: left; font-size: 13px; color: var(--text); cursor: pointer; text-decoration: none; }
+    .menu-item:hover { background: var(--surface-2); }
+    .menu-item svg { width: 15px; height: 15px; color: var(--text-2); }
+    .menu-sep { height: 1px; background: var(--border); margin: 6px 0; }
+    .menu-label { font-size: 10.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-3); padding: 6px 10px 4px; }
+    /* Admin extras moved in from the shared sign-in bar */
+    #authNav { display: flex; flex-direction: column; gap: 2px; margin: 0; }
+    #authNav a, #authNav span { display: block; padding: 7px 10px; border-radius: 6px; font-size: 13px; text-decoration: none; color: var(--text); background: none; font-weight: 500; }
+    #authNav a:hover { background: var(--surface-2); }
+    #authNav span { display: none; } /* "CRE page" is the current page in auth.html's list -- the classic link above covers it */
+    .top-admin { display: flex; gap: 8px; align-items: center; }
+    .top-admin .auth-appr, .top-admin .auth-gate { height: 28px; font-size: 11.5px; border-radius: 14px; }
+    .top-admin .auth-appr { background: var(--surface-2); color: var(--text-2); border: 1px solid var(--border-2); }
+    .top-admin .auth-appr.waiting { background: var(--amber-bg); color: var(--amber); border-color: var(--amber-bd); }
+    .top-admin .auth-appr.overdue { background: var(--red-bg); color: var(--red); border-color: var(--red-bd); }
+    .top-admin .auth-appr .n b { color: var(--bg); }
+    .top-admin .auth-gate { background: var(--red-bg); color: var(--red); border-color: var(--red-bd); }
+
+    /* Shared sign-in bar from auth.html: replaced by the top bar on this page */
+    #authBar { display: none !important; }
+
+    /* ---------- Rail ---------- */
+    .rail { position: fixed; top: var(--top-h); left: 0; bottom: 0; width: var(--rail-w); z-index: 40; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 12px 0; background: var(--bg-2); border-right: 1px solid var(--border); }
+    .rail-btn { position: relative; width: 42px; height: 42px; border-radius: 8px; border: none; background: none; color: var(--text-2); cursor: pointer; display: flex; align-items: center; justify-content: center; }
+    .rail-btn svg { width: 20px; height: 20px; }
+    a.rail-btn { text-decoration: none; }
+    .rail-btn:hover { background: var(--surface); color: var(--text); }
+    .rail-btn.active { background: var(--surface-2); color: var(--leaf-ink); }
+    .rail-btn.active::before { content: ''; position: absolute; left: -9px; top: 10px; bottom: 10px; width: 3px; border-radius: 0 3px 3px 0; background: var(--leaf-grad); }
+    .rail-btn .count { position: absolute; top: 2px; right: 0; }
+    .rail-btn .draft-dot { position: absolute; top: 8px; right: 8px; width: 7px; height: 7px; border-radius: 50%; background: var(--amber); display: none; }
+    .rail-btn.drafting .draft-dot { display: block; }
+    .rail-tip { position: absolute; left: 52px; white-space: nowrap; background: var(--surface-3); color: var(--text); font-size: 12px; font-weight: 600; padding: 4px 9px; border-radius: 5px; pointer-events: none; opacity: 0; transform: translateX(-4px); transition: opacity .12s, transform .12s; }
+    .rail-btn:hover .rail-tip { opacity: 1; transform: none; }
+    .rail-grow { flex: 1 1 auto; }
+
+    /* ---------- Main ---------- */
+    .main { padding: calc(var(--top-h) + 30px) 32px 48px calc(var(--rail-w) + 40px); min-height: 100%; }
+    .view { display: none; max-width: 1360px; margin: 0 auto; }
+    .view.show { display: block; }
+    .page-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 22px; flex-wrap: wrap; }
+    .page-title { font-size: 28px; font-weight: 600; letter-spacing: -0.02em; margin: 0; }
+    .page-sub { color: var(--text-2); font-size: 13px; margin-top: 4px; }
+    .layout { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 32px; align-items: start; }
+    .panel-title { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 4px; }
+    .panel-title h3 { margin: 0; font-size: 15px; font-weight: 600; }
+    .panel-sub { font-size: 12.5px; color: var(--text-2); margin-bottom: 14px; }
+    .card-box { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+    .empty { padding: 28px 16px; text-align: center; color: var(--text-3); font-size: 13px; }
+    .loading { color: var(--text-3); font-size: 13px; padding: 16px 0; }
+
+    /* ---------- Needs your action ---------- */
+    .action-wrap { margin-bottom: 26px; }
+    .action-wrap.hidden { display: none; }
+    .action-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+    .action-head h3 { margin: 0; font-size: 15px; font-weight: 600; }
+    .action-list { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+    .act-row { display: grid; grid-template-columns: 4px minmax(0, 1fr) auto; align-items: center; gap: 14px; padding: 11px 14px 11px 0; border-top: 1px solid var(--border); cursor: pointer; }
+    .act-row:first-child { border-top: none; }
+    .act-row:hover { background: var(--surface-2); }
+    .act-bar { align-self: stretch; border-radius: 0 3px 3px 0; margin: -11px 0; }
+    .act-row.red .act-bar { background: var(--red); }
+    .act-row.amber .act-bar { background: var(--amber); }
+    .act-row.blue .act-bar { background: var(--blue); }
+    .act-main { min-width: 0; }
+    .act-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .act-name { font-weight: 600; font-size: 13.5px; }
+    .act-sub { font-size: 12px; color: var(--text-2); margin-top: 2px; }
+    .act-row.red .act-why { color: var(--red); font-weight: 600; }
+    .act-row.amber .act-why { color: var(--amber); font-weight: 600; }
+    .act-row.blue .act-why { color: var(--blue); font-weight: 600; }
+    .act-more { display: block; width: 100%; padding: 9px; border: none; border-top: 1px solid var(--border); background: none; color: var(--text-2); font-size: 12.5px; font-weight: 600; cursor: pointer; }
+    .act-more:hover { background: var(--surface-2); color: var(--text); }
+    @keyframes rowPulse { 0%, 100% { background: transparent; } 50% { background: rgba(242,107,107,0.14); } }
+    .act-row.pulse { animation: rowPulse 0.9s ease-in-out 4; }
+
+    /* ---------- Toolbar ---------- */
+    .toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+    .tb-search { position: relative; flex: 1 1 260px; max-width: 380px; }
+    .tb-search .inp { padding-left: 34px; height: 34px; }
+    .tb-search svg { position: absolute; left: 11px; top: 9px; width: 16px; height: 16px; color: var(--text-3); pointer-events: none; }
+    .tb-select { height: 34px; width: auto; min-width: 0; font-weight: 600; font-size: 13px; background-color: var(--surface); }
+    .tb-grow { flex: 1 1 auto; }
+    .seg { display: inline-flex; border: 1px solid var(--border-2); border-radius: 6px; overflow: hidden; }
+    .seg button { height: 32px; width: 36px; border: none; background: var(--surface); color: var(--text-3); cursor: pointer; display: flex; align-items: center; justify-content: center; }
+    .seg button svg { width: 16px; height: 16px; }
+    .seg button.on { background: var(--surface-3); color: var(--text); }
+    .seg.text button { width: auto; padding: 0 12px; font-size: 12.5px; font-weight: 600; }
+    .filter-pop-wrap { position: relative; }
+    .filter-pop { display: none; position: absolute; top: 40px; left: 0; width: 300px; padding: 14px; background: var(--surface); border: 1px solid var(--border-2); border-radius: 10px; box-shadow: var(--pop-shadow); z-index: 30; }
+    .filter-pop.show { display: block; }
+    .active-filters { display: flex; flex-wrap: wrap; gap: 6px; margin: -6px 0 14px; }
+    .active-filters:empty { display: none; }
+    .af { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 6px 0 10px; border-radius: 13px; background: var(--surface-2); border: 1px solid var(--border-2); font-size: 12px; color: var(--text); }
+    .af button { width: 18px; height: 18px; border-radius: 50%; border: none; background: none; color: var(--text-2); cursor: pointer; font-size: 14px; line-height: 1; }
+    .af button:hover { background: var(--surface-3); color: var(--text); }
+    .result-line { font-size: 12.5px; color: var(--text-2); margin-bottom: 12px; }
+    .result-line b { color: var(--text); font-weight: 600; }
+
+    /* ---------- Order cards ---------- */
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 16px; }
+    .ocard { position: relative; display: flex; flex-direction: column; min-height: 168px; padding: 18px 18px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); cursor: pointer; transition: border-color .12s, background .12s; text-align: left; width: 100%; }
+    .ocard:hover { border-color: var(--hover-bd); background: var(--hover-card); }
+    .ocard:focus-visible { outline: 2px solid var(--leaf); outline-offset: 2px; }
+    .ocard.closed { opacity: 0.62; }
+    .ocard.closed:hover { opacity: 0.9; }
+    .oc-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .oc-id { font-size: 12px; color: var(--text-2); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .oc-name { margin-top: 8px; font-size: 15px; font-weight: 600; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .oc-meta { margin-top: 4px; font-size: 12.5px; color: var(--text-3); }
+    .oc-foot { margin-top: auto; padding-top: 16px; display: flex; align-items: flex-end; justify-content: space-between; gap: 10px; }
+    .oc-amt { text-align: right; font-variant-numeric: tabular-nums; }
+    .oc-amt .v { font-size: 13.5px; font-weight: 600; }
+    .oc-amt .b { font-size: 11.5px; color: var(--amber); font-weight: 600; }
+    .oc-flag { position: absolute; top: 0; left: 18px; right: 18px; height: 2px; border-radius: 0 0 2px 2px; }
+    .ocard.f-red .oc-flag { background: var(--red); }
+    .ocard.f-amber .oc-flag { background: var(--amber); }
+
+    /* ---------- Order list (table) ---------- */
+    .tbl-wrap { overflow-x: auto; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+    .tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .tbl th { text-align: left; font-size: 11.5px; font-weight: 600; color: var(--text-3); padding: 10px 14px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+    .tbl td { padding: 11px 14px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    .tbl tbody tr { cursor: pointer; }
+    .tbl tbody tr:hover { background: var(--surface-2); }
+    .tbl tbody tr:last-child td { border-bottom: none; }
+    .tbl tr.closed td { color: var(--text-2); }
+    .tbl .num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .tbl .nowrap { white-space: nowrap; }
+
+    /* ---------- At a glance (right panel) ---------- */
+    /* Right panel: stays put and scrolls on its own */
+    .side { position: sticky; top: calc(var(--top-h) + 24px); max-height: calc(100vh - var(--top-h) - 48px); overflow-y: auto; overscroll-behavior: contain; padding-right: 6px; margin-right: -6px; }
+    .side::-webkit-scrollbar-thumb { border-color: var(--bg); }
+    .layout.side-hidden { grid-template-columns: minmax(0, 1fr); }
+    .layout.side-hidden .side { display: none; }
+    .side-tab { display: none; position: fixed; right: 0; top: calc(var(--top-h) + 120px); z-index: 45; padding: 12px 7px; border: 1px solid var(--border-2); border-right: none; border-radius: 8px 0 0 8px;
+                background: var(--surface); color: var(--text-2); cursor: pointer; writing-mode: vertical-rl; transform: rotate(180deg); font-size: 12px; font-weight: 600; letter-spacing: 0.02em; box-shadow: var(--pop-shadow); }
+    .side-tab:hover { color: var(--text); border-color: var(--leaf); }
+    .side-tab svg { width: 14px; height: 14px; transform: rotate(90deg); margin-bottom: 6px; }
+    .side-tab.show { display: flex; align-items: center; }
+    .icon-sm { width: 28px; height: 28px; padding: 0; }
+    .icon-sm svg { width: 15px; height: 15px; }
+    /* Needs your action: collapsible */
+    .action-head { cursor: pointer; user-select: none; }
+    .action-head .chev { margin-left: auto; transition: transform .15s; }
+    .action-wrap.collapsed .chev { transform: rotate(-90deg); }
+    .action-wrap.collapsed .action-list { display: none; }
+    .action-wrap.collapsed .action-head { margin-bottom: 0; }
+    .action-peek { font-size: 12.5px; color: var(--text-2); display: none; }
+    .action-wrap.collapsed .action-peek { display: inline; }
+    /* Kanban */
+    .kanban { display: flex; gap: 14px; overflow-x: auto; padding-bottom: 10px; align-items: flex-start; }
+    .kcol { flex: 0 0 272px; display: flex; flex-direction: column; max-height: calc(100vh - var(--top-h) - 120px); background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--radius); }
+    .kcol-head { display: flex; align-items: center; gap: 8px; padding: 12px 14px 4px; }
+    .kcol-head .dot { width: 8px; height: 8px; border-radius: 50%; }
+    .kcol-head h4 { margin: 0; font-size: 13px; font-weight: 600; flex: 1 1 auto; }
+    .kcol-head .ksum { font-size: 11.5px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+    .kcol-body { overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 8px; overscroll-behavior: contain; }
+    .khint { padding: 8px 14px 9px; font-size: 11.5px; line-height: 1.4; color: var(--text-3); border-bottom: 1px solid var(--border); }
+    .kcol-empty { font-size: 12px; color: var(--text-3); text-align: center; padding: 14px 0; }
+    .kcard { width: 100%; text-align: left; padding: 11px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 7px; cursor: pointer; }
+    .kcard:hover { border-color: var(--hover-bd); background: var(--hover-card); }
+    .kcard.hot { box-shadow: inset 3px 0 0 var(--red); }
+    .kcard .k-top { display: flex; justify-content: space-between; gap: 6px; align-items: center; font-size: 11.5px; color: var(--text-3); }
+    .kcard .k-name { margin-top: 4px; font-size: 13.5px; font-weight: 600; line-height: 1.3; }
+    .kcard .k-sub { margin-top: 3px; font-size: 11.5px; color: var(--text-2); }
+    .kcard .k-foot { margin-top: 8px; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+    .kcard .k-foot .b { color: var(--amber); font-weight: 600; font-size: 11.5px; }
+    .kcard.closed { opacity: 0.7; }
+    .side-block { margin-bottom: 28px; }
+    .side-block h3 { margin: 0; font-size: 15px; font-weight: 600; }
+    .side-block .panel-sub { margin-bottom: 6px; }
+    .stat-row { display: flex; align-items: center; gap: 11px; width: 100%; padding: 11px 4px; border: none; border-bottom: 1px solid var(--border); background: none; text-align: left; cursor: pointer; border-radius: 0; }
+    .stat-row:hover { background: var(--surface); }
+    .stat-row.on { background: var(--surface); box-shadow: inset 2px 0 0 var(--leaf); }
+    .ring { width: 16px; height: 16px; flex: 0 0 auto; }
+    .ring circle { fill: none; stroke-width: 2.4; }
+    .ring .bg { stroke: var(--surface-3); }
+    .stat-label { flex: 1 1 auto; font-size: 13.5px; color: var(--text); }
+    .stat-val { font-weight: 600; font-variant-numeric: tabular-nums; }
+    .stat-row.alert .stat-val { color: var(--red); }
+
+    /* ---------- Drawer ---------- */
+    .scrim { position: fixed; inset: 0; z-index: 70; background: var(--scrim); opacity: 0; pointer-events: none; transition: opacity .18s; }
+    .scrim.show { opacity: 1; pointer-events: auto; }
+    .drawer { position: fixed; top: 0; right: 0; bottom: 0; z-index: 80; width: min(580px, 100vw); background: var(--bg-2); border-left: 1px solid var(--border-2); box-shadow: var(--drawer-shadow); transform: translateX(100%); transition: transform .2s ease; display: flex; flex-direction: column; }
+    .drawer.show { transform: none; }
+    .dr-head { padding: 18px 22px 16px; border-bottom: 1px solid var(--border); display: flex; gap: 12px; align-items: flex-start; }
+    .dr-head-main { flex: 1 1 auto; min-width: 0; }
+    .dr-id { font-size: 12px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+    .dr-title { font-size: 19px; font-weight: 600; margin: 3px 0 8px; line-height: 1.3; }
+    .dr-tags { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+    .dr-body { flex: 1 1 auto; overflow-y: auto; padding: 18px 22px 28px; }
+    .dr-sec { margin-top: 22px; }
+    .dr-sec:first-child { margin-top: 0; }
+    .dr-sec-title { font-size: 11px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; color: var(--text-3); margin-bottom: 9px; }
+    .act-card { padding: 16px; border-radius: var(--radius); background: var(--surface); border: 1px solid var(--border-2); }
+    .act-card.red { border-color: var(--red-bd); box-shadow: inset 3px 0 0 var(--red); }
+    .act-card.amber { box-shadow: inset 3px 0 0 var(--amber); }
+    .act-card.blue { box-shadow: inset 3px 0 0 var(--blue); }
+    .act-card.teal { box-shadow: inset 3px 0 0 var(--teal); }
+    .act-card.grey { box-shadow: inset 3px 0 0 var(--grey); }
+    .act-card h4 { margin: 0 0 6px; font-size: 14px; font-weight: 600; }
+    .act-card .msg { font-size: 13px; color: var(--text-2); }
+    .act-card .msg b { color: var(--text); }
+    .act-card .sub-h { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); font-size: 12.5px; font-weight: 600; }
+    .act-actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+    .kv { display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: 0; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; background: var(--surface); }
+    .kv div { padding: 8px 12px; border-top: 1px solid var(--border); font-size: 13px; }
+    .kv div:nth-child(-n+2) { border-top: none; }
+    .kv .k { color: var(--text-3); }
+    .kv .v { color: var(--text); word-break: break-word; }
+    .prod-list { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
+    .prod { display: flex; justify-content: space-between; gap: 12px; padding: 8px 12px; border-top: 1px solid var(--border); font-size: 13px; }
+    .prod:first-child { border-top: none; }
+    .tl { position: relative; padding-left: 18px; }
+    .tl::before { content: ''; position: absolute; left: 4px; top: 6px; bottom: 6px; width: 1px; background: var(--border-2); }
+    .tl-item { position: relative; display: flex; justify-content: space-between; gap: 12px; padding: 5px 0; font-size: 13px; }
+    .tl-item::before { content: ''; position: absolute; left: -18px; top: 11px; width: 9px; height: 9px; border-radius: 50%; background: var(--bg-2); border: 2px solid var(--leaf); }
+    .tl-item.plain::before { border-color: var(--border-2); }
+    .tl-item .tl-l { color: var(--text-2); }
+    .tl-item .tl-v { text-align: right; font-weight: 500; }
+    .dr-foot-link { display: inline-block; margin-top: 8px; font-size: 12.5px; }
+
+    /* docs_panel.html, restyled for the dark theme */
+    .docs-box { margin-top: 0 !important; border: 1px solid var(--border) !important; background: var(--surface) !important; border-radius: var(--radius) !important; padding: 4px 12px 10px !important; }
+    .docs-box .docs-title { display: none; }
+    .docs-row { border-top: 1px solid var(--border) !important; padding: 9px 0 !important; }
+    .docs-row:first-of-type { border-top: none !important; }
+    .docs-row .docs-name { color: var(--text) !important; }
+    .docs-row .docs-state.ok { background: var(--teal-bg) !important; color: var(--teal) !important; }
+    .docs-row .docs-state.miss { background: var(--red-bg) !important; color: var(--red) !important; }
+    .docs-row .docs-state.opt { background: var(--grey-bg) !important; color: var(--grey) !important; }
+    .docs-row a.docs-open { background: var(--surface-3) !important; color: var(--text) !important; border: 1px solid var(--border-2); border-radius: 6px !important; }
+    .docs-row a.docs-open:hover { border-color: var(--leaf) !important; }
+    .docs-up input[type=file] { color: var(--text-2); }
+    .docs-up button { background: var(--leaf-grad) !important; color: var(--on-leaf) !important; border-radius: 6px !important; }
+    .docs-up button:disabled { filter: grayscale(0.7); }
+    .docs-hint { color: var(--text-3) !important; }
+    .docs-msg.err { color: var(--red) !important; }
+    .docs-msg.ok { color: var(--teal) !important; }
+    input[type=file]::file-selector-button { font: inherit; font-size: 12px; font-weight: 600; margin-right: 10px; padding: 6px 12px; border-radius: 6px; border: 1px solid var(--border-2); background: var(--surface-2); color: var(--text); cursor: pointer; }
+
+    /* ---------- Payments & Requests ---------- */
+    .tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
+    .tab { position: relative; height: 38px; padding: 0 14px; border: none; background: none; color: var(--text-2); font-size: 13.5px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; }
+    .tab:hover { color: var(--text); }
+    .tab.on { color: var(--text); }
+    .tab.on::after { content: ''; position: absolute; left: 10px; right: 10px; bottom: -1px; height: 2px; background: var(--leaf-grad); border-radius: 2px; }
+    .pay-list, .req-list { display: flex; flex-direction: column; gap: 10px; }
+    .pay-list { max-width: 980px; }
+    #view-payments .tabs { max-width: 980px; }
+    .pay { padding: 14px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+    .pay.urgent { border-color: var(--red-bd); box-shadow: inset 3px 0 0 var(--red); }
+    .pay-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+    .pay-name { font-weight: 600; font-size: 14px; cursor: pointer; }
+    .pay-name:hover { color: var(--leaf-ink); }
+    .pay-id { font-size: 12px; color: var(--text-3); margin-top: 1px; }
+    .pay-bal { text-align: right; white-space: nowrap; }
+    .pay-bal .v { font-size: 16px; font-weight: 600; color: var(--amber); font-variant-numeric: tabular-nums; }
+    .pay-bal .t { font-size: 11.5px; color: var(--text-3); }
+    .pay-age { font-size: 12.5px; color: var(--text-2); margin-top: 8px; }
+    .pay.urgent .pay-age { color: var(--red); font-weight: 600; }
+    .pay-tags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+    .pay-form { display: none; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+    .pay-form.show { display: grid; grid-template-columns: 170px minmax(0, 1fr) auto; gap: 8px; align-items: center; }
+    .pay-acts { display: flex; gap: 8px; margin-top: 12px; }
+    .req-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; align-items: start; }
+    .req { padding: 13px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+    .req-open { cursor: pointer; }
+    .req-open:hover .req-name { color: var(--leaf-ink); }
+    .req-name { font-weight: 600; font-size: 13.5px; }
+    .req-sub { font-size: 12px; color: var(--text-2); margin-top: 2px; }
+    .req-ack { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
+
+    /* ---------- New PO page ---------- */
+    .po-layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 28px; align-items: start; max-width: 1120px; }
+    .po-sec { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px 22px; margin-bottom: 16px; }
+    .po-sec-head { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
+    .po-num { width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11.5px; font-weight: 700; background: var(--surface-3); color: var(--text-2); }
+    .po-sec-head h3 { margin: 0; font-size: 14.5px; font-weight: 600; }
+    .po-sec-head .muted { font-size: 12px; margin-left: auto; }
+    .pline { display: grid; grid-template-columns: minmax(0, 1fr) 90px 34px; gap: 8px; margin-top: 8px; }
+    .pline:first-child { margin-top: 0; }
+    .pline .rm { width: 34px; height: 36px; border-radius: 6px; border: 1px solid var(--border-2); background: var(--surface-2); color: var(--text-2); cursor: pointer; font-size: 17px; line-height: 1; }
+    .pline .rm:hover { color: var(--red); border-color: var(--red-bd); }
+    .add-line { margin-top: 10px; height: 34px; padding: 0 14px; border-radius: 6px; border: 1px dashed var(--border-2); background: none; color: var(--leaf-ink); font-size: 13px; font-weight: 600; cursor: pointer; }
+    .add-line:hover { border-color: var(--leaf); background: rgba(109,184,81,0.06); }
+    .file-box { padding: 12px; border: 1px dashed var(--border-2); border-radius: 6px; background: var(--bg); }
+    .file-box input { width: 100%; color: var(--text-2); font-size: 12.5px; }
+    .po-side { position: sticky; top: calc(var(--top-h) + 24px); }
+    .sum { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; }
+    .sum h3 { margin: 0 0 12px; font-size: 14.5px; font-weight: 600; }
+    .sum-row { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; font-size: 13px; border-bottom: 1px dashed var(--border); }
+    .sum-row:last-of-type { border-bottom: none; }
+    .sum-row .k { color: var(--text-2); }
+    .sum-row .v { text-align: right; font-weight: 500; font-variant-numeric: tabular-nums; max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .pct-bar { height: 6px; border-radius: 3px; background: var(--surface-3); overflow: hidden; margin: 10px 0 4px; }
+    .pct-bar div { height: 100%; width: 0; background: var(--leaf-grad); transition: width .2s; }
+    .po-done { max-width: 560px; margin: 40px auto; text-align: center; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 34px 30px; }
+    .po-done .tick { width: 54px; height: 54px; margin: 0 auto 14px; border-radius: 50%; background: var(--leaf-grad); color: var(--on-leaf); display: flex; align-items: center; justify-content: center; }
+    .po-done .tid { font-size: 22px; font-weight: 700; margin: 6px 0 10px; font-variant-numeric: tabular-nums; }
+    .po-done .line { font-size: 13.5px; color: var(--text-2); margin-top: 4px; }
+    .po-done .next { margin-top: 14px; font-size: 13px; color: var(--teal); }
+
+    /* ---------- Modal (All refunds) ---------- */
+    .modal { position: fixed; inset: 0; z-index: 90; display: none; align-items: flex-start; justify-content: center; padding: 50px 16px; background: var(--scrim); overflow-y: auto; }
+    .modal.show { display: flex; }
+    .modal-box { width: 100%; max-width: 980px; background: var(--bg-2); border: 1px solid var(--border-2); border-radius: 12px; box-shadow: var(--pop-shadow); }
+    .modal-head { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid var(--border); }
+    .modal-head h3 { margin: 0; font-size: 16px; font-weight: 600; }
+    .modal-body { padding: 16px 20px 20px; }
+    .flt { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; margin-bottom: 14px; }
+    .flt > div { display: flex; flex-direction: column; gap: 4px; }
+    .flt label { font-size: 11px; font-weight: 600; color: var(--text-3); }
+    .flt .inp { height: 32px; font-size: 12.5px; min-width: 120px; }
+
+    /* ---------- Sign-in screen from auth.html, restyled ---------- */
+    #authOverlay { background: radial-gradient(1200px 600px at 50% -10%, rgba(109,184,81,0.10), transparent 60%), var(--bg) !important; }
+    #authOverlay .auth-card { background: var(--surface); border: 1px solid var(--border-2); box-shadow: var(--pop-shadow); border-radius: 12px; }
+    #authOverlay .auth-head { background: none; border-bottom: 1px solid var(--border); position: relative; }
+    #authOverlay .auth-head::before { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 3px; background: var(--leaf-grad); }
+    #authOverlay .auth-head .auth-brand { color: var(--leaf-ink); opacity: 1; }
+    #authOverlay .auth-head .auth-title { color: var(--text); }
+    #authOverlay .auth-body label { color: var(--text); }
+    #authOverlay .auth-body input { background: var(--bg); color: var(--text); border: 1px solid var(--border-2); border-radius: 6px; }
+    #authOverlay .auth-body input:focus { border-color: var(--leaf); box-shadow: 0 0 0 3px rgba(109,184,81,0.18); }
+    #authOverlay .auth-body button.auth-primary { background: var(--leaf-grad); color: var(--on-leaf); border-radius: 6px; }
+    #authOverlay .auth-body button.auth-link { color: var(--leaf-ink); }
+    #authOverlay .auth-note { color: var(--text-2); }
+    #authOverlay .auth-msg { color: var(--red); }
+    #authOverlay .auth-msg.ok { color: var(--teal); }
+
+    /* ---------- Responsive ---------- */
+    @media (max-width: 1180px) {
+      .layout { grid-template-columns: 1fr; }
+      .side { position: static; order: -1; max-height: none; overflow: visible; padding-right: 0; margin-right: 0; }
+      .side-tab { top: auto; bottom: 90px; }
+      .side-block { margin-bottom: 18px; }
+      .glance { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); column-gap: 18px; }
+      .po-layout { grid-template-columns: 1fr; }
+      .po-side { position: static; }
+    }
+    @media (max-width: 900px) { .req-grid { grid-template-columns: 1fr; } .top-search { width: 240px; } .brand-name { display: none; } }
+    @media (max-width: 760px) {
+      :root { --rail-w: 0px; }
+      .rail { top: auto; height: 60px; width: 100%; flex-direction: row; justify-content: space-around; padding: 0 8px; border-right: none; border-top: 1px solid var(--border); }
+      .rail-grow, .rail-tip, .rail-btn.active::before { display: none; }
+      .main { padding: calc(var(--top-h) + 20px) 16px 90px 16px; }
+      .top-search { display: none; }
+      .brand-user .role-tag { display: none; }
+      .page-title { font-size: 23px; }
+      .row2, .pay-form.show { grid-template-columns: 1fr; }
+      .kv { grid-template-columns: 110px minmax(0, 1fr); }
+      .side { order: 0; } /* phones: what needs action comes first, the counters after the list */
+      .search-mobile { display: flex !important; }
+    }
+    .search-mobile { display: none; }
+  </style>
+</head>
+<body>
+  <script>
+    window.ICF_PAGE = 'accounts'; // signs in as the Accounts page -- same role check and same data as the classic page
+    (function () {
+      function show(msg) {
+        try {
+          var bar = document.getElementById('betaErr');
+          if (!bar) {
+            bar = document.createElement('div'); bar.id = 'betaErr';
+            bar.style.cssText = 'position:fixed;left:0;right:0;bottom:0;z-index:9999;background:#3a1416;color:#ffb4b4;border-top:2px solid #f26b6b;font:12.5px/1.5 monospace;padding:8px 14px;max-height:40vh;overflow:auto;white-space:pre-wrap;';
+            (document.body || document.documentElement).appendChild(bar);
+          }
+          bar.textContent += (bar.textContent ? '\n' : 'Beta page error (screenshot this for Hari):\n') + msg;
+        } catch (e) {}
+      }
+      window.addEventListener('error', function (e) { show((e.message || 'Error') + (e.lineno ? '  @ line ' + e.lineno + ':' + e.colno : '')); });
+      window.ICF_BETA_ERR = show;
+    })();
+  </script>
+  <?!= include('auth'); ?>
+  <?!= include('docs_panel'); ?>
+  <style>
+    .q-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
+    .q-tab { height: 32px; padding: 0 12px; border-radius: 16px; border: 1px solid var(--border-2); background: var(--surface); color: var(--text-2); font-size: 12.5px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 7px; }
+    .q-tab.on { background: var(--surface-3); color: var(--text); border-color: var(--leaf); }
+    .q-list { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+    .act-row.grey .act-bar { background: var(--grey); }
+    .act-row.grey .act-why { color: var(--text-3); }
+    .act-row.teal .act-bar { background: var(--teal); }
+    .act-row.teal .act-why { color: var(--teal); font-weight: 600; }
+    .act-amt { font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; font-size: 13px; text-align: right; }
+    .act-amt small { display: block; font-weight: 500; color: var(--text-3); font-size: 11px; }
+    .ok-line { margin-top: 10px; padding: 9px 11px; border-radius: 6px; background: var(--teal-bg); color: var(--teal); font-size: 12.5px; }
+    .big-code { font-size: 26px; font-weight: 700; letter-spacing: 0.08em; margin: 6px 0; font-variant-numeric: tabular-nums; }
+    .fk-r { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 9px 12px; border-top: 1px solid var(--border); font-size: 13px; }
+    .fk-r:first-child { border-top: none; }
+    .fk-r.dis { opacity: 0.5; }
+    .fk-r input[type=checkbox] { width: 16px; height: 16px; }
+    .fk-r .inp { height: 30px; width: 96px; text-align: right; display: none; }
+    .fk-r.on .inp { display: inline-block; }
+    .tag-ret { font-size: 10px; font-weight: 700; color: var(--red); border: 1px solid var(--red-bd); border-radius: 8px; padding: 0 6px; margin-left: 6px; }
+    .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .check { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; cursor: pointer; }
+    .check input { margin-top: 2px; }
+  </style>
+
+  <!-- =================== TOP BAR =================== -->
+  <header class="topbar">
+    <div class="brand">
+      <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+        <defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#9bcb4a"/><stop offset="1" stop-color="#4fa845"/></linearGradient></defs>
+        <path d="M5 3h12q9 0 9 8v4H14q-9 0-9-8z" fill="url(#lg)"/>
+        <path d="M5 17h12q9 0 9 8v4H14q-9 0-9-8z" fill="url(#lg)" opacity="0.8"/>
+      </svg>
+      <span class="brand-name">ICF Tracker</span>
+      <span class="brand-sep">/</span>
+      <span class="brand-user"><span id="tbName">Accounts</span><span class="role-tag" id="tbRole">Accounts</span></span>
+      <span class="beta" title="New layout on trial. Same live data as the classic Accounts page.">BETA</span>
+    </div>
+    <div class="top-spacer"></div>
+    <div class="top-admin" id="topAdmin"></div>
+    <div class="top-search" id="topSearch">
+      <svg class="s-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <input class="inp" id="findInput" type="text" autocomplete="off" placeholder="Find any order…" title="Quotation no., phone number or customer name">
+      <span class="kbd">Ctrl K</span>
+      <div class="search-pop" id="findPop"></div>
+    </div>
+    <button class="btn icon-btn theme-btn" id="themeBtn" type="button" title="Switch light / dark theme">
+      <svg class="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+      <svg class="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+    </button>
+    <button class="avatar" id="avatarBtn" type="button" title="Account">–</button>
+    <div class="menu" id="userMenu">
+      <div class="menu-head"><b id="menuName">–</b><span id="menuRole"></span></div>
+      <button class="menu-item" type="button" id="menuPin">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>Change PIN</button>
+      <a class="menu-item" id="menuClassic" href="<?= ScriptApp.getService().getUrl() ?>?page=accounts" target="_top">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/></svg>Switch to classic Accounts page</a>
+      <div id="menuAdmin" style="display:none;"><div class="menu-sep"></div><div class="menu-label">Pages</div><div id="menuAdminNav"></div></div>
+      <div class="menu-sep"></div>
+      <button class="menu-item" type="button" id="menuSignOut">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></svg>Sign out</button>
+    </div>
+  </header>
+
+  <!-- =================== RAIL =================== -->
+  <nav class="rail">
+    <button class="rail-btn active" data-view="todo" type="button">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 6h11M9 12h11M9 18h11"/><path d="m3 6 1.5 1.5L7 5M3 12l1.5 1.5L7 11M3 18l1.5 1.5L7 17"/></svg>
+      <span class="count hot" id="railTodo" style="display:none;">0</span><span class="rail-tip">To do</span></button>
+    <button class="rail-btn" data-view="payments" type="button">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M8 7h8M8 11h8M13 11c0 3-2 4.5-5 4.5L13 20"/></svg>
+      <span class="rail-tip">Pending payments</span></button>
+    <a class="rail-btn" href="<?= ScriptApp.getService().getUrl() ?>?page=rental" target="_top">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="6" y="3" width="12" height="18" rx="2"/><path d="M10 7h4"/><circle cx="12" cy="14" r="2.5"/></svg>
+      <span class="rail-tip">Rentals</span></a>
+    <div class="rail-grow"></div>
+  </nav>
+
+  <main class="main">
+    <!-- =================== TO DO =================== -->
+    <section class="view show" id="view-todo">
+      <div class="page-head">
+        <div>
+          <h1 class="page-title">To do</h1>
+          <div class="page-sub" id="todoSub">Everything waiting on Accounts, most urgent first. Click a line to work on it.</div>
+        </div>
+        <button class="btn" type="button" id="refreshBtn">&#8635; Refresh</button>
+      </div>
+      <div class="layout">
+        <div style="min-width:0;">
+          <div class="q-tabs" id="qTabs"></div>
+          <div class="q-list" id="qList"><div class="loading" style="padding:16px;">Loading…</div></div>
+        </div>
+        <aside class="side">
+          <div class="side-block">
+            <div class="panel-title"><h3>At a glance</h3></div>
+            <div class="panel-sub">Live figures. Click a line for the list.</div>
+            <div id="glance"></div>
+          </div>
+          <div class="side-block">
+            <div class="panel-title"><h3>Less often</h3></div>
+            <div class="panel-sub">Still on the classic page for now: payments with excess, standby requests, verified-payments history, refunds report.</div>
+            <a class="btn sm" id="classicLink" href="<?= ScriptApp.getService().getUrl() ?>?page=accounts" target="_top" style="margin-top:8px;">Open the classic page &rarr;</a>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <!-- =================== PENDING PAYMENTS =================== -->
+    <section class="view" id="view-payments">
+      <div class="page-head">
+        <div>
+          <h1 class="page-title">Pending payments</h1>
+          <div class="page-sub">Every order with a balance still to come in. Click one to record a payment.</div>
+        </div>
+        <button class="btn" type="button" id="refreshPay">&#8635; Refresh</button>
+      </div>
+      <div class="q-list" id="payList"><div class="loading" style="padding:16px;">Loading…</div></div>
+    </section>
+  </main>
+
+  <div class="scrim" id="scrim"></div>
+  <aside class="drawer" id="drawer" aria-hidden="true">
+    <div class="dr-head">
+      <div class="dr-head-main">
+        <div class="dr-id" id="drId"></div>
+        <div class="dr-title" id="drTitle">Loading…</div>
+        <div class="dr-tags" id="drTags"></div>
+      </div>
+      <button class="btn icon-btn ghost" type="button" id="drClose" title="Close (Esc)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+    </div>
+    <div class="dr-body" id="drBody"></div>
+  </aside>
+
+  <script>
+  (function () {
+    'use strict';
+    function $(id) { return document.getElementById(id); }
+    function each(l, fn) { Array.prototype.forEach.call(l, fn); }
+    function esc(t) { return String(t == null ? '' : t).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+    function inr(n) { var v = Math.round((Number(n) || 0) * 100) / 100; return '₹' + v.toLocaleString('en-IN'); }
+    function errText(e) { return String((e && e.message) || e || 'Something went wrong').replace(/^(Error:\s*)+/, ''); }
+    function busy(b, t) { b.disabled = true; b.setAttribute('data-l', b.textContent); b.textContent = t || 'Saving…'; }
+    function unbusy(b) { b.disabled = false; if (b.getAttribute('data-l')) b.textContent = b.getAttribute('data-l'); }
+    function showErr(el, t) { if (!el) return; el.textContent = t; el.classList.add('show'); }
+    function hideErr(el) { if (el) el.classList.remove('show'); }
+    function pill(t, tone) { return '<span class="pill t-' + tone + '"><span class="dot"></span>' + esc(t) + '</span>'; }
+    function chips(o) {
+      var h = '';
+      if (o.priority === 'High') h += '<span class="chip high">High</span>'; else if (o.priority === 'Medium') h += '<span class="chip medium">Medium</span>';
+      if (o.orderType === 'Flipkart') h += '<span class="chip flipkart">Flipkart</span>';
+      else if (o.orderType === 'DACC') h += '<span class="chip dacc">DACC</span>';
+      else if (o.dispatchType === 'Courier') h += '<span class="chip courier">Courier</span>';
+      return h;
+    }
+    function hrs(m) { if (!m) return ''; if (m < 60) return Math.round(m) + ' min'; var h = Math.floor(m / 60); return h < 9 ? h + ' office h' : Math.floor(m / 540) + ' office day' + (m >= 1080 ? 's' : ''); }
+
+    // ---------------- Top bar ----------------
+    document.addEventListener('icf-signed-in', function (e) { applyStaff(e.detail || {}); });
+    function applyStaff(s) {
+      $('tbName').textContent = s.name || ''; $('tbRole').textContent = s.role || '';
+      $('menuName').textContent = s.name || ''; $('menuRole').textContent = (s.role || '') + (s.code ? ' · ' + s.code : '');
+      $('avatarBtn').textContent = String(s.name || '?').trim().split(/\s+/).map(function (w) { return w.charAt(0); }).join('').slice(0, 2).toUpperCase();
+      var nav = $('authNav'), appr = $('authAppr'), gate = $('authGate');
+      if (appr && appr.parentNode !== $('topAdmin')) { if (gate) $('topAdmin').appendChild(gate); $('topAdmin').appendChild(appr); }
+      if (nav && nav.parentNode !== $('menuAdminNav')) $('menuAdminNav').appendChild(nav);
+      $('menuAdmin').style.display = s.role === 'Admin' ? 'block' : 'none';
+    }
+    var userMenu = $('userMenu');
+    $('avatarBtn').addEventListener('click', function (e) { e.stopPropagation(); userMenu.classList.toggle('show'); });
+    document.addEventListener('click', function (e) {
+      if (!userMenu.contains(e.target) && e.target !== $('avatarBtn')) userMenu.classList.remove('show');
+      if (!$('topSearch').contains(e.target)) $('findPop').classList.remove('show');
+    });
+    function authClick(id) { userMenu.classList.remove('show'); var b = $(id); if (b) b.click(); }
+    $('menuPin').addEventListener('click', function () { authClick('authBarChangePin'); });
+    $('menuSignOut').addEventListener('click', function () { authClick('authBarSignOut'); });
+    $('themeBtn').addEventListener('click', function () {
+      var light = document.documentElement.getAttribute('data-theme') !== 'light';
+      if (light) document.documentElement.setAttribute('data-theme', 'light'); else document.documentElement.removeAttribute('data-theme');
+      try { localStorage.setItem('icf_cre_beta_theme', light ? 'light' : 'dark'); } catch (e) {}
+    });
+
+    // ---------------- Views ----------------
+    function go(view) {
+      each(document.querySelectorAll('.view'), function (v) { v.classList.toggle('show', v.id === 'view-' + view); });
+      each(document.querySelectorAll('.rail-btn[data-view]'), function (b) { b.classList.toggle('active', b.getAttribute('data-view') === view); });
+      if (view === 'payments') loadPayments();
+    }
+    each(document.querySelectorAll('.rail-btn[data-view]'), function (b) { b.addEventListener('click', function () { go(b.getAttribute('data-view')); }); });
+
+    // ---------------- The queue ----------------
+    var Q = null, TAB = 'all';
+    var KINDS = [['all', 'All'], ['verify', 'Verify'], ['paid', 'Payments in'], ['gate', 'Gate passes'], ['refund', 'Refunds'], ['admin', 'Admin replies'], ['flipkart', 'Flipkart']];
+    function buildRows() {
+      if (!Q) return [];
+      var rows = [];
+      var saysPaidLogged = {};
+      (Q.nudges || []).forEach(function (n) {
+        if (n.verify) { saysPaidLogged[String(n.trackerId).toLowerCase()] = n.says; return; } // shown on its verify line
+        rows.push({ kind: 'paid', tone: 'red', rank: n.readyForDispatch ? 0 : 1, id: n.trackerId, name: n.institution, o: n,
+          why: (n.readyForDispatch ? 'Goods ready – waiting only for this payment. ' : '') + 'CRE says the customer has paid: ' + n.says,
+          amt: inr(n.balanceDue), amtSub: 'due' });
+      });
+      (Q.verify || []).forEach(function (v) {
+        var says = v.customerSaysPaid || saysPaidLogged[String(v.trackerId).toLowerCase()];
+        var late = v.officeMins >= (Q.verifyRemindMins || 240);
+        var why, tone;
+        if (v.locked) { tone = 'grey'; why = 'Waiting for the admin: ' + v.locked; }
+        else if (v.docsMissing) { tone = 'grey'; why = v.docsMissing + ' not uploaded – the CRE has been told'; }
+        else { tone = late || says ? 'red' : 'amber'; why = 'Verify the payment' + (v.officeMins ? ' · waiting ' + hrs(v.officeMins) : '') + (says ? ' · CRE says paid: ' + says : ''); }
+        rows.push({ kind: 'verify', tone: tone, rank: tone === 'red' ? 1 : tone === 'amber' ? 2 : 6, id: v.trackerId, name: v.institution, o: v, why: why,
+          amt: inr(v.advance), amtSub: v.terms === 'PO Customer' ? 'PO customer' : 'advance logged' });
+      });
+      (Q.gatePasses || []).forEach(function (g) {
+        var tone = g.pending ? 'grey' : g.blocked ? 'amber' : 'red';
+        rows.push({ kind: 'gate', tone: tone, rank: tone === 'red' ? 0.5 : tone === 'amber' ? 2.5 : 6, id: g.trackerId, name: g.institution, o: g,
+          why: g.pending ? 'Gate pass – waiting for a decision: ' + g.pending : g.blocked ? 'Gate pass asked, but ₹' + Number(g.balanceDue).toLocaleString('en-IN') + ' is still due – record the payment first'
+            : 'Issue the gate pass · vehicle ' + (g.vehicleNo || '–') + (g.requestedAt ? ' · asked ' + g.requestedAt : ''),
+          amt: g.vehicleNo || '', amtSub: g.requestedBy ? 'by ' + g.requestedBy : '' });
+      });
+      (Q.refunds || []).forEach(function (r) {
+        var late = r.daysLeft !== null && r.daysLeft < 0;
+        rows.push({ kind: 'refund', tone: late ? 'red' : 'amber', rank: late ? 1 : 3, id: r.trackerId, name: r.institution, o: r,
+          why: 'Refund (' + (r.kind === 'Return' ? 'return ' + r.requestId : 'cancelled order') + ') – ' + (r.daysLeft === null ? 'by ' + r.deadline : late ? (-r.daysLeft) + ' days late' : r.daysLeft === 0 ? 'due today' : r.daysLeft + ' days left'),
+          amt: inr(r.refundAmount), amtSub: 'to refund' });
+      });
+      (Q.approvals || []).forEach(function (a) {
+        if (a.status === 'Pending') return;
+        rows.push({ kind: 'admin', tone: a.status === 'Approved' ? 'teal' : 'red', rank: a.status === 'Approved' ? 1.5 : 2, id: a.trackerId, name: a.institution, o: a,
+          why: a.label + ' – ' + a.statusText + (a.decidedBy ? ' (' + String(a.decidedBy).replace(/ \(.*$/, '') + ')' : ''), amt: '', amtSub: a.when });
+      });
+      var fk = (Q.flipkart && Q.flipkart.items || []).filter(function (i) { return i.handedOver; });
+      if (fk.length) rows.push({ kind: 'flipkart', tone: 'blue', rank: 4, id: '', name: fk.length + ' Flipkart order' + (fk.length === 1 ? '' : 's') + ' to match to a payout', o: null,
+        why: 'When Flipkart’s monthly payout arrives, tick the orders it covers and enter what Flipkart paid for each', amt: inr(fk.reduce(function (t, i) { return t + i.value; }, 0)), amtSub: 'sale value' });
+      return rows.sort(function (a, b) { return a.rank - b.rank; });
+    }
+    function renderQueue() {
+      var rows = buildRows();
+      var counts = {}; rows.forEach(function (r) { counts[r.kind] = (counts[r.kind] || 0) + (r.kind === 'flipkart' ? ((Q.flipkart && Q.flipkart.items) || []).filter(function (i) { return i.handedOver; }).length : 1); });
+      var actionable = rows.filter(function (r) { return r.tone !== 'grey'; }).length;
+      $('railTodo').textContent = actionable; $('railTodo').style.display = actionable ? 'inline-flex' : 'none';
+      $('qTabs').innerHTML = KINDS.map(function (k) {
+        var n = k[0] === 'all' ? rows.length : (counts[k[0]] || 0);
+        if (k[0] !== 'all' && !n) return '';
+        return '<button type="button" class="q-tab' + (TAB === k[0] ? ' on' : '') + '" data-k="' + k[0] + '">' + esc(k[1]) + ' <span class="count' + (n ? ' hot' : '') + '">' + n + '</span></button>';
+      }).join('');
+      each($('qTabs').querySelectorAll('.q-tab'), function (b) { b.addEventListener('click', function () { TAB = b.getAttribute('data-k'); renderQueue(); }); });
+      var shown = rows.filter(function (r) { return TAB === 'all' || r.kind === TAB; });
+      if (TAB !== 'all' && !shown.length) { TAB = 'all'; return renderQueue(); }
+      $('todoSub').textContent = actionable ? actionable + ' thing' + (actionable === 1 ? '' : 's') + ' waiting on you. Most urgent first.' : 'Nothing waiting on Accounts right now.';
+      $('qList').innerHTML = shown.length ? shown.map(function (r, i) {
+        return '<div class="act-row ' + r.tone + '" data-i="' + i + '"><span class="act-bar"></span>' +
+          '<div class="act-main"><div class="act-top"><span class="act-name">' + esc(r.name) + '</span>' +
+            (r.id ? '<span class="faint" style="font-size:12px;">' + esc(r.id) + '</span>' : '') + (r.o ? chips(r.o) : '') + '</div>' +
+          '<div class="act-sub act-why">' + esc(r.why) + '</div></div>' +
+          '<div class="act-amt">' + esc(r.amt) + (r.amtSub ? '<small>' + esc(r.amtSub) + '</small>' : '') + '</div></div>';
+      }).join('') : '<div class="empty">All clear – nothing waiting on Accounts.</div>';
+      each($('qList').querySelectorAll('.act-row'), function (el) {
+        el.addEventListener('click', function () { openRow(shown[Number(el.getAttribute('data-i'))]); });
+      });
+      renderGlance(rows);
+    }
+    function renderGlance(rows) {
+      var s = Q.summary || {};
+      var by = function (k) { return rows.filter(function (r) { return r.kind === k; }).length; };
+      var lines = [
+        ['Outstanding balance', s.outstandingTotal != null ? inr(s.outstandingTotal) : '–', 'payments'],
+        ['Payments recorded today', s.paymentsToday != null ? s.paymentsToday : '–', 'payments'],
+        ['To verify', by('verify'), 'verify'],
+        ['Gate passes asked', by('gate'), 'gate'],
+        ['Refunds to pay', by('refund'), 'refund'],
+        ['Flipkart to match', ((Q.flipkart && Q.flipkart.items) || []).filter(function (i) { return i.handedOver; }).length, 'flipkart']
+      ];
+      $('glance').innerHTML = lines.map(function (l) {
+        return '<button class="stat-row" type="button" data-k="' + l[2] + '"><span class="stat-label">' + esc(l[0]) + '</span><span class="stat-val">' + esc(l[1]) + '</span></button>';
+      }).join('');
+      each($('glance').querySelectorAll('.stat-row'), function (b) {
+        b.addEventListener('click', function () { var k = b.getAttribute('data-k'); if (k === 'payments') go('payments'); else { TAB = k; renderQueue(); } });
+      });
+    }
+    function load() {
+      authRun()
+        .withSuccessHandler(function (q) { Q = q; renderQueue(); })
+        .withFailureHandler(function (e) { $('qList').innerHTML = '<div class="empty">Could not load: ' + esc(errText(e)) + '</div>'; })
+        .getAccountsQueue();
+    }
+    $('refreshBtn').addEventListener('click', load);
+    function openRow(r) {
+      if (!r) return;
+      if (r.kind === 'flipkart') return openFlipkart();
+      if (r.kind === 'refund') return openRefund(r.o);
+      openOrder(r.id, r.kind === 'gate' ? r.o : null);
+    }
+
+    // ---------------- Drawer ----------------
+    var drawer = $('drawer'), scrim = $('scrim');
+    function openDrawer(id, title, tags) {
+      $('drId').textContent = id || ''; $('drTitle').textContent = title || ''; $('drTags').innerHTML = tags || '';
+      $('drBody').innerHTML = '<div class="loading">Loading…</div>';
+      drawer.classList.add('show'); scrim.classList.add('show'); drawer.setAttribute('aria-hidden', 'false');
+    }
+    function closeDrawer() { drawer.classList.remove('show'); scrim.classList.remove('show'); drawer.setAttribute('aria-hidden', 'true'); }
+    $('drClose').addEventListener('click', closeDrawer);
+    scrim.addEventListener('click', closeDrawer);
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') closeDrawer();
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); $('findInput').focus(); }
+    });
+    function afterAction() { load(); if ($('view-payments').classList.contains('show')) loadPayments(); }
+
+    function kv(rows) {
+      return '<div class="kv">' + rows.filter(function (r) { return r[1] !== '' && r[1] !== null && r[1] !== undefined; }).map(function (r) {
+        return '<div class="k">' + esc(r[0]) + '</div><div class="v">' + (r[2] ? r[1] : esc(r[1])) + '</div>';
+      }).join('') + '</div>';
+    }
+
+    // One order: details + whatever Accounts does at its stage.
+    var CUR = null;
+    function openOrder(id, gateItem) {
+      openDrawer(id, 'Loading…', '');
+      authRun()
+        .withSuccessHandler(function (o) { if (!o) { $('drBody').innerHTML = '<div class="empty">Order not found.</div>'; return; } CUR = o; renderOrder(o, gateItem); })
+        .withFailureHandler(function (e) { $('drBody').innerHTML = '<div class="err show">' + esc(errText(e)) + '</div>'; })
+        .lookupOrder(id);
+    }
+    function renderOrder(o, gateItem) {
+      $('drId').textContent = o.trackerId;
+      $('drTitle').textContent = o.institution;
+      $('drTags').innerHTML = pill(o.status, o.status === 'Logged' ? 'amber' : o.status === 'Cancelled' ? 'grey' : 'blue') + chips(o) +
+        '<span class="chip">' + esc(o.paymentTermsType) + '</span>';
+      var h = '';
+      if (o.customerSaysPaid) h += '<div class="note info" style="margin-top:0;margin-bottom:12px;">CRE says the customer has paid: ' + esc(o.customerSaysPaid) + '</div>';
+      if (o.status === 'Logged') h += '<div class="dr-sec" id="secAct">' + verifyHtml(o) + '</div>';
+      else if (o.status === 'Vehicle Confirmed') h += '<div class="dr-sec" id="secAct">' + gateHtml(o, gateItem) + '</div>';
+      else if (o.status !== 'Cancelled' && Number(o.balanceDue) > 0 && o.orderType !== 'Flipkart') h += '<div class="dr-sec" id="secAct">' + payHtml(o) + '</div>';
+      else if (o.gatePassPdfUrl) h += '<div class="dr-sec"><a class="btn sm" href="' + esc(o.gatePassPdfUrl) + '" target="_blank">Open the gate pass PDF</a></div>';
+      h += '<div class="dr-sec"><div class="dr-sec-title">Order</div>' + kv([
+        ['Customer', o.institution], ['Phone', o.phoneNumber], ['CRE', o.ownerName || o.creName],
+        ['Order value', inr(o.totalOrderValue)], ['Received', inr(o.advanceReceived)], ['Balance', inr(o.balanceDue)],
+        ['Payment terms', o.paymentTermsType], ['Priority', o.priority], ['Wanted by', o.requestedDeliveryDate],
+        ['Location', [o.district, o.state].filter(Boolean).join(', ') + (o.pincode ? ' – ' + o.pincode : '')],
+        ['Verified', o.verifiedAt], ['With Ops', o.opsPickedUpAt ? o.opsPickedUpAt + (o.opsPickedUpBy ? ' by ' + o.opsPickedUpBy : '') : ''],
+        ['Gate pass asked', o.gatePassRequestedAt ? o.gatePassRequestedAt + (o.gatePassRequestedBy ? ' by ' + o.gatePassRequestedBy : '') : ''],
+        ['Gate pass issued', o.gatePassIssuedAt], ['Left the gate', o.gateOutAt], ['Delivery', o.deliveryStatus]
+      ]) + '</div>';
+      if (o.docs && (o.docs.crmUrl || o.docs.customerUrl) && o.status !== 'Logged') {
+        h += '<div class="dr-sec"><div class="dr-sec-title">Purchase orders</div>' + window.ICF_DOCS.panel(o.docs, { title: 'Purchase orders' }) + '</div>';
+      }
+      $('drBody').innerHTML = h;
+      if (o.status === 'Logged') bindVerify(o);
+      else if (o.status === 'Vehicle Confirmed') bindGate(o, gateItem);
+      else if ($('payBtn')) bindPay(o);
+    }
+
+    // ----- Verify (same rules as the classic page) -----
+    function verifyHtml(o) {
+      var docs = o.docs || {};
+      var h = '<div class="dr-sec-title">Verify the payment</div><div class="act-card amber">';
+      if (docs.missing && docs.missing.length) {
+        h += window.ICF_DOCS.panel(docs, { title: 'Check before verifying' }) +
+          '<div class="note bad">The ' + esc(docs.missing.join(' and the ')) + ' ' + (docs.missing.length > 1 ? 'are' : 'is') + ' not uploaded. The CRE (' + esc(o.ownerName || o.creName) + ') has been told; you can verify once it’s there.</div></div>';
+        return h;
+      }
+      var logged = Number(o.advanceAmount) || 0, isPO = o.paymentTermsType === 'PO Customer';
+      h += window.ICF_DOCS.panel(docs, { title: 'Purchase orders' }) +
+        '<div class="field"><div class="lbl">Step 1 – Print the CRM PO <span class="rq">*</span></div>' +
+          '<a class="btn sm" id="printCrm" href="' + esc(docs.crmUrl) + '" target="_blank">' + (docs.crmPrinted ? 'Print again' : 'Print CRM PO') + '</a>' +
+          '<div class="hint" id="printState">' + (docs.crmPrinted ? 'Printed: ' + esc(docs.crmPrinted) : 'Not printed yet. Keep the printout – Ops collects it from you.') + '</div></div>' +
+        '<div class="field"><label class="check"><input type="checkbox" id="docsOk"' + (docs.crmPrinted ? '' : ' disabled') + '> <span>Step 2 – I’ve checked the printed CRM PO: delivery address, products and amounts.</span></label></div>' +
+        '<div class="field"><label class="lbl" for="vAmt">Step 3 – Amount received (as per the bank)</label><input class="inp" id="vAmt" type="number" min="0" step="0.01" value="' + (logged > 0 ? logged : (isPO || o.returnCredit > 0 ? '0' : '')) + '">' +
+          '<div class="hint">' + (logged > 0 ? 'The CRE logged ' + inr(logged) + '. Change it only if the bank shows something different.' : isPO ? 'No advance logged – PO customer.' : 'The CRE logged no advance. If the customer has paid since, enter the amount.') +
+          (o.returnCredit > 0 ? ' Plus a return credit of ' + inr(o.returnCredit) + ' (' + esc(o.returnCreditRef) + ') – already counted.' : '') + '</div></div>' +
+        '<div class="field" id="vUtrBox"><label class="lbl" for="vUtr">Bank reference / UTR</label><input class="inp" id="vUtr" type="text"></div>' +
+        '<div id="vNote"></div><div id="vEx"></div>' +
+        '<div class="act-actions"><button class="btn primary" type="button" id="vBtn">Confirm verification</button></div>' +
+        '<div class="err" id="vErr"></div><div id="vDone"></div></div>';
+      return h;
+    }
+    function bindVerify(o) {
+      if (!$('vBtn')) return;
+      var docs = o.docs || {};
+      $('printCrm').addEventListener('click', function () {
+        $('printState').textContent = 'Recording the print…';
+        authRun().withSuccessHandler(function (r) { docs.crmPrinted = r.printed; $('printState').textContent = 'Printed: ' + r.printed + '. Print it from the tab that opened.'; $('docsOk').disabled = false; $('printCrm').textContent = 'Print again'; })
+          .withFailureHandler(function (e) { $('printState').textContent = errText(e); })
+          .markCrmPoPrinted({ trackerId: o.trackerId });
+      });
+      $('vAmt').addEventListener('input', function () { vState(o); });
+      vState(o);
+      $('vBtn').addEventListener('click', function () {
+        var btn = this, err = $('vErr'); hideErr(err);
+        var raw = $('vAmt').value.trim(), utr = $('vUtr').value.trim();
+        if (raw === '') return showErr(err, 'Enter the amount received (0 if nothing has come in).');
+        if (!docs.crmPrinted) return showErr(err, 'Print the CRM PO first (Step 1).');
+        if (!$('docsOk').checked) return showErr(err, 'Check the printed CRM PO and tick the box (Step 2).');
+        if (Number(raw) > 0 && !utr) return showErr(err, 'Enter the bank reference / UTR.');
+        busy(btn, 'Confirming…');
+        authRun()
+          .withSuccessHandler(function (r) {
+            btn.style.display = 'none';
+            $('vDone').innerHTML = '<div class="ok-line">Verified.' + (r.newPaymentRecorded ? ' Advance of ' + inr(r.advanceAmount) + ' recorded.' : '') +
+              '<div class="big-code">' + esc(r.verificationCode) + '</div>' +
+              (r.heldForBalance ? 'Courier order ON HOLD: ' + inr(r.balanceDue) + ' is still due. The CRE has been told; record it when it comes in and the order goes to Ops by itself.'
+                : 'Now in the Ops queue – Ops picks it up and prints the PO. No printout from you.') + '</div>';
+            afterAction();
+          })
+          .withFailureHandler(function (e) { unbusy(btn); showErr(err, errText(e)); })
+          .submitVerification({ trackerId: o.trackerId, bankReference: utr, amountReceived: raw, docsChecked: $('docsOk').checked });
+      });
+    }
+    function vState(o) {
+      var ex = o.paymentExceptions || {}, logged = Number(o.advanceAmount) || 0, total = Number(o.totalOrderValue) || 0;
+      var raw = $('vAmt').value.trim(), amt = raw === '' ? null : Number(raw);
+      var note = $('vNote'), exBox = $('vEx'), btn = $('vBtn');
+      note.innerHTML = ''; exBox.innerHTML = ''; btn.style.display = ''; btn.disabled = false; $('vUtrBox').style.display = 'none';
+      var say = function (cls, t) { note.innerHTML = '<div class="' + cls + '">' + t + '</div>'; };
+      if (amt === null) { btn.disabled = true; return; }
+      if (isNaN(amt) || amt < 0) { say('note bad', 'Enter a valid amount (0 if nothing has come in).'); btn.disabled = true; return; }
+      if (total > 0 && amt > total) { say('note bad', 'That’s more than the order value (' + inr(total) + '). If the customer really paid extra, use “payment with excess” on the classic page.'); btn.disabled = true; return; }
+      if (logged > 0 && amt !== logged) {
+        btn.style.display = 'none';
+        say('note', 'The bank amount (' + inr(amt) + ') differs from the ' + inr(logged) + ' the CRE logged. Changing it needs an admin’s approval.');
+        exBox.innerHTML = exHtml(ex.correction, 'What does the bank show, and why is it different?', 'Request correction to ' + inr(amt));
+        bindEx(o, 'ADVANCE_CORRECTION', amt);
+        return;
+      }
+      if (amt > 0) { $('vUtrBox').style.display = ''; if (logged === 0) say('note info', 'New payment – ' + inr(amt) + ' will be recorded as this order’s advance.'); return; }
+      if (o.returnCredit > 0) { say('note info', 'Paid from a return credit – no UTR needed.'); return; }
+      if (o.paymentTermsType === 'PO Customer') { say('note info', 'No advance – PO customer, so no UTR is needed.'); return; }
+      if (ex.verify && ex.verify.status === 'Approved') { say('note info', 'No advance. Approved to go ahead by ' + esc(ex.verify.decidedBy) + '.'); return; }
+      btn.style.display = 'none';
+      say('note', 'End customer, nothing received. If the customer has paid, enter the amount. Otherwise an admin must approve going ahead without an advance.');
+      exBox.innerHTML = exHtml(ex.verify, 'Why should this go ahead without an advance?', 'Request admin approval');
+      bindEx(o, 'VERIFY_NO_ADVANCE', null);
+    }
+    function exHtml(ex, prompt, btnText) {
+      if (ex && ex.status === 'Pending') return '<div class="note info">Waiting for an admin (' + esc(ex.requestId) + ', asked by ' + esc(ex.requestedByName) + '). It comes back to your To do list when decided.</div>';
+      return (ex && ex.status === 'Declined' ? '<div class="note bad">The last request was declined by ' + esc(ex.decidedBy) + '. You can ask again with more detail.</div>' : '') +
+        '<div class="field"><label class="lbl">' + esc(prompt) + '</label><textarea class="inp" id="exReason" rows="2" style="height:auto;padding:8px 11px;"></textarea></div>' +
+        '<div class="act-actions"><button class="btn" type="button" id="exBtn">' + esc(btnText) + '</button></div><div class="err" id="exErr"></div>';
+    }
+    function bindEx(o, type, corrected) {
+      var b = $('exBtn'); if (!b) return;
+      b.addEventListener('click', function () {
+        var reason = $('exReason').value.trim(), err = $('exErr'); hideErr(err);
+        if (!reason) return showErr(err, 'Add a short reason for the admin.');
+        busy(b, 'Sending…');
+        authRun()
+          .withSuccessHandler(function (res) {
+            $('vEx').innerHTML = '<div class="note info">Sent to the admin (' + esc(res.requestId) + ').' + (res.callName ? ' Call ' + esc(res.callName) + (res.callPhone ? ' on <a href="tel:' + esc(res.callPhone.replace(/[^0-9+]/g, '')) + '">' + esc(res.callPhone) + '</a>' : '') + ' now.' : '') + '</div>';
+            afterAction();
+          })
+          .withFailureHandler(function (e) { unbusy(b); showErr(err, errText(e)); })
+          .requestPaymentException({ trackerId: o.trackerId, type: type, reason: reason, correctedAdvance: corrected });
+      });
+    }
+
+    // ----- Record a payment -----
+    function payHtml(o) {
+      return '<div class="dr-sec-title">Record a payment</div><div class="act-card ' + (o.status === 'Ready - Payment Pending' ? 'red' : 'amber') + '">' +
+        '<div class="msg"><b>' + inr(o.balanceDue) + '</b> still due' + (o.status === 'Ready - Payment Pending' ? ' – the goods are ready and waiting only for this.' : o.status === 'On Hold - Balance Due' ? ' – courier order on hold until it’s paid.' : '.') + '</div>' +
+        '<div class="row2" style="margin-top:12px;"><div><label class="lbl" for="pAmt">Amount received</label><input class="inp" id="pAmt" type="number" min="0" step="0.01"></div>' +
+        '<div><label class="lbl" for="pUtr">Bank reference / UTR</label><input class="inp" id="pUtr" type="text"></div></div>' +
+        '<div class="act-actions"><button class="btn primary" type="button" id="payBtn">Record payment</button></div><div class="err" id="pErr"></div><div id="pDone"></div></div>';
+    }
+    function bindPay(o) {
+      $('payBtn').addEventListener('click', function () {
+        var b = this, err = $('pErr'); hideErr(err);
+        var amt = parseFloat($('pAmt').value), utr = $('pUtr').value.trim();
+        if (!amt || amt <= 0) return showErr(err, 'Enter the amount received.');
+        if (!utr) return showErr(err, 'Enter the bank reference / UTR.');
+        busy(b);
+        authRun()
+          .withSuccessHandler(function (r) {
+            b.style.display = 'none';
+            $('pDone').innerHTML = '<div class="ok-line">Recorded ' + inr(amt) + '.' + (r && r.releasedToOps ? ' The order has gone to Ops.' : '') + '</div>';
+            afterAction();
+          })
+          .withFailureHandler(function (e) { unbusy(b); showErr(err, errText(e)); })
+          .recordBalancePayment({ trackerId: o.trackerId, amountReceived: amt, bankReference: utr });
+      });
+    }
+
+    // ----- Gate pass -----
+    function gateHtml(o, g) {
+      g = g || (Q && (Q.gatePasses || []).filter(function (x) { return x.trackerId === o.trackerId; })[0]) || {};
+      if (g.blocked) return payHtml(o).replace('Record a payment', 'Gate pass blocked – record the payment first');
+      if (g.pending) return '<div class="dr-sec-title">Gate pass</div><div class="act-card grey"><div class="msg">Waiting for a decision: ' + esc(g.pending) + '. Nothing can be done until it’s decided.</div></div>';
+      var prods = g.products || [];
+      return '<div class="dr-sec-title">Issue the gate pass</div><div class="act-card red">' +
+        '<div class="msg">Asked by ' + esc(g.requestedBy || o.gatePassRequestedBy || 'Ops') + (g.requestedAt ? ' at ' + esc(g.requestedAt) : '') + ' · vehicle <b>' + esc(g.vehicleNo || o.vehicleNo || '–') + '</b></div>' +
+        (g.daccNote || g.approvedBalanceNote || g.poBalanceNote ? '<div class="note info">' + esc(g.daccNote || g.approvedBalanceNote || g.poBalanceNote) + '</div>' : '') +
+        '<div class="field"><label class="lbl" for="gEway">E-way bill no. <span class="rq">*</span></label><input class="inp" id="gEway" type="text"></div>' +
+        '<div class="row2" style="margin-top:12px;"><div><label class="lbl" for="gDesc">Item description</label><input class="inp" id="gDesc" type="text" value="' + esc(prods.map(function (p) { return p.product; }).join('; ')) + '"></div>' +
+          '<div><label class="lbl" for="gQty">Quantity</label><input class="inp" id="gQty" type="text" value="' + esc(prods.map(function (p) { return p.quantity; }).join(', ')) + '"></div></div>' +
+        '<div class="row2" style="margin-top:12px;"><div><label class="lbl" for="gMode">Transport</label><select class="inp" id="gMode">' +
+          (g.dacc ? '<option>Transporter (DACC)</option>' : '') + '<option>ICF Vehicle</option><option>Third-Party Courier</option></select></div>' +
+          '<div><label class="lbl" for="gCourier">Transporter' + (g.dacc ? ' (DACC)' : ' (if third-party)') + '</label><input class="inp" id="gCourier" type="text" value="' + esc(g.daccTransporter || '') + '"></div></div>' +
+        '<div class="field"><label class="lbl" for="gTrack">Tracking / consignment no.<span class="opt">(if known)</span></label><input class="inp" id="gTrack" type="text"></div>' +
+        '<div class="act-actions"><button class="btn primary" type="button" id="gBtn">Generate gate pass</button></div><div class="err" id="gErr"></div><div id="gDone"></div></div>';
+    }
+    function bindGate(o, g) {
+      if ($('payBtn')) return bindPay(o);
+      var b = $('gBtn'); if (!b) return;
+      if (!$('gDesc').value) {
+        authRun().withSuccessHandler(function (items) {
+          if (!items || !items.length || $('gDesc').value) return;
+          $('gDesc').value = items.map(function (p) { return p.product; }).join('; ');
+          $('gQty').value = items.map(function (p) { return p.quantity; }).join(', ');
+        }).getOrderLineItems(o.trackerId);
+      }
+      b.addEventListener('click', function () {
+        var err = $('gErr'); hideErr(err);
+        var eway = $('gEway').value.trim();
+        if (!eway) return showErr(err, 'Enter the e-way bill number.');
+        busy(b, 'Generating…');
+        authRun()
+          .withSuccessHandler(function (r) {
+            b.style.display = 'none';
+            $('gDone').innerHTML = '<div class="ok-line">Gate pass <b>' + esc(r.gatePassNo) + '</b> issued. <a href="' + esc(r.pdfUrl) + '" target="_blank">Open / print it</a></div>';
+            afterAction();
+          })
+          .withFailureHandler(function (e) { unbusy(b); showErr(err, errText(e)); })
+          .submitDispatch({ trackerId: o.trackerId, ewayBillNo: eway, itemDescription: $('gDesc').value.trim(), itemQty: $('gQty').value.trim(),
+            transportMode: $('gMode').value, courierName: $('gCourier').value.trim(), trackingNo: $('gTrack').value.trim() });
+      });
+    }
+
+    // ----- Refund -----
+    function openRefund(r) {
+      openDrawer(r.trackerId, r.institution, pill(r.kind === 'Return' ? 'Return refund' : 'Cancelled order', 'amber'));
+      var late = r.daysLeft !== null && r.daysLeft < 0;
+      $('drBody').innerHTML = '<div class="dr-sec"><div class="dr-sec-title">Pay the refund</div><div class="act-card ' + (late ? 'red' : 'amber') + '">' +
+        '<div class="msg">Refund <b>' + inr(r.refundAmount) + '</b> by <b>' + esc(r.deadline) + '</b>' + (late ? ' – ' + (-r.daysLeft) + ' days late' : '') + '.<br>' +
+          'Approved by ' + esc(r.approvedBy) + ' on ' + esc(r.approvedAt) + ' · received on the order ' + inr(r.amountReceived) + ' · CRE ' + esc(r.cre) + '</div>' +
+        (r.adminNote ? '<div class="note info">' + esc(r.adminNote) + '</div>' : '') +
+        '<div class="row2" style="margin-top:12px;"><div><label class="lbl" for="rUtr">Refund UTR</label><input class="inp" id="rUtr" type="text"></div>' +
+          '<div><label class="lbl" for="rNote">Note<span class="opt">(optional)</span></label><input class="inp" id="rNote" type="text"></div></div>' +
+        '<div class="act-actions"><button class="btn primary" type="button" id="rBtn">Refund paid</button></div><div class="err" id="rErr"></div><div id="rDone"></div></div></div>';
+      $('rBtn').addEventListener('click', function () {
+        var b = this, err = $('rErr'); hideErr(err);
+        var utr = $('rUtr').value.trim();
+        if (utr.length < 6) return showErr(err, 'Enter the UTR of the refund.');
+        busy(b);
+        authRun()
+          .withSuccessHandler(function () { b.style.display = 'none'; $('rDone').innerHTML = '<div class="ok-line">Refund recorded. The CRE has been told.</div>'; afterAction(); })
+          .withFailureHandler(function (e) { unbusy(b); showErr(err, errText(e)); })
+          .markRefundProcessed({ requestId: r.requestId, utr: utr, note: $('rNote').value.trim() });
+      });
+    }
+
+    // ----- Flipkart payouts (13 Nov 2026): any amount per order is accepted -----
+    function openFlipkart() {
+      openDrawer('', 'Flipkart payouts', pill('Monthly payout', 'blue'));
+      authRun()
+        .withSuccessHandler(renderFk)
+        .withFailureHandler(function (e) { $('drBody').innerHTML = '<div class="err show">' + esc(errText(e)) + '</div>'; })
+        .getFlipkartSettlements();
+    }
+    function renderFk(r) {
+      var items = (r && r.items) || [];
+      var today = new Date(Date.now() + 19800000).toISOString().slice(0, 10);
+      if (!items.length) { $('drBody').innerHTML = '<div class="empty">Every Flipkart order is settled.</div>'; return; }
+      $('drBody').innerHTML = '<div class="dr-sec"><div class="msg" style="font-size:13px;color:var(--text-2);">Tick the orders Flipkart’s settlement report lists and enter what Flipkart paid for each – usually less than the sale price, depending on the buyer’s distance. Any amount is accepted; blank means the full sale price.</div></div>' +
+        '<div class="dr-sec"><div class="q-list" id="fkList">' + items.map(function (i, n) {
+          return '<div class="fk-r' + (i.handedOver ? '' : ' dis') + '" data-n="' + n + '"><input type="checkbox" class="fkc"' + (i.handedOver ? '' : ' disabled title="Not handed over yet"') + '>' +
+            '<div style="min-width:0;"><div style="font-weight:600;">' + esc(i.institution) + (i.returned ? '<span class="tag-ret">RETURNED</span>' : '') + '</div>' +
+              '<div class="hint" style="margin-top:2px;">' + esc(i.trackerId) + ' · ' + (i.handedOver ? 'handed over ' + esc(i.handedOver) + (i.daysSinceHandover !== null ? ' (' + i.daysSinceHandover + ' days)' : '') : 'not handed over yet') + '</div></div>' +
+            '<div style="text-align:right;"><div style="font-weight:600;">' + inr(i.value) + '</div><input class="inp fka" type="text" inputmode="decimal" placeholder="' + i.value + '" title="What Flipkart paid"></div></div>';
+        }).join('') + '</div></div>' +
+        '<div class="dr-sec" id="fkForm" style="display:none;"><div class="act-card blue"><div class="msg" id="fkSum"></div>' +
+          '<div class="row2" style="margin-top:12px;"><div><label class="lbl" for="fkUtr">Payout UTR</label><input class="inp" id="fkUtr" type="text"></div>' +
+            '<div><label class="lbl" for="fkDate">Date it reached the bank</label><input class="inp" id="fkDate" type="date" max="' + today + '"></div></div>' +
+          '<div class="row2" style="margin-top:12px;"><div><label class="lbl" for="fkTot">Total payout<span class="opt">(optional – cross-check)</span></label><input class="inp" id="fkTot" type="text" inputmode="decimal"></div>' +
+            '<div><label class="lbl" for="fkNote">Note<span class="opt">(optional)</span></label><input class="inp" id="fkNote" type="text"></div></div>' +
+          '<div class="hint" id="fkCheck"></div>' +
+          '<div class="act-actions"><button class="btn primary" type="button" id="fkSave">Mark ticked as settled</button>' +
+            '<button class="btn danger" type="button" id="fkNoPay" title="Returned orders Flipkart won’t pay for">No payout – returned</button></div>' +
+          '<div class="err" id="fkErr"></div><div id="fkDone"></div></div></div>';
+      function sel() {
+        var out = { ids: [], map: {}, sale: 0, net: 0 };
+        each($('fkList').querySelectorAll('.fk-r'), function (row) {
+          var c = row.querySelector('.fkc'); row.classList.toggle('on', !!c.checked);
+          if (!c.checked) return;
+          var it = items[Number(row.getAttribute('data-n'))], a = row.querySelector('.fka').value.trim();
+          var n = a === '' ? it.value : Number(a.replace(/[,\s₹]/g, ''));
+          out.ids.push(it.trackerId); out.map[it.trackerId] = a; out.sale += it.value; out.net += isNaN(n) ? 0 : n;
+        });
+        return out;
+      }
+      function sync() {
+        var s = sel();
+        $('fkForm').style.display = s.ids.length ? '' : 'none';
+        $('fkSum').innerHTML = '<b>' + s.ids.length + '</b> ticked – sale ' + inr(s.sale) + ', received <b>' + inr(s.net) + '</b>' + (s.sale - s.net > 0.5 ? ' (Flipkart kept ' + inr(s.sale - s.net) + ')' : '');
+        var t = $('fkTot').value.trim(), tn = Number(t.replace(/[,\s₹]/g, ''));
+        $('fkCheck').textContent = !t || isNaN(tn) ? '' : Math.abs(tn - s.net) < 1 ? 'Matches the payout amount.' : 'The orders add up to ' + inr(s.net) + ', the payout is ' + inr(tn) + '. Check the settlement report – you can still save.';
+      }
+      each($('fkList').querySelectorAll('.fkc, .fka'), function (el) { el.addEventListener('input', sync); el.addEventListener('change', sync); });
+      $('fkTot').addEventListener('input', sync);
+      $('fkSave').addEventListener('click', function () {
+        var b = this, err = $('fkErr'), s = sel(); hideErr(err);
+        if (!s.ids.length) return showErr(err, 'Tick the orders the payout covers.');
+        if ($('fkUtr').value.trim().length < 6) return showErr(err, 'Enter the payout UTR.');
+        if (!$('fkDate').value) return showErr(err, 'Enter the date the payout reached the bank.');
+        busy(b);
+        authRun()
+          .withSuccessHandler(function (res) { $('fkDone').innerHTML = '<div class="ok-line">' + res.settled + ' settled – ' + inr(res.netTotal) + ' received' + (res.keptTotal > 0.5 ? ', Flipkart kept ' + inr(res.keptTotal) : '') + '.</div>'; afterAction(); setTimeout(openFlipkart, 1500); })
+          .withFailureHandler(function (e) { unbusy(b); showErr(err, errText(e)); })
+          .markFlipkartSettled({ trackerIds: s.ids, utr: $('fkUtr').value.trim(), payoutDate: $('fkDate').value, payoutAmount: $('fkTot').value.trim(), note: $('fkNote').value.trim(), amounts: s.map });
+      });
+      $('fkNoPay').addEventListener('click', function () {
+        var b = this, err = $('fkErr'), s = sel(); hideErr(err);
+        if (!s.ids.length) return showErr(err, 'Tick the returned orders.');
+        if (!window.confirm('Close ' + s.ids.length + ' order(s) as “No payout – returned”? Only for orders Flipkart sent back and won’t pay for.')) return;
+        busy(b);
+        authRun()
+          .withSuccessHandler(function (res) { $('fkDone').innerHTML = '<div class="ok-line">' + res.settled + ' closed as no payout.</div>'; afterAction(); setTimeout(openFlipkart, 1500); })
+          .withFailureHandler(function (e) { unbusy(b); showErr(err, errText(e)); })
+          .markFlipkartSettled({ trackerIds: s.ids, noPayout: true, note: $('fkNote').value.trim() });
+      });
+    }
+
+    // ---------------- Pending payments view ----------------
+    function loadPayments() {
+      $('payList').innerHTML = '<div class="loading" style="padding:16px;">Loading…</div>';
+      authRun()
+        .withSuccessHandler(function (items) {
+          items = items || [];
+          $('payList').innerHTML = items.length ? items.map(function (it, i) {
+            var tone = it.customerSaysPaid || it.readyForDispatch ? 'red' : it.isUrgent ? 'amber' : 'blue';
+            return '<div class="act-row ' + tone + '" data-id="' + esc(it.trackerId) + '"><span class="act-bar"></span><div class="act-main"><div class="act-top"><span class="act-name">' + esc(it.institution) + '</span>' +
+              '<span class="faint" style="font-size:12px;">' + esc(it.trackerId) + '</span><span class="chip">' + esc(it.paymentTermsType) + '</span></div>' +
+              '<div class="act-sub act-why">' + esc(it.customerSaysPaid ? 'CRE says paid: ' + it.customerSaysPaid : it.readyForDispatch ? 'Goods ready – waiting only for this payment' : it.workflowStatus === 'Logged' ? 'Not verified yet' : (it.deliveryStatus || 'Not dispatched yet')) + '</div></div>' +
+              '<div class="act-amt">' + inr(it.balanceDue) + '<small>due</small></div></div>';
+          }).join('') : '<div class="empty">No outstanding balances.</div>';
+          each($('payList').querySelectorAll('.act-row'), function (el) { el.addEventListener('click', function () { openOrder(el.getAttribute('data-id')); }); });
+        })
+        .withFailureHandler(function (e) { $('payList').innerHTML = '<div class="empty">' + esc(errText(e)) + '</div>'; })
+        .getPendingPayments();
+    }
+    $('refreshPay').addEventListener('click', loadPayments);
+
+    // ---------------- Find any order ----------------
+    var findInput = $('findInput'), findPop = $('findPop');
+    function runFind(q) {
+      q = String(q || '').trim(); if (!q) return;
+      findPop.innerHTML = '<div class="sp-msg">Searching…</div>'; findPop.classList.add('show');
+      authRun()
+        .withSuccessHandler(function (res) {
+          if (res.order) { findPop.classList.remove('show'); findInput.blur(); CUR = res.order; openDrawer(res.order.trackerId, res.order.institution, ''); renderOrder(res.order); return; }
+          if (!res.matches || !res.matches.length) { findPop.innerHTML = '<div class="sp-msg">No order matches “' + esc(q) + '”.</div>'; return; }
+          findPop.innerHTML = '<div class="sp-head">' + res.total + ' orders match</div>' + res.matches.map(function (m) {
+            return '<div class="sp-row" data-id="' + esc(m.trackerId) + '"><div class="sp-top"><span>' + esc(m.institution) + '<span class="sp-why">' + esc(m.matchedOn) + '</span></span><span>' + inr(m.total) + '</span></div>' +
+              '<div class="sp-sub">' + esc(m.trackerId) + ' · ' + esc(m.status) + (m.cre ? ' · ' + esc(m.cre) : '') + '</div></div>';
+          }).join('');
+          each(findPop.querySelectorAll('.sp-row'), function (r) { r.addEventListener('click', function () { findPop.classList.remove('show'); openOrder(r.getAttribute('data-id')); }); });
+        })
+        .withFailureHandler(function (e) { findPop.innerHTML = '<div class="sp-msg">' + esc(errText(e)) + '</div>'; })
+        .findOrders(q);
+    }
+    findInput.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); runFind(findInput.value); } if (e.key === 'Escape') findPop.classList.remove('show'); });
+
+    // ---------------- Start ----------------
+    window.ICF_RELOAD = function () { load(); };
+    window.ICF_CLEAR = function () { Q = null; closeDrawer(); $('qList').innerHTML = '<div class="loading" style="padding:16px;">Loading…</div>'; $('glance').innerHTML = ''; };
+    load(); // queued until sign-in, then sent
+    if (window.ICF_STAFF) applyStaff(window.ICF_STAFF);
+  })();
+  </script>
+</body>
+</html>
