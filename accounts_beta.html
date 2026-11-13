@@ -689,7 +689,8 @@
         <div><label for="pfStage">Stage</label><select class="inp" id="pfStage">
           <option value="">All</option><option value="says">CRE says paid</option><option value="ready">Goods ready – waiting for money</option>
           <option value="held">Courier on hold</option><option value="notver">Not verified yet</option><option value="before">Not dispatched yet</option>
-          <option value="transit">Dispatched – not delivered</option><option value="delivered">Delivered / returned</option></select></div>
+          <option value="transit">Dispatched – not delivered</option><option value="delivered">Delivered / returned</option>
+          <option value="fkpayout">Waiting for Flipkart payout</option></select></div>
         <div><label for="pfCre">CRE</label><select class="inp" id="pfCre"><option value="">All CREs</option></select></div>
         <div><label for="pfSort">Sort</label><select class="inp" id="pfSort"><option value="">Most urgent first</option><option value="bal">Biggest balance</option><option value="old">Longest since dispatch</option><option value="new">Newest first</option></select></div>
         <button class="btn sm ghost" type="button" id="pfClear">Clear</button>
@@ -1464,6 +1465,7 @@
     // ---------------- Pending payments view (with filters, 13 Nov 2026) ----------------
     var PAY = [];
     function payStage(it) {
+      if (it.fk) return 'fkpayout';
       if (it.customerSaysPaid) return 'says';
       if (it.readyForDispatch) return 'ready';
       if (it.workflowStatus === 'On Hold - Balance Due') return 'held';
@@ -1475,6 +1477,7 @@
     function payTerms(it) { return it.orderType === 'Flipkart' || it.orderType === 'DACC' ? it.orderType : (it.paymentTermsType || 'End Customer'); }
     function payWhy(it) {
       var st = payStage(it);
+      if (st === 'fkpayout') return it.returned ? 'Returned – Flipkart may not pay for this one' : it.handedOverOn ? 'Waiting for Flipkart’s payout · handed over ' + it.handedOverOn + (it.daysSinceDispatch !== null ? ' (' + it.daysSinceDispatch + ' days)' : '') : 'Not handed over to the courier yet';
       if (st === 'says') return 'CRE says paid: ' + it.customerSaysPaid;
       if (st === 'ready') return 'Goods ready – waiting only for this payment';
       if (st === 'held') return 'Courier order on hold until it’s paid';
@@ -1483,11 +1486,25 @@
       if (st === 'transit') return 'Dispatched ' + (it.dispatchedOn || '') + (it.daysSinceDispatch !== null ? ' (' + it.daysSinceDispatch + ' days ago)' : '') + (it.deliveryStatus ? ' · ' + it.deliveryStatus : '');
       return 'Not dispatched yet' + (it.daysUntilDelivery !== null && it.daysUntilDelivery !== undefined ? (it.daysUntilDelivery < 0 ? ' · wanted ' + (-it.daysUntilDelivery) + ' days ago' : ' · wanted in ' + it.daysUntilDelivery + ' days') : '');
     }
+    var PAY_FK = [];
     function loadPayments() {
+      authRun()
+        .withSuccessHandler(function (r) {
+          PAY_FK = ((r && r.items) || []).map(function (i) {
+            return { fk: true, trackerId: i.trackerId, institution: i.institution, cre: i.cre, orderType: 'Flipkart', paymentTermsType: 'Flipkart',
+              balanceDue: i.returned ? 0 : i.value, totalOrderValue: i.value, returned: i.returned, handedOverOn: i.handedOver,
+              daysSinceDispatch: i.daysSinceHandover === undefined ? null : i.daysSinceHandover };
+          });
+          if (PAY.length || PAY_FK.length) { PAY = PAY.filter(function (i) { return !i.fk; }).concat(PAY_FK); renderPayments(); }
+        })
+        .withFailureHandler(function () {})
+        .getFlipkartSettlements();
       $('payList').innerHTML = '<div class="loading" style="padding:16px;">Loading…</div>';
       authRun()
         .withSuccessHandler(function (items) {
-          PAY = items || [];
+          // Flipkart orders are logged as fully paid (Flipkart collects from the buyer), so they carry no
+          // balance -- the money Flipkart owes shows here from the payout list instead (13 Nov 2026).
+          PAY = (items || []).filter(function (i) { return i.orderType !== 'Flipkart'; }).concat(PAY_FK);
           var cres = PAY.map(function (i) { return i.cre; }).filter(function (v, i, a) { return v && a.indexOf(v) === i; }).sort();
           var keep = $('pfCre').value;
           $('pfCre').innerHTML = '<option value="">All CREs</option>' + cres.map(function (c) { return '<option>' + esc(c) + '</option>'; }).join('');
@@ -1511,17 +1528,23 @@
       else if (sort === 'new') rows.sort(function (a, b) { return PAY.indexOf(a) - PAY.indexOf(b); });
       var total = rows.reduce(function (t, r) { return t + (Number(r.balanceDue) || 0); }, 0);
       var filtered = q || terms || stage || cre;
-      $('pfSum').innerHTML = '<b>' + rows.length + '</b> order' + (rows.length === 1 ? '' : 's') + ' · <b>' + inr(total) + '</b> due' + (filtered ? ' (filtered from ' + PAY.length + ')' : '') + (PAY.length >= 200 ? ' · showing the 200 most recent' : '');
+      var fkDue = rows.filter(function (r) { return r.fk; }).reduce(function (t, r) { return t + r.balanceDue; }, 0);
+      $('pfSum').innerHTML = '<b>' + rows.length + '</b> order' + (rows.length === 1 ? '' : 's') + ' · <b>' + inr(total) + '</b> due' + (fkDue ? ' (' + inr(fkDue) + ' of it from Flipkart, at sale price – Flipkart usually pays a little less)' : '') + (filtered ? ' (filtered from ' + PAY.length + ')' : '') + (PAY.length >= 200 ? ' · showing the 200 most recent' : '');
       $('payList').innerHTML = rows.length ? rows.map(function (it) {
         var st = payStage(it);
-        var tone = st === 'says' || st === 'ready' ? 'red' : st === 'held' || it.isUrgent ? 'amber' : st === 'notver' ? 'grey' : 'blue';
+        var tone = st === 'fkpayout' ? (it.returned ? 'grey' : 'blue') : st === 'says' || st === 'ready' ? 'red' : st === 'held' || it.isUrgent ? 'amber' : st === 'notver' ? 'grey' : 'blue';
         return '<div class="act-row ' + tone + '" data-id="' + esc(it.trackerId) + '"><span class="act-bar"></span><div class="act-main"><div class="act-top"><span class="act-name">' + esc(it.institution) + '</span>' +
           '<span class="faint" style="font-size:12px;">' + esc(it.trackerId) + '</span><span class="chip' + (payTerms(it) === 'Flipkart' ? ' flipkart' : payTerms(it) === 'DACC' ? ' dacc' : '') + '">' + esc(payTerms(it)) + '</span>' +
           (it.cre ? '<span class="faint" style="font-size:12px;">' + esc(it.cre) + '</span>' : '') + '</div>' +
           '<div class="act-sub act-why">' + esc(payWhy(it)) + (it.followUpLater ? ' · CRE calls on ' + esc(it.followUp) : '') + '</div></div>' +
-          '<div class="act-amt">' + inr(it.balanceDue) + '<small>of ' + inr(it.totalOrderValue) + '</small></div></div>';
+          '<div class="act-amt">' + (it.fk ? inr(it.totalOrderValue) + '<small>' + (it.returned ? 'returned' : 'sale value') + '</small>' : inr(it.balanceDue) + '<small>of ' + inr(it.totalOrderValue) + '</small>') + '</div></div>';
       }).join('') : '<div class="empty">' + (PAY.length ? 'Nothing matches these filters.' : 'No outstanding balances.') + '</div>';
-      each($('payList').querySelectorAll('.act-row'), function (el) { el.addEventListener('click', function () { openOrder(el.getAttribute('data-id')); }); });
+      each($('payList').querySelectorAll('.act-row'), function (el) {
+        el.addEventListener('click', function () {
+          var id = el.getAttribute('data-id'), it = rows.filter(function (r) { return String(r.trackerId) === id; })[0];
+          if (it && it.fk && it.handedOverOn) openFlipkart(); else openOrder(id);
+        });
+      });
     }
     $('refreshPay').addEventListener('click', loadPayments);
     ['pfTerms', 'pfStage', 'pfCre', 'pfSort'].forEach(function (id) { $(id).addEventListener('change', renderPayments); });
