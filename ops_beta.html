@@ -102,6 +102,7 @@
     .fk-card { background: var(--surface); border: 1px solid var(--border-2); border-radius: 8px; padding: 10px; margin-bottom: 8px; cursor: pointer; box-shadow: var(--shadow); }
     .fk-card.late { border-color: var(--red-bd); background: var(--red-bg); }
     .fk-card .id { font-weight: 800; font-size: 14px; }
+    .fk-card .nm { font-size: 13.5px; font-weight: 600; color: var(--text); margin-top: 1px; word-break: break-word; }
     .fk-card.late .id { color: var(--red); }
     .fk-card .ln { font-size: 12.5px; color: var(--text-2); margin-top: 2px; }
     .fk-card .ln.bad { color: var(--red); font-weight: 700; }
@@ -465,7 +466,8 @@
       var col1 = fk.toPack.length ? fk.toPack.map(function (c) {
         return '<div class="fk-card' + (c.late ? ' late' : '') + '" data-id="' + esc(c.trackerId) + '">' +
           '<div class="id">' + esc(c.trackerId) + '</div>' +
-          '<div class="ln">' + esc(c.products || c.institution) + '</div>' +
+          (c.institution ? '<div class="nm">' + esc(c.institution) + '</div>' : '') +
+          (c.products ? '<div class="ln">' + esc(c.products) + '</div>' : '') +
           '<div class="ln' + (c.daysToShip !== null && c.daysToShip <= 0 ? ' bad' : '') + '">' + esc(fkDue(c)) + '</div>' +
           '<div class="ln' + (c.officeMins >= fk.packHours * 60 ? ' bad' : '') + '">Came in ' + esc(c.arrivedAt) + ' · waiting ' + esc(minsText(c.officeMins)) + ' (office time)</div>' +
           (c.locked ? '<div class="ln bad">Locked: ' + esc(c.locked) + ' is with the admin</div>' : '') +
@@ -476,6 +478,7 @@
         return '<div class="fk-card' + (c.late ? ' late' : '') + '" data-id="' + esc(c.trackerId) + '"><div class="row">' +
           '<label class="fk-tick"><input type="checkbox" class="fk-sel" data-id="' + esc(c.trackerId) + '"' + (sel(c.trackerId) ? ' checked' : '') + ' aria-label="Include ' + esc(c.trackerId) + ' in the run"></label>' +
           '<div style="flex:1;min-width:0;"><div class="id">' + esc(c.trackerId) + '</div>' +
+          (c.institution ? '<div class="nm">' + esc(c.institution) + '</div>' : '') +
           '<div class="ln">Packed ' + esc(c.packedAt) + (c.packedBy ? ' · ' + esc(c.packedBy) : '') + '</div>' +
           '<div class="ln' + (c.daysToShip !== null && c.daysToShip < 0 ? ' bad' : '') + '">' + esc(fkDue(c)) + '</div>' +
           (c.carrier ? '<div class="ln">Going with <b>' + esc(c.carrier) + '</b>' + (c.carrierPhone ? '<a class="tel-btn" href="tel:' + esc(String(c.carrierPhone).replace(/[^\d+]/g, '')) + '">Call</a>' : '') + '</div>'
@@ -498,7 +501,8 @@
         '<div class="err" id="fkErr"></div></div>' : '';
 
       var col3 = fk.handedToday.length ? fk.handedToday.map(function (c) {
-        return '<div class="fk-done" data-id="' + esc(c.trackerId) + '"><b>' + esc(c.trackerId) + '</b> · ' + esc(c.handedAt) + (c.carrier ? ' · ' + esc(c.carrier) : '') + '</div>';
+        return '<div class="fk-done" data-id="' + esc(c.trackerId) + '"><b>' + esc(c.trackerId) + '</b>' + (c.institution ? ' · ' + esc(c.institution) : '') +
+          '<br>' + esc(c.handedAt) + (c.carrier ? ' · ' + esc(c.carrier) : '') + '</div>';
       }).join('') : '<div class="fk-empty">None yet today.</div>';
 
       var unconf = fk.packed.filter(function (c) { return c.unconfirmed; }).length;
