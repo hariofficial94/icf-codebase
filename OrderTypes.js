@@ -59,7 +59,11 @@ var DEFAULT_TRANSPORTERS = [['Safe Express', 'Y', '', '', 'DACC bookings. Add th
 var ORDER_TYPE_SETTINGS_ROWS = [
   ['DACC: minimum advance (%)', '50', 'A DACC order can only be logged (and verified) with at least this share of the order value paid.', 1, 100],
   ['DACC: transporter keeps the goods free for (days)', '4', 'Days the transporter holds DACC goods at its warehouse before it starts calling. Counted from the day the CRE marks the goods as arrived.', 1, 30],
-  ['DACC: remind the CRE (days before the free days run out)', '1', 'The CRE gets an email this many days before; the first approver is copied once the free days have run out.', 0, 10]
+  ['DACC: remind the CRE (days before the free days run out)', '1', 'The CRE gets an email this many days before; the first approver is copied once the free days have run out.', 0, 10],
+  // Flipkart packing and the run to the Flipkart office (14 Nov 2026, FlipkartOps.js)
+  ['Flipkart: pack within (office hours)', '2', 'A new Flipkart order must be marked “Packed · RTD” within this many office hours. Ops gets a reminder after it.', 1, 24],
+  ['Flipkart: escalate an unpacked order after (office hours)', '4', 'Goes to the first approver, copied to Ops.', 1, 48],
+  ['Flipkart: hand-over confirmed by (hour of the next working day, 24 h clock)', '11', 'Packed orders go to the Flipkart office the next working morning. If the hand-over isn’t recorded by this hour, the card turns red and Ops and the first approver are emailed.', 8, 20]
 ];
 
 function normalizeOrderType_(v) {
@@ -82,8 +86,9 @@ function getOrderTypeSettings_() {
     if (raw === undefined || raw === '' || isNaN(v)) v = Number(r[1]);
     return Math.min(r[4], Math.max(r[3], Math.floor(v)));
   };
-  var s = { daccMinPct: n(0), daccFreeDays: n(1), daccRemindBefore: n(2) };
+  var s = { daccMinPct: n(0), daccFreeDays: n(1), daccRemindBefore: n(2), fkPackHours: n(3), fkPackEscHours: n(4), fkConfirmHour: n(5) };
   if (s.daccRemindBefore >= s.daccFreeDays) s.daccRemindBefore = s.daccFreeDays - 1;
+  if (s.fkPackEscHours <= s.fkPackHours) s.fkPackEscHours = s.fkPackHours * 2;
   cache.put('ordertype_settings', JSON.stringify(s), 300);
   return s;
 }

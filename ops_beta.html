@@ -1,0 +1,1035 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <script>try { if (localStorage.getItem('icf_cre_beta_theme') === 'light') document.documentElement.setAttribute('data-theme', 'light'); } catch (e) {}</script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+  <!--
+    Operations page -- new layout, BETA (14 Nov 2026). Opened with ?page=ops-beta.
+    The classic Ops page (ops.html) is untouched. This is a copy of it with:
+      - the CRE / Accounts beta look (dark by default, light switch -- same setting),
+      - the FLIPKART LANE pinned on top (To pack -> Packed, waiting for the run ->
+        Handed over today) and a red banner while anything is unpacked,
+      - Flipkart orders kept out of every other list,
+      - Flipkart orders: one tap "Packed · RTD" (no Acknowledge, no Internal PO),
+        "Going with" the carrier, and "Mark handed over" for the whole run.
+    Server side: FlipkartOps.js (getOpsBetaQueue_, fkMarkPacked_, fkSetCarrier_,
+    fkMarkHandedOver_, fkUndoPacked_) plus everything the classic page uses.
+    It refreshes every minute so a new Flipkart order shows up without a tap.
+    Original notes from the classic page follow.
+
+    ICF Operations page (?page=ops) -- Oct 2026. Phone-first: Manoj uses it
+    on the floor. Ops picks orders up here (the system stamps the time),
+    prints the PO, requests the gate pass, records courier posting with a
+    receipt photo, and raises standby for customer delays. Server side is
+    Ops.gs (getOpsQueue_, getOpsOrder_, acknowledgeOrder_, requestGatePass_,
+    recordPosting_) plus confirmSiteReady_ and requestStandby_.
+  -->
+  <style>
+    :root {
+      --bg: #121314; --bg-2: #171819; --surface: #1c1d1f; --surface-2: #232427; --surface-3: #2a2c2f;
+      --border: #2c2e31; --border-2: #3a3d41;
+      --text: #ededed; --text-2: #a3a6ab; --text-3: #6f7278;
+      --leaf-a: #9bcb4a; --leaf-b: #4fa845; --leaf: #6db851; --on-leaf: #0e1a0b;
+      --leaf-grad: linear-gradient(135deg, var(--leaf-a), var(--leaf-b));
+      --red: #f26b6b;   --red-bg: rgba(242,107,107,0.12);   --red-bd: rgba(242,107,107,0.40);
+      --amber: #f0b44c; --amber-bg: rgba(240,180,76,0.12);  --amber-bd: rgba(240,180,76,0.40);
+      --blue: #6aa8f7;  --blue-bg: rgba(106,168,247,0.12);
+      --violet: #b59cf0; --violet-bg: rgba(181,156,240,0.14);
+      --green: #6db851; --green-bg: rgba(109,184,81,0.14); --green-bd: rgba(109,184,81,0.40);
+      --fk: #f7c948; --fk-bg: rgba(247,201,72,0.10); --fk-bd: rgba(247,201,72,0.55);
+      --shadow: none;
+      color-scheme: dark;
+    }
+    :root[data-theme="light"] {
+      --bg: #f6f7f8; --bg-2: #ffffff; --surface: #ffffff; --surface-2: #f1f2f4; --surface-3: #e5e7ea;
+      --border: #e3e5e8; --border-2: #d3d6db;
+      --text: #1b1d20; --text-2: #5c6168; --text-3: #8b9096;
+      --leaf: #3f8f35; --on-leaf: #ffffff;
+      --red: #c62d2d; --red-bg: #fdecec; --red-bd: #f1b5b5;
+      --amber: #9a6100; --amber-bg: #fff4e0; --amber-bd: #f0cf8f;
+      --blue: #2266c4; --blue-bg: #e8f0fc;
+      --violet: #6b4c9a; --violet-bg: #f1eefa;
+      --green: #2c7a3f; --green-bg: #e9f5ea; --green-bd: #a9d6b0;
+      --fk: #8a6100; --fk-bg: #fff8e1; --fk-bd: #e9c45a;
+      --shadow: 0 1px 4px rgba(0,0,0,0.06);
+      color-scheme: light;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font: 14px/1.45 'Inter', 'Segoe UI', Arial, sans-serif; background: var(--bg); color: var(--text); padding: 16px 12px 40px; -webkit-text-size-adjust: 100%; -webkit-font-smoothing: antialiased; }
+    .wrap { max-width: 760px; margin: 0 auto; }
+    a { color: var(--blue); }
+    .top { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 12px; }
+    .top h1 { font-size: 21px; margin: 0; display: flex; align-items: center; gap: 8px; }
+    .top h1 .beta { font-size: 10.5px; font-weight: 700; padding: 2px 7px; border-radius: 9px; background: var(--leaf-grad); color: var(--on-leaf); }
+    .top .sub { font-size: 12px; color: var(--text-2); margin-top: 2px; }
+    .top-btns { display: flex; gap: 6px; }
+    button { font-family: inherit; }
+    .btn-ghost { padding: 8px 12px; font-size: 13px; font-weight: 600; background: var(--surface); color: var(--text); border: 1px solid var(--border-2); border-radius: 6px; cursor: pointer; }
+    .notlive { display: none; background: var(--amber-bg); border: 1px solid var(--amber-bd); color: var(--amber); border-radius: 8px; padding: 10px 12px; font-size: 13px; margin-bottom: 12px; }
+    .notlive.show { display: block; }
+
+    .search { display: flex; gap: 8px; margin: 14px 0 12px; }
+    .search input { flex: 1; min-width: 0; padding: 11px 12px; font-size: 16px; background: var(--bg-2); color: var(--text); border: 1px solid var(--border-2); border-radius: 6px; }
+    .search button { padding: 0 16px; font-size: 15px; font-weight: 700; background: var(--leaf-grad); color: var(--on-leaf); border: none; border-radius: 6px; cursor: pointer; }
+
+    /* ---- Flipkart (14 Nov 2026) ---- */
+    .fk-banner { display: none; margin-bottom: 10px; padding: 12px 14px; border-radius: 8px; background: var(--red); color: #fff; font-weight: 700; font-size: 15px; cursor: pointer; animation: fkpulse 1.6s ease-in-out infinite; }
+    .fk-banner.show { display: block; }
+    .fk-banner .small { display: block; font-size: 12.5px; font-weight: 500; opacity: 0.92; margin-top: 2px; }
+    @keyframes fkpulse { 0%,100% { box-shadow: 0 0 0 0 rgba(242,107,107,0.55); } 50% { box-shadow: 0 0 0 6px rgba(242,107,107,0); } }
+    .fk-lane { border: 2px solid var(--fk-bd); background: var(--fk-bg); border-radius: 12px; padding: 12px; margin-bottom: 6px; }
+    .fk-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+    .fk-head .t { font-size: 16px; font-weight: 800; color: var(--fk); }
+    .fk-head .s { font-size: 12px; color: var(--text-2); }
+    .fk-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+    .fk-col h3 { font-size: 12px; font-weight: 700; color: var(--text-2); margin: 0 0 6px; text-transform: none; }
+    .fk-col h3 b { color: var(--text); }
+    .fk-card { background: var(--surface); border: 1px solid var(--border-2); border-radius: 8px; padding: 10px; margin-bottom: 8px; cursor: pointer; box-shadow: var(--shadow); }
+    .fk-card.late { border-color: var(--red-bd); background: var(--red-bg); }
+    .fk-card .id { font-weight: 800; font-size: 14px; }
+    .fk-card.late .id { color: var(--red); }
+    .fk-card .ln { font-size: 12.5px; color: var(--text-2); margin-top: 2px; }
+    .fk-card .ln.bad { color: var(--red); font-weight: 700; }
+    .fk-card .ln.ok { color: var(--green); font-weight: 600; }
+    .fk-card .row { display: flex; gap: 8px; align-items: flex-start; }
+    .fk-card input[type=checkbox] { width: 20px; height: 20px; margin-top: 1px; flex: 0 0 auto; accent-color: var(--leaf); }
+    .fk-pack { width: 100%; margin-top: 8px; padding: 11px; font-size: 15px; font-weight: 800; border: none; border-radius: 7px; background: var(--leaf-grad); color: var(--on-leaf); cursor: pointer; }
+    .fk-pack:disabled { opacity: 0.6; }
+    .fk-empty { font-size: 12.5px; color: var(--text-3); padding: 8px 2px; }
+    .fk-run { margin-top: 4px; padding: 10px; border: 1px dashed var(--border-2); border-radius: 8px; background: var(--surface); }
+    .fk-run label { margin-top: 6px; }
+    .fk-run .two { display: flex; gap: 6px; }
+    .fk-run .two > * { flex: 1; min-width: 0; }
+    .fk-run .btn { padding: 11px; font-size: 14px; }
+    .fk-done { font-size: 12.5px; padding: 8px 10px; border-radius: 8px; background: var(--green-bg); color: var(--green); margin-bottom: 6px; cursor: pointer; }
+    .tel-btn { display: inline-block; margin-left: 4px; padding: 1px 8px; border-radius: 10px; background: var(--green-bg); color: var(--green); font-weight: 700; text-decoration: none; font-size: 12px; }
+
+    /* Tiles: tap one to show its orders below. Red = something needs Manoj now. */
+    .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; margin-bottom: 12px; }
+    .tile { background: var(--surface); border-radius: 8px; padding: 10px 12px; cursor: pointer; border: 1px solid var(--border); user-select: none; box-shadow: var(--shadow); }
+    .tile .v { font-size: 22px; font-weight: 800; line-height: 1.1; }
+    .tile .l { font-size: 12px; font-weight: 600; color: var(--text-2); margin-top: 3px; }
+    .tile.active { border-color: var(--leaf); box-shadow: 0 0 0 1px var(--leaf) inset; }
+    .tile.alert { border-color: var(--red-bd); }
+    .tile.alert .v { color: var(--red); }
+    .tile.quiet .v { color: var(--text-3); }
+    .tile.green { border-color: var(--green-bd); background: var(--green-bg); }
+    .tile.green .v { color: var(--green); }
+    .tag.pay { background: var(--amber-bg); color: var(--amber); }
+    .tag.ok { background: var(--green-bg); color: var(--green); }
+    @media (max-width: 420px) { .tiles { grid-template-columns: 1fr 1fr; } }
+    .tab-note { font-size: 12.5px; color: var(--text-2); margin: 0 2px 10px; }
+
+    .card { background: var(--surface); border-radius: 8px; border: 1px solid var(--border); padding: 13px; margin-bottom: 10px; border-left: 4px solid var(--blue); box-shadow: var(--shadow); cursor: pointer; }
+    .card.high { border-left-color: var(--red); }
+    .card.medium { border-left-color: var(--amber); }
+    .sticker { font-size: 15px; font-weight: 800; padding: 12px; border-radius: 8px; margin-bottom: 12px; text-align: center; }
+    .sticker.high { background: #c62d2d; color: #fff; }
+    .sticker.medium { background: #FFD43B; color: #5a4300; }
+    .card.overdue { background: var(--red-bg); }
+    .card .row1 { display: flex; justify-content: space-between; gap: 8px; align-items: flex-start; }
+    .card .inst { font-size: 15px; font-weight: 700; }
+    .card .id { font-size: 12.5px; color: var(--text-2); margin-top: 2px; word-break: break-all; }
+    .card .meta { font-size: 13px; color: var(--text-2); margin-top: 6px; line-height: 1.45; }
+    .card .wait { font-size: 12.5px; font-weight: 700; color: var(--amber); margin-top: 6px; }
+    .card.overdue .wait { color: var(--red); }
+    .badge { flex: 0 0 auto; font-size: 11px; font-weight: 800; padding: 3px 8px; border-radius: 10px; background: var(--surface-2); color: var(--text-2); }
+    .badge.high { background: #c62d2d; color: #fff; }
+    .badge.medium { background: #FFD43B; color: #5a4300; }
+    .tag { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 9px; background: var(--blue-bg); color: var(--blue); margin-left: 6px; vertical-align: middle; }
+    .tag.cut { background: var(--violet-bg); color: var(--violet); }
+    .tag.fk { background: var(--fk-bg); color: var(--fk); }
+    .tag.dacc { background: var(--violet-bg); color: var(--violet); }
+    .card .acts { display: flex; gap: 8px; margin-top: 12px; }
+    .btn { flex: 1; padding: 13px 12px; font-size: 15px; font-weight: 700; border-radius: 8px; border: none; cursor: pointer; background: var(--surface-3); color: var(--text); }
+    .btn.green { background: var(--leaf-grad); color: var(--on-leaf); }
+    .btn.light { background: var(--surface-2); color: var(--text); border: 1px solid var(--border-2); }
+    .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+    .empty { text-align: center; color: var(--text-3); font-size: 14px; padding: 26px 10px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
+
+    /* Order sheet */
+    .sheet { display: none; position: fixed; inset: 0; z-index: 900; background: var(--bg); overflow-y: auto; -webkit-overflow-scrolling: touch; }
+    .sheet.show { display: block; }
+    .sheet-box { max-width: 760px; margin: 0 auto; padding: 12px 12px 60px; }
+    .sheet-head { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 10px; background: var(--bg); padding: 6px 0 10px; }
+    .sheet-head .t { font-size: 15px; font-weight: 700; word-break: break-all; }
+    .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 14px; margin-bottom: 12px; box-shadow: var(--shadow); }
+    .panel h2 { font-size: 15px; margin: 0 0 10px; }
+    .panel.fkp { border: 2px solid var(--fk-bd); background: var(--fk-bg); }
+    .kv { display: grid; grid-template-columns: 120px 1fr; gap: 6px 10px; font-size: 14px; }
+    .kv .k { color: var(--text-2); }
+    .kv .v { word-break: break-word; }
+    .kv a { color: var(--blue); font-weight: 600; }
+    .prod { font-size: 14px; padding: 6px 0; border-bottom: 1px dashed var(--border-2); display: flex; justify-content: space-between; gap: 10px; }
+    .prod:last-child { border-bottom: none; }
+    .prod b { white-space: nowrap; }
+    .status-line { font-size: 14px; padding: 10px 12px; border-radius: 8px; background: var(--surface-2); font-weight: 600; margin-bottom: 12px; line-height: 1.4; }
+    .status-line.warn { background: var(--amber-bg); color: var(--amber); }
+    .status-line.ok { background: var(--green-bg); color: var(--green); }
+    .status-line.bad { background: var(--red-bg); color: var(--red); }
+    .print { display: block; text-align: center; padding: 14px; font-size: 16px; font-weight: 800; color: var(--on-leaf); background: var(--leaf-grad); border-radius: 8px; text-decoration: none; }
+    .code-box { margin-top: 10px; text-align: center; font-size: 13px; color: var(--text-2); }
+    .code-box .code { font-size: 26px; font-weight: 800; letter-spacing: 0.12em; color: var(--text); margin-top: 2px; }
+    label { display: block; font-size: 13px; font-weight: 600; color: var(--text-2); margin: 12px 0 5px; }
+    input[type=text], input[type=tel], input[type=date], input[type=datetime-local], select, textarea { width: 100%; padding: 11px 12px; font-size: 16px; border: 1px solid var(--border-2); border-radius: 6px; background: var(--bg-2); color: var(--text); font-family: inherit; }
+    .yn { display: flex; gap: 8px; }
+    .yn label { flex: 1; margin: 0; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 12px; border: 1px solid var(--border-2); border-radius: 8px; font-size: 15px; cursor: pointer; background: var(--bg-2); color: var(--text); }
+    .yn input { width: 18px; height: 18px; }
+    .yn label.on { border-color: var(--leaf); background: var(--green-bg); }
+    .hint { font-size: 12.5px; color: var(--text-2); margin-top: 5px; line-height: 1.4; }
+    .err { display: none; margin-top: 10px; padding: 10px 12px; font-size: 13.5px; color: var(--red); background: var(--red-bg); border-radius: 6px; }
+    .err.show { display: block; }
+    .photo-prev { margin-top: 8px; max-width: 100%; max-height: 260px; border-radius: 6px; display: none; }
+    details.more { margin-top: 4px; }
+    details.more summary { font-size: 14px; font-weight: 700; color: var(--violet); cursor: pointer; padding: 6px 0; }
+    .linkish { background: none; border: none; color: var(--text-2); text-decoration: underline; font-size: 12.5px; cursor: pointer; padding: 6px 0; }
+    .toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--surface-3); color: var(--text); border: 1px solid var(--border-2); padding: 12px 18px; border-radius: 8px; font-size: 14px; font-weight: 600; z-index: 6000; display: none; max-width: 92vw; text-align: center; box-shadow: 0 4px 16px rgba(0,0,0,0.3); }
+    .toast.show { display: block; }
+    .toast.bad { background: #c62d2d; color: #fff; border-color: #c62d2d; }
+    #authOverlay { background: radial-gradient(1200px 600px at 50% -10%, rgba(109,184,81,0.10), transparent 60%), var(--bg) !important; }
+    #authOverlay .auth-card { background: var(--surface); border: 1px solid var(--border-2); border-radius: 12px; }
+    #authOverlay .auth-head { background: none; border-bottom: 1px solid var(--border); position: relative; }
+    #authOverlay .auth-head::before { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 3px; background: var(--leaf-grad); }
+    #authOverlay .auth-head .auth-brand { color: var(--leaf-a); opacity: 1; }
+    #authOverlay .auth-head .auth-title { color: var(--text); }
+    #authOverlay .auth-body label { color: var(--text); }
+    #authOverlay .auth-body input { background: var(--bg); color: var(--text); border: 1px solid var(--border-2); border-radius: 6px; }
+    #authOverlay .auth-body button.auth-primary { background: var(--leaf-grad); color: var(--on-leaf); border-radius: 6px; }
+    #authOverlay .auth-body button.auth-link { color: var(--leaf-a); }
+    #authOverlay .auth-note { color: var(--text-2); }
+    #authOverlay .auth-msg { color: var(--red); }
+    @media (max-width: 420px) { .kv { grid-template-columns: 96px 1fr; } }
+  </style>
+</head>
+<body>
+  <script>window.ICF_PAGE = 'ops';</script>
+  <?!= include('auth'); ?>
+  <?!= include('docs_panel'); ?>
+
+  <div class="wrap">
+    <div class="top">
+      <div>
+        <h1>Operations <span class="beta">BETA</span></h1>
+        <div class="sub" id="topSub">Flipkart first. Then pick up orders, print the PO, request gate passes.</div>
+      </div>
+      <div class="top-btns">
+        <button type="button" class="btn-ghost" id="themeBtn" title="Switch light / dark">Theme</button>
+        <button type="button" class="btn-ghost refresh-btn" id="refreshBtn">&#8635; Refresh</button>
+      </div>
+    </div>
+    <div class="notlive" id="notLive">The Ops login isn’t switched on yet – the admin still has to run “Ops login: set up and go live”. Until then, keep working as before.</div>
+
+    <div class="fk-banner" id="fkBanner"></div>
+    <div class="fk-lane" id="fkLane"><div class="fk-empty">Loading Flipkart orders…</div></div>
+
+    <div class="search">
+      <input type="text" id="q" placeholder="Find any order: quotation or phone no." autocomplete="off">
+      <button type="button" id="qBtn">Find</button>
+    </div>
+
+    <div class="tiles" id="tabs"></div>
+    <div class="tab-note" id="tabNote"></div>
+    <div id="list"><div class="empty">Loading...</div></div>
+  </div>
+
+  <div class="sheet" id="sheet">
+    <div class="sheet-box">
+      <div class="sheet-head">
+        <button type="button" class="btn-ghost" id="sheetBack">&larr; Back</button>
+        <div class="t" id="sheetTitle"></div>
+      </div>
+      <div id="sheetBody"></div>
+    </div>
+  </div>
+  <div class="toast" id="toast"></div>
+
+  <script>
+    var Q = null;                 // last queue from the server
+    var TAB = 'newOrders';
+    var CURRENT = null;           // order open in the sheet
+    var TABS = [
+      ['newOrders', 'New orders', 'Verified by Accounts and waiting for you. Pick it up here before you start – that records the time and prepares the PO.'],
+      ['cancelled', 'Cancelled – clear out', 'The customer cancelled after you picked these up. Stop work, unload the goods and put them back, bin the Internal PO and the CRM PO printout – then tap “Cancelled order cleared”.'],
+      ['inHand', 'In hand', 'Picked up. Vehicle orders: request the gate pass when ready. Courier orders: record the posting.'],
+      ['cleared', 'Cleared – request gate pass', 'The customer’s payment came in (or the admin allowed dispatch). Confirm the vehicle and request the gate pass.'],
+      ['late', 'Late for delivery', 'Still with Ops and past the date the customer wanted. Move these first – or, if the customer is causing the delay, ask for standby.'],
+      ['readyPay', 'Ready – payment pending', 'Ready to go, waiting for the customer to pay. The CRE is collecting it; your clock is paused. It comes back to “Cleared” when it’s sorted.'],
+      ['siteHold', 'Site not ready (old)', 'Put on hold before 13 Nov 2026, when “site not ready” was still an Ops choice. Tap “Site is ready now” when the customer confirms – or ask for standby. New delays go through standby only.'],
+      ['gatePass', 'Gate pass with Accounts', 'With Accounts for the e-way bill and gate pass. Nothing for you until it’s printed.'],
+      ['dispatchedToday', 'Dispatched today', 'Gate passes issued and postings recorded today.'],
+      ['standby', 'On standby', 'Paused for a customer delay. They come back to “In hand” by themselves on the resume date.'],
+      ['myRequests', 'My requests', 'Standby requests you sent to the admin: waiting, approved, and any declined in the last 7 days.']
+    ];
+    var MYREQ = null; // { items, waiting, declinedRecent }
+
+    function esc(t) { return String(t == null ? '' : t).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+    function toast(text, bad) {
+      var t = document.getElementById('toast');
+      t.textContent = text; t.className = 'toast show' + (bad ? ' bad' : '');
+      clearTimeout(toast._t); toast._t = setTimeout(function () { t.className = 'toast'; }, bad ? 6000 : 3500);
+    }
+    function hoursText(h) {
+      if (h === null || h === undefined) return '';
+      if (h < 1) return 'under 1 h';
+      if (h < 48) return h + ' h';
+      return Math.floor(h / 24) + ' days ' + (h % 24) + ' h';
+    }
+    function dueText(d) {
+      if (d === null || d === undefined) return '';
+      if (d < 0) return 'delivery date passed ' + Math.abs(d) + ' day' + (Math.abs(d) === 1 ? '' : 's') + ' ago';
+      if (d === 0) return 'delivery due today';
+      return 'delivery in ' + d + ' day' + (d === 1 ? '' : 's');
+    }
+
+    // ---------------- Queue ----------------
+    function loadQueue() {
+      authRun()
+        .withSuccessHandler(function (r) { MYREQ = r; if (Q) renderQueue(); })
+        .withFailureHandler(function () { MYREQ = null; })
+        .getMyOpsRequests();
+      authRun()
+        .withSuccessHandler(function (q) { Q = q; renderQueue(); })
+        .withFailureHandler(function (e) {
+          document.getElementById('list').innerHTML = '<div class="empty">Could not load the queue: ' + esc(e.message) + '</div>';
+        })
+        .getOpsBetaQueue();
+    }
+
+    function renderQueue() {
+      if (!Q) return;
+      renderFk();
+      document.getElementById('notLive').classList.toggle('show', !Q.live);
+      var s = Q.summary;
+      var alertFor = { newOrders: s.newOverdue > 0, inHand: s.inHandOverdue > 0, late: (Q.late || []).length > 0, myRequests: !!(MYREQ && MYREQ.declinedRecent), cancelled: (Q.cancelled || []).length > 0 };
+      var quiet = { cancelled: true, siteHold: true, gatePass: true, dispatchedToday: true, standby: true, myRequests: true, readyPay: true, cleared: true };
+      var green = { cleared: (Q.cleared || []).length > 0 };
+      document.getElementById('tabs').innerHTML = TABS.filter(function (t) {
+        // Shown only while something sits there (13 Nov 2026): the old site-not-ready hold, and cancelled orders to clear.
+        return (t[0] !== 'siteHold' && t[0] !== 'cancelled') || (Q[t[0]] || []).length || TAB === t[0];
+      }).map(function (t) {
+        var n = t[0] === 'myRequests' ? (MYREQ ? MYREQ.items.length : 0) : (Q[t[0]] || []).length;
+        return '<div class="tile' + (t[0] === TAB ? ' active' : '') + (alertFor[t[0]] ? ' alert' : '') + (green[t[0]] ? ' green' : '') + (quiet[t[0]] && !n ? ' quiet' : '') + '" data-tab="' + t[0] + '">' +
+          '<div class="v">' + n + '</div><div class="l">' + esc(t[1]) + '</div></div>';
+      }).join('');
+      Array.prototype.forEach.call(document.querySelectorAll('.tile'), function (el) {
+        el.addEventListener('click', function () {
+          TAB = el.getAttribute('data-tab'); renderQueue();
+          var note = document.getElementById('tabNote'); if (note && note.scrollIntoView) note.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
+      });
+      var note = TABS.filter(function (t) { return t[0] === TAB; })[0][2];
+      if (TAB === 'newOrders' && Q.ackHours) note += ' Target: within ' + Q.ackHours + ' h.';
+      if (TAB === 'inHand' && Q.postHours) note += ' Courier target: posted within ' + Q.postHours + ' h of pick-up.';
+      document.getElementById('tabNote').textContent = note;
+      document.getElementById('topSub').textContent = s.newOrders
+        ? s.newOrders + ' new order' + (s.newOrders === 1 ? '' : 's') + ' waiting' + (s.newOverdue ? ' – ' + s.newOverdue + ' overdue' : '')
+        : 'Nothing new waiting.';
+
+      if (TAB === 'myRequests') { renderMyRequests(); return; }
+      if (TAB === 'cancelled') { renderCancelled(); return; }
+      var items = Q[TAB] || [];
+      var list = document.getElementById('list');
+      if (!items.length) {
+        list.innerHTML = '<div class="empty">' + ({ newOrders: 'No new orders. All caught up.', late: 'Nothing late. Well done.', dispatchedToday: 'Nothing dispatched yet today.' }[TAB] || 'Nothing here.') + '</div>';
+        return;
+      }
+      list.innerHTML = items.map(cardHtml).join('');
+      Array.prototype.forEach.call(list.querySelectorAll('.card'), function (el) {
+        var id = el.getAttribute('data-id');
+        el.addEventListener('click', function (ev) {
+          if (ev.target && ev.target.classList.contains('ack')) return;
+          openOrder(id);
+        });
+        var ack = el.querySelector('.ack');
+        if (ack) ack.addEventListener('click', function (ev) { ev.stopPropagation(); acknowledge(id, ack); });
+      });
+    }
+
+    // "My requests": standby requests this person raised, with their decision.
+    function renderMyRequests() {
+      var list = document.getElementById('list');
+      var items = (MYREQ && MYREQ.items) || [];
+      if (!items.length) { list.innerHTML = '<div class="empty">No requests waiting or decided this week.</div>'; return; }
+      var colour = { Pending: 'var(--amber)', 'Pending Director': 'var(--amber)', Active: 'var(--violet)', Declined: 'var(--red)', Withdrawn: 'var(--text-3)', Ended: 'var(--green)' };
+      list.innerHTML = items.map(function (r) {
+        return '<div class="card" data-id="' + esc(r.trackerId) + '" style="border-left-color:' + (colour[r.status] || 'var(--blue)') + ';">' +
+          '<div class="row1"><div><div class="inst">' + esc(r.institution) + '</div><div class="id">' + esc(r.trackerId) + ' \u00b7 ' + esc(r.requestId) + '</div></div></div>' +
+          '<div class="meta">Standby \u2013 ' + esc(r.reason) + (r.note ? ': ' + esc(r.note) : '') + '<br>' + esc(r.from) + ' to ' + esc(r.resume) +
+            (r.days !== null ? ' (' + r.days + ' days)' : '') + '<br>Asked ' + esc(r.requestedAt) + '</div>' +
+          '<div class="wait" style="color:' + (colour[r.status] || 'var(--text)') + ';">' + esc(r.statusText) + '</div>' +
+          (r.canWithdraw ? '<div class="acts"><button type="button" class="btn light wd" data-req="' + esc(r.requestId) + '">Withdraw request</button></div>' : '') +
+          '</div>';
+      }).join('');
+      Array.prototype.forEach.call(list.querySelectorAll('.card'), function (el) {
+        el.addEventListener('click', function (ev) { if (ev.target.classList.contains('wd')) return; openOrder(el.getAttribute('data-id')); });
+      });
+      Array.prototype.forEach.call(list.querySelectorAll('.wd'), function (b) {
+        b.addEventListener('click', function (ev) {
+          ev.stopPropagation();
+          if (!confirm('Withdraw this standby request? The order stays live.')) return;
+          b.disabled = true; b.textContent = 'Withdrawing...';
+          authRun()
+            .withSuccessHandler(function () { toast('Request withdrawn.'); loadQueue(); })
+            .withFailureHandler(function (e) { b.disabled = false; b.textContent = 'Withdraw request'; toast(e.message, true); })
+            .withdrawMyRequest({ requestId: b.getAttribute('data-req') });
+        });
+      });
+    }
+
+    // Cancelled after pick-up (13 Nov 2026): confirm the goods are back and the paperwork binned.
+    function renderCancelled() {
+      var list = document.getElementById('list');
+      var items = Q.cancelled || [];
+      if (!items.length) { list.innerHTML = '<div class="empty">No cancelled orders to clear out.</div>'; return; }
+      list.innerHTML = items.map(function (c) {
+        return '<div class="card overdue" data-req="' + esc(c.requestId) + '" style="border-left-color:var(--red);">' +
+          '<div class="row1"><div><div class="inst">' + esc(c.institution) + '<span class="tag pay">CANCELLED</span></div><div class="id">' + esc(c.trackerId) + '</div></div></div>' +
+          '<div class="meta">Cancelled ' + esc(c.cancelledAt) + (c.cancelledBy ? ' by ' + esc(c.cancelledBy) : '') + (c.statusBefore ? '<br>It was at: ' + esc(c.statusBefore === 'Vehicle Confirmed' ? 'gate pass asked' : c.statusBefore === 'Sent to Ops' ? 'in hand' : c.statusBefore) : '') +
+            (c.reason ? '<br>Reason: ' + esc(c.reason) : '') + '</div>' +
+          (c.products ? '<div class="meta">Goods: ' + esc(c.products) + '</div>' : '') +
+          '<textarea class="clr-note" rows="2" placeholder="Note (optional) – e.g. where the goods were put back" style="width:100%;box-sizing:border-box;margin-top:8px;"></textarea>' +
+          '<div class="acts"><button type="button" class="btn green clr">Cancelled order cleared</button></div><div class="err clr-err"></div></div>';
+      }).join('');
+      Array.prototype.forEach.call(list.querySelectorAll('.card'), function (el) {
+        var b = el.querySelector('.clr');
+        b.addEventListener('click', function () {
+          if (!confirm('Confirm: the goods are unloaded and back in place, and the Internal PO and CRM PO printout are binned?')) return;
+          b.disabled = true; b.textContent = 'Saving...';
+          authRun()
+            .withSuccessHandler(function () { toast('Cleared. Thank you.'); loadQueue(); })
+            .withFailureHandler(function (e) { b.disabled = false; b.textContent = 'Cancelled order cleared'; var er = el.querySelector('.clr-err'); er.textContent = e.message; er.classList.add('show'); })
+            .opsClearCancelled({ requestId: el.getAttribute('data-req'), note: el.querySelector('.clr-note').value.trim() });
+        });
+      });
+    }
+
+
+    // ---------------- Flipkart lane (14 Nov 2026) ----------------
+    var FK_SEL = null;      // packed orders ticked for the run (null = all)
+    var FK_OTHER = false;   // "Someone else" chosen in Going with
+    function fkDue(c) {
+      if (c.daysToShip === null || c.daysToShip === undefined) return c.shipBy ? 'ship by ' + c.shipBy : '';
+      if (c.daysToShip < 0) return 'ship-by date passed ' + (-c.daysToShip) + ' day' + (c.daysToShip === -1 ? '' : 's') + ' ago';
+      if (c.daysToShip === 0) return 'ship by TODAY';
+      return 'ship by ' + c.shipBy;
+    }
+    function minsText(m) { m = Math.max(0, Math.round(m || 0)); var h = Math.floor(m / 60), r = m % 60; return h ? h + ' h ' + (r ? r + ' min' : '') : r + ' min'; }
+    function renderFk() {
+      var fk = Q.fk || { toPack: [], packed: [], handedToday: [], carriers: [] };
+      var banner = document.getElementById('fkBanner');
+      if (fk.toPack.length) {
+        var lateN = fk.toPack.filter(function (c) { return c.late; }).length;
+        banner.innerHTML = (fk.toPack.length === 1 ? 'New Flipkart order ' + esc(fk.toPack[0].trackerId) + ' – pack it now' : fk.toPack.length + ' Flipkart orders to pack – pack them now') +
+          '<span class="small">' + (lateN ? lateN + ' past the ' + fk.packHours + '-hour packing time. ' : 'Pack within ' + fk.packHours + ' office hours. ') + 'Tap to go to them.</span>';
+        banner.classList.add('show');
+        document.title = '(' + fk.toPack.length + ') Flipkart to pack – ICF Operations';
+      } else {
+        banner.classList.remove('show');
+        document.title = 'ICF Operations (Beta)';
+      }
+      var ids = fk.packed.map(function (c) { return c.trackerId; });
+      if (FK_SEL) Object.keys(FK_SEL).forEach(function (k) { if (ids.indexOf(k) === -1) delete FK_SEL[k]; });
+      var sel = function (id) { return !FK_SEL || FK_SEL[id] !== false; };
+
+      var col1 = fk.toPack.length ? fk.toPack.map(function (c) {
+        return '<div class="fk-card' + (c.late ? ' late' : '') + '" data-id="' + esc(c.trackerId) + '">' +
+          '<div class="id">' + esc(c.trackerId) + '</div>' +
+          '<div class="ln">' + esc(c.products || c.institution) + '</div>' +
+          '<div class="ln' + (c.daysToShip !== null && c.daysToShip <= 0 ? ' bad' : '') + '">' + esc(fkDue(c)) + '</div>' +
+          '<div class="ln' + (c.officeMins >= fk.packHours * 60 ? ' bad' : '') + '">Came in ' + esc(c.arrivedAt) + ' · waiting ' + esc(minsText(c.officeMins)) + ' (office time)</div>' +
+          (c.locked ? '<div class="ln bad">Locked: ' + esc(c.locked) + ' is with the admin</div>' : '') +
+          '<button type="button" class="fk-pack" data-id="' + esc(c.trackerId) + '">Packed · RTD</button></div>';
+      }).join('') : '<div class="fk-empty">Nothing to pack.</div>';
+
+      var col2 = fk.packed.length ? fk.packed.map(function (c) {
+        return '<div class="fk-card' + (c.late ? ' late' : '') + '" data-id="' + esc(c.trackerId) + '"><div class="row">' +
+          '<input type="checkbox" class="fk-sel" data-id="' + esc(c.trackerId) + '"' + (sel(c.trackerId) ? ' checked' : '') + ' aria-label="Include ' + esc(c.trackerId) + ' in the run">' +
+          '<div style="flex:1;min-width:0;"><div class="id">' + esc(c.trackerId) + '</div>' +
+          '<div class="ln">Packed ' + esc(c.packedAt) + (c.packedBy ? ' · ' + esc(c.packedBy) : '') + '</div>' +
+          '<div class="ln' + (c.daysToShip !== null && c.daysToShip < 0 ? ' bad' : '') + '">' + esc(fkDue(c)) + '</div>' +
+          (c.carrier ? '<div class="ln">Going with <b>' + esc(c.carrier) + '</b>' + (c.carrierPhone ? '<a class="tel-btn" href="tel:' + esc(String(c.carrierPhone).replace(/[^\d+]/g, '')) + '">Call</a>' : '') + '</div>'
+                     : '<div class="ln">Nobody noted as taking it yet</div>') +
+          (c.unconfirmed ? '<div class="ln bad">Not confirmed at Flipkart by ' + esc(c.confirmBy) + (c.carrier ? ' – call ' + esc(c.carrier) : ' – find out who took it') + '</div>'
+                         : '<div class="ln">Confirm hand-over by ' + esc(c.confirmBy) + '</div>') +
+          '</div></div></div>';
+      }).join('') : '<div class="fk-empty">Nothing packed and waiting.</div>';
+
+      var opts = (fk.carriers || []).map(function (p) { return '<option value="' + esc(p.code) + '">' + esc(p.name) + '</option>'; }).join('');
+      var run = fk.packed.length ? '<div class="fk-run">' +
+        '<label for="fkWho" style="margin-top:0;">Going with (for the ticked parcels)</label>' +
+        '<div class="two"><select id="fkWho"><option value="">– choose –</option>' + opts + '<option value="__other"' + (FK_OTHER ? ' selected' : '') + '>Someone else…</option></select>' +
+        '<button type="button" class="btn light" id="fkWhoBtn" style="flex:0 0 auto;">Save</button></div>' +
+        '<div id="fkOther" style="display:' + (FK_OTHER ? 'block' : 'none') + ';"><div class="two" style="margin-top:6px;"><input type="text" id="fkOtherName" placeholder="Name"><input type="tel" id="fkOtherPhone" placeholder="Phone"></div></div>' +
+        '<label for="fkAt">Handed over at the Flipkart office</label>' +
+        '<input type="datetime-local" id="fkAt" value="' + nowLocal() + '" max="' + nowLocal() + '">' +
+        '<div style="display:flex;margin-top:8px;"><button type="button" class="btn green" id="fkHandBtn">Mark handed over</button></div>' +
+        '<div class="hint">When the carrier calls or messages to say the parcels are with Flipkart.</div>' +
+        '<div class="err" id="fkErr"></div></div>' : '';
+
+      var col3 = fk.handedToday.length ? fk.handedToday.map(function (c) {
+        return '<div class="fk-done" data-id="' + esc(c.trackerId) + '"><b>' + esc(c.trackerId) + '</b> · ' + esc(c.handedAt) + (c.carrier ? ' · ' + esc(c.carrier) : '') + '</div>';
+      }).join('') : '<div class="fk-empty">None yet today.</div>';
+
+      document.getElementById('fkLane').innerHTML =
+        '<div class="fk-head"><span class="t">Flipkart – always first</span><span class="s">Pack within ' + fk.packHours + ' office hours · run to the Flipkart office next morning · confirm by ' + fk.confirmHour + ':00</span></div>' +
+        '<div class="fk-cols">' +
+          '<div class="fk-col" id="fkToPack"><h3>1 · To pack <b>(' + fk.toPack.length + ')</b></h3>' + col1 + '</div>' +
+          '<div class="fk-col"><h3>2 · Packed, waiting for the run <b>(' + fk.packed.length + ')</b></h3>' + col2 + run + '</div>' +
+          '<div class="fk-col"><h3>3 · Handed over today <b>(' + fk.handedToday.length + ')</b></h3>' + col3 + '</div>' +
+        '</div>';
+      bindFk(fk);
+    }
+    function fkSelected(fk) {
+      return fk.packed.map(function (c) { return c.trackerId; }).filter(function (id) { return !FK_SEL || FK_SEL[id] !== false; });
+    }
+    function bindFk(fk) {
+      var lane = document.getElementById('fkLane');
+      Array.prototype.forEach.call(lane.querySelectorAll('.fk-card, .fk-done'), function (el) {
+        el.addEventListener('click', function (ev) {
+          if (ev.target.closest('button, input, a, select')) return;
+          openOrder(el.getAttribute('data-id'));
+        });
+      });
+      Array.prototype.forEach.call(lane.querySelectorAll('.fk-pack'), function (b) {
+        b.addEventListener('click', function (ev) { ev.stopPropagation(); fkPack(b.getAttribute('data-id'), b); });
+      });
+      Array.prototype.forEach.call(lane.querySelectorAll('.fk-sel'), function (cb) {
+        cb.addEventListener('change', function () {
+          if (!FK_SEL) FK_SEL = {};
+          FK_SEL[cb.getAttribute('data-id')] = cb.checked;
+        });
+      });
+      var who = document.getElementById('fkWho');
+      if (who) who.addEventListener('change', function () {
+        FK_OTHER = who.value === '__other';
+        document.getElementById('fkOther').style.display = FK_OTHER ? 'block' : 'none';
+      });
+      var whoBtn = document.getElementById('fkWhoBtn');
+      if (whoBtn) whoBtn.addEventListener('click', function () {
+        hideErr('fkErr');
+        var ids = fkSelected(fk);
+        if (!ids.length) return showErr('fkErr', 'Tick the parcels first.');
+        var form = { trackerIds: ids };
+        if (who.value === '__other') {
+          form.name = document.getElementById('fkOtherName').value.trim();
+          form.phone = document.getElementById('fkOtherPhone').value.trim();
+          if (!form.name) return showErr('fkErr', 'Type the name of whoever is taking them.');
+        } else if (who.value) form.code = who.value;
+        else return showErr('fkErr', 'Choose who is taking the parcels.');
+        whoBtn.disabled = true; whoBtn.textContent = 'Saving…';
+        authRun()
+          .withSuccessHandler(function (r) { FK_OTHER = false; toast('Going with ' + r.carrier + ': ' + r.done.length + ' parcel' + (r.done.length === 1 ? '' : 's') + '.'); loadQueue(); })
+          .withFailureHandler(function (e) { whoBtn.disabled = false; whoBtn.textContent = 'Save'; showErr('fkErr', e.message); })
+          .fkSetCarrier(form);
+      });
+      var handBtn = document.getElementById('fkHandBtn');
+      if (handBtn) handBtn.addEventListener('click', function () {
+        hideErr('fkErr');
+        var ids = fkSelected(fk);
+        var at = document.getElementById('fkAt').value;
+        if (!ids.length) return showErr('fkErr', 'Tick the parcels that reached Flipkart.');
+        if (!at) return showErr('fkErr', 'Enter when they were handed over.');
+        if (!confirm('Mark ' + ids.length + ' parcel' + (ids.length === 1 ? '' : 's') + ' as handed over at the Flipkart office?\n\n' + ids.join(', '))) return;
+        handBtn.disabled = true; handBtn.textContent = 'Saving…';
+        authRun()
+          .withSuccessHandler(function (r) {
+            FK_SEL = null;
+            if (r.failed && r.failed.length) toast('Saved ' + r.done.length + '. Not saved: ' + r.failed.map(function (x) { return x.trackerId + ' (' + x.message + ')'; }).join('; '), true);
+            else toast('Handed over: ' + r.done.length + ' parcel' + (r.done.length === 1 ? '' : 's') + '. The CRE follows delivery on the Flipkart seller panel.');
+            loadQueue();
+          })
+          .withFailureHandler(function (e) { handBtn.disabled = false; handBtn.textContent = 'Mark handed over'; showErr('fkErr', e.message); })
+          .fkMarkHandedOver({ trackerIds: ids, handedAt: at });
+      });
+    }
+    function fkPack(id, btn) {
+      if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+      authRun()
+        .withSuccessHandler(function (r) { toast(r.trackerId + ' packed at ' + r.packedAt + '. It waits for the next run to the Flipkart office.'); loadQueue(); if (CURRENT && CURRENT.trackerId === r.trackerId) openOrder(r.trackerId); })
+        .withFailureHandler(function (e) { if (btn) { btn.disabled = false; btn.textContent = 'Packed · RTD'; } toast(e.message, true); loadQueue(); })
+        .fkMarkPacked({ trackerId: id });
+    }
+    document.getElementById('fkBanner').addEventListener('click', function () {
+      var el = document.getElementById('fkToPack');
+      if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+
+    function cardHtml(c) {
+      var waitLine = '';
+      if (TAB === 'newOrders') waitLine = 'Waiting ' + hoursText(c.hoursWaiting) + (c.overdue ? ' – OVERDUE' : '');
+      else if (TAB === 'inHand') waitLine = (c.cutover ? 'With Ops at go-live' : 'Picked up ' + c.pickedUpAt + (c.pickedUpBy ? ' by ' + c.pickedUpBy : '')) +
+        (c.dispatchType === 'Courier' && c.hoursWaiting !== null ? ' – ' + hoursText(c.hoursWaiting) + ' ago' + (c.overdue ? ', POST TODAY' : '') : '');
+      else if (TAB === 'gatePass') waitLine = c.paymentPending ? 'Blocked – payment pending (CRE to collect)' :
+        'Requested ' + c.gatePassRequestedAt + ' – waiting ' + hoursText(c.hoursWaiting) + (c.vehicleNo ? ' – vehicle ' + c.vehicleNo : '') + (c.overdue ? ' – OVERDUE with Accounts' : '');
+      else if (TAB === 'readyPay') waitLine = (c.customerSaysPaid ? 'CRE says paid – Accounts verifying' : 'Waiting for payment') + (c.hoursWaiting !== null ? ' – ' + hoursText(c.hoursWaiting) : '');
+      else if (TAB === 'cleared') waitLine = 'Cleared: ' + c.clearedNote;
+      else if (TAB === 'late') waitLine = 'Now at: ' + ({ 'Sent to Ops': c.pickedUpAt || c.cutover ? 'in hand' : 'not picked up yet', 'On Hold - Site Not Ready': 'site not ready', 'Vehicle Confirmed': 'gate pass with Accounts' }[c.status] || c.status);
+      else if (TAB === 'dispatchedToday') waitLine = (c.dispatchType === 'Courier' ? 'Posted ' : 'Gate pass issued ') + c.dispatchedAt + (c.gatePassNo ? ' – ' + c.gatePassNo : (c.trackingNo ? ' – tracking ' + c.trackingNo : ''));
+      return '<div class="card' + (c.priority === 'High' ? ' high' : c.priority === 'Medium' ? ' medium' : '') + (c.overdue ? ' overdue' : '') + '" data-id="' + esc(c.trackerId) + '">' +
+        '<div class="row1"><div><div class="inst">' + esc(c.institution) +
+        (c.orderType === 'Flipkart' ? '<span class="tag fk">Flipkart</span>' : c.dispatchType === 'Courier' ? '<span class="tag">Courier</span>' : '') +
+        (c.orderType === 'DACC' ? '<span class="tag dacc">DACC</span>' : '') + (c.cutover ? '<span class="tag cut">Go-live</span>' : '') +
+        (c.paymentPending && TAB !== 'gatePass' ? '<span class="tag pay">Payment pending</span>' : '') + '</div>' +
+        '<div class="id">' + esc(c.trackerId) + '</div></div>' +
+        '<span class="badge' + (c.priority === 'High' ? ' high' : c.priority === 'Medium' ? ' medium' : '') + '">' + (c.priority === 'Normal' ? 'Normal' : c.priority.toUpperCase()) + '</span></div>' +
+        '<div class="meta">' + [c.location, c.orderType === 'Flipkart' && c.shipBy ? 'Hand over at Flipkart by ' + c.shipBy + (dueText(c.daysToShip) ? ' (' + dueText(c.daysToShip) + ')' : '')
+          : c.requestedDelivery ? 'Wanted by ' + c.requestedDelivery + (dueText(c.daysUntilDelivery) ? ' (' + dueText(c.daysUntilDelivery) + ')' : '') : '',
+          c.orderType === 'DACC' && c.daccTransporter ? 'DACC via ' + c.daccTransporter : '', c.creName ? 'CRE: ' + c.creName : '']
+          .filter(Boolean).map(esc).join('<br>') + '</div>' +
+        (c.locked ? '<div class="wait" style="color:var(--amber);">Locked: ' + esc(c.locked) + ' is with the admin – no reminders while it waits</div>' : '') +
+        (waitLine ? '<div class="wait"' + ({ late: 1, dispatchedToday: 1, cleared: 1 }[TAB] || (TAB === 'gatePass' && c.paymentPending) ? ' style="color:' + (TAB === 'late' || TAB === 'gatePass' ? 'var(--red)' : 'var(--green)') + ';"' : '') + '>' + esc(waitLine) + '</div>' : '') +
+        (TAB === 'newOrders' ? '<div class="acts"><button type="button" class="btn green ack">Acknowledge &amp; pick up</button></div>' : '') +
+        '</div>';
+    }
+
+    function acknowledge(id, btn) {
+      if (!confirm('Pick up ' + id + ' now?\n\nThe system records this moment as your pick-up time.')) return;
+      if (btn) { btn.disabled = true; btn.textContent = 'Picking up \u2013 preparing the PO...'; }
+      authRun()
+        .withSuccessHandler(function (r) {
+          if (r.poError) toast('Picked up at ' + r.pickedUpAt + '. ' + r.poError, true);
+          else toast('Picked up at ' + r.pickedUpAt + '. The PO is ready to print.');
+          loadQueue();
+          openOrder(r.trackerId);
+        })
+        .withFailureHandler(function (e) {
+          if (btn) { btn.disabled = false; btn.textContent = 'Acknowledge & pick up'; }
+          toast(e.message, true);
+          loadQueue();
+        })
+        .acknowledgeOrder({ trackerId: id });
+    }
+
+    // ---------------- One order ----------------
+    function openOrder(id) {
+      var sheet = document.getElementById('sheet');
+      document.getElementById('sheetTitle').textContent = id;
+      document.getElementById('sheetBody').innerHTML = '<div class="panel">Loading...</div>';
+      sheet.classList.add('show');
+      sheet.scrollTop = 0;
+      authRun()
+        .withSuccessHandler(function (o) {
+          if (o && o.matches) { renderMatches(o, id); return; }
+          CURRENT = o; renderOrder(o);
+        })
+        .withFailureHandler(function (e) { document.getElementById('sheetBody').innerHTML = '<div class="panel"><div class="err show">' + esc(e.message) + '</div></div>'; })
+        .getOpsOrder(id);
+    }
+    // Several orders match the search (or only a close spelling): pick one.
+    function renderMatches(res, q) {
+      document.getElementById('sheetTitle').textContent = res.fuzzy ? 'Did you mean\u2026' : res.matches.length + ' orders match';
+      document.getElementById('sheetBody').innerHTML = '<div class="panel"><div class="hint" style="margin-top:0;margin-bottom:8px;">' +
+        (res.fuzzy ? 'No exact match for \u201c' + esc(q) + '\u201d.' : 'Choose the order.') + '</div>' +
+        res.matches.map(function (m) {
+          return '<div class="card" data-id="' + esc(m.trackerId) + '" style="margin-bottom:8px;"><div class="inst">' + esc(m.institution) + '</div>' +
+            '<div class="id">' + esc(m.trackerId) + ' \u00b7 ' + esc(m.status) + '</div></div>';
+        }).join('') + '</div>';
+      Array.prototype.forEach.call(document.querySelectorAll('#sheetBody .card'), function (el) {
+        el.addEventListener('click', function () { openOrder(el.getAttribute('data-id')); });
+      });
+    }
+
+    function closeSheet() { document.getElementById('sheet').classList.remove('show'); CURRENT = null; }
+    document.getElementById('sheetBack').addEventListener('click', function () { closeSheet(); loadQueue(); });
+
+    function kv(rows) {
+      return '<div class="kv">' + rows.filter(function (r) { return r[1]; }).map(function (r) {
+        return '<div class="k">' + esc(r[0]) + '</div><div class="v">' + (r[2] ? r[1] : esc(r[1])) + '</div>';
+      }).join('') + '</div>';
+    }
+    function tel(p) { return p ? '<a href="tel:' + esc(String(p).replace(/[^\d+]/g, '')) + '">' + esc(p) + '</a>' : ''; }
+
+    function renderOrder(o) {
+      document.getElementById('sheetTitle').textContent = o.institution + ' – ' + o.trackerId;
+      var h = '';
+      h += '<div class="status-line ' + statusClass(o) + '">' + esc(statusText(o)) + '</div>';
+      if (o.clearedNote && o.status === 'Sent to Ops') h += '<div class="status-line ok">Cleared: ' + esc(o.clearedNote) + '. Confirm the vehicle and request the gate pass.</div>';
+      if (o.paymentPending && o.status !== 'Ready - Payment Pending') {
+        h += '<div class="status-line warn">Payment pending from the customer \u2013 the gate pass would be blocked. On your site-readiness call, remind the customer to clear it with their CRE (' + esc(o.creName) + '). When the order is ready, tap \u201cReady \u2013 ask CRE to collect payment\u201d.</div>';
+      }
+      if (o.status === 'Ready - Payment Pending' && o.payHoldNote) h += '<div class="status-line warn">' + esc(o.payHoldNote) + (o.customerSaysPaid ? ' \u2013 the CRE says the customer has paid; Accounts is verifying.' : '') + '</div>';
+      if (o.pendingRequest) {
+        h += '<div class="status-line warn">Waiting for ' + esc(o.pendingRequest.waitingFor) + ' to decide: ' + esc(o.pendingRequest.label) +
+          ' (asked by ' + esc(o.pendingRequest.requestedByName) + '). Gate pass and posting are locked until then.</div>';
+      }
+
+      // Priority stickers are Ops' job (Oct 2026): red for High, yellow for Medium, on the PO file.
+      if (o.priority === 'High' || o.priority === 'Medium') {
+        h += '<div class="sticker ' + o.priority.toLowerCase() + '">' + (o.priority === 'High' ? 'HIGH PRIORITY \u2013 put a RED sticker on the file' : 'MEDIUM PRIORITY \u2013 put a YELLOW sticker on the file') + '</div>';
+      }
+      // Actions first -- that's what Ops opens the order for.
+      var isFk = o.orderType === 'Flipkart';
+      if (isFk && o.status === 'Sent to Ops') h += fkPanel(o);
+      if (o.status === 'Sent to Ops' && !o.acked && !isFk) {
+        h += '<div class="panel"><h2>Pick it up</h2><div class="hint" style="margin-top:0;">Tap when you start on this order. The system records the time and prepares the PO with the payment verification and your pick-up printed on it.</div>' +
+          '<div class="acts" style="display:flex;margin-top:12px;"><button type="button" class="btn green" id="ackBtn">Acknowledge &amp; pick up</button></div></div>';
+      }
+      if (o.acked && !isFk && (o.status === 'Sent to Ops' || o.status === 'On Hold - Site Not Ready' || o.status === 'Vehicle Confirmed' || o.status === 'Ready - Payment Pending')) {
+        h += '<div class="panel"><h2>Internal PO</h2>' +
+          (o.wrapperPdfUrl
+            ? '<a class="print" href="' + esc(o.wrapperPdfUrl) + '" target="_blank">Print PO (PDF)</a>' +
+              '<div style="text-align:center;margin-top:8px;"><button type="button" class="btn-ghost" id="poBtn">Make a fresh copy</button></div>'
+            : '<div style="display:flex;"><button type="button" class="btn" id="poBtn">Prepare PO</button></div>') +
+          (o.verificationCode ? '<div class="code-box">Verification code (printed on the PO)<div class="code">' + esc(o.verificationCode) + '</div></div>' : '') +
+          (o.docs && o.docs.crmUrl ? '<div class="status-line warn" style="margin-top:10px;">Collect the printed CRM PO from Accounts' + (o.docs.crmPrintedBy ? ' (' + esc(o.docs.crmPrintedBy) + ')' : '') +
+            ' and attach it to this Internal PO. They travel together until dispatch.</div>' : '') +
+          '<div class="err" id="poErr"></div></div>';
+      }
+      // CRM PO / customer PO (Oct 2026): print them if needed, once the order is picked up.
+      if (o.docs && (o.docs.crmUrl || o.docs.customerUrl)) {
+        h += '<div class="panel"><h2>Purchase orders</h2>' + ICF_DOCS.panel({ crmUrl: o.docs.crmUrl, customerUrl: o.docs.customerUrl, customerRequired: false }, { title: 'From the CRE' }).replace('docs-box', 'docs-box" style="margin-top:0;') + '</div>';
+      }
+      if (o.status === 'Sent to Ops' && o.acked && o.dispatchType !== 'Courier') h += gatePassForm(o);
+      if (o.status === 'Sent to Ops' && o.acked && o.dispatchType === 'Courier' && !isFk) h += postingForm(o);
+      if (o.orderType === 'Flipkart' && o.status === 'Sent to Ops') {
+        h = '<div class="status-line ' + (o.daysToShip !== null && o.daysToShip <= 0 ? 'bad' : 'warn') + '">Flipkart order – hand it over at the Flipkart office by <b>' + esc(o.shipBy || '–') + '</b>' +
+          (o.daysToShip === 0 ? ' (TODAY)' : o.daysToShip < 0 ? ' (' + (-o.daysToShip) + ' day' + (o.daysToShip === -1 ? '' : 's') + ' LATE)' : '') + '. Paid through Flipkart – nothing to collect.</div>' + h;
+      }
+      if (o.orderType === 'DACC' && (o.status === 'Sent to Ops' || o.status === 'Vehicle Confirmed' || o.status === 'On Hold - Site Not Ready')) {
+        h = '<div class="status-line">DACC order – it goes by ' + esc(o.daccTransporter || 'the transporter') + ', booked as DACC (Delivery Against Consignor’s Copy). The customer pays the balance at the transporter’s warehouse, so payment never holds up the gate pass.</div>' + h;
+      }
+      if (o.status === 'On Hold - Site Not Ready') {
+        h += '<div class="panel"><h2>Site ready?</h2><div class="hint" style="margin-top:0;">Vehicle ' + esc(o.vehicleNo || '–') + ' is on file. When the customer confirms the site, tap below – the gate pass request goes to Accounts.</div>' +
+          '<div style="display:flex;margin-top:12px;"><button type="button" class="btn green" id="siteReadyBtn">Site is ready now – request gate pass</button></div><div class="err" id="siteErr"></div></div>';
+      }
+      if (o.standby && o.standby.eligible && o.acked) h += standbyForm(o);
+
+      // Order details
+      h += '<div class="panel"><h2>Order</h2>' + kv([
+        ['Customer', o.institution], ['Phone', tel(o.phone), true], ['Location', o.location],
+        [o.orderType === 'Flipkart' ? 'Ship by (Flipkart)' : 'Wanted by', o.orderType === 'Flipkart' ? o.shipBy : o.requestedDelivery], ['Priority', o.priority],
+        ['Dispatch', o.orderType === 'Flipkart' ? 'Flipkart – hand over at the Flipkart office' : o.orderType === 'DACC' ? 'DACC via ' + (o.daccTransporter || 'transporter') : o.dispatchType === 'Courier' ? 'Courier (packet by post)' : 'Vehicle'],
+        ['CRE', o.creName], ['CRE phone', tel(o.crePhone), true],
+        ['Verified', o.verifiedAt], ['Picked up', o.cutover && !o.pickedUpAt ? 'With Ops at go-live' : (o.pickedUpAt ? o.pickedUpAt + (o.pickedUpBy ? ' by ' + o.pickedUpBy : '') : '')],
+        ['Vehicle', o.vehicleNo], ['Gate pass asked', o.gatePassRequestedAt ? o.gatePassRequestedAt + (o.gatePassRequestedBy ? ' by ' + o.gatePassRequestedBy : '') : ''],
+        ['Gate pass no.', o.gatePassNo], ['Dispatched', o.dispatchedAt],
+        ['Packed (RTD)', o.fkPackedAt ? o.fkPackedAt + (o.fkPackedBy ? ' by ' + o.fkPackedBy : '') : ''],
+        ['Going with', o.fkCarrier ? esc(o.fkCarrier) + (o.fkCarrierPhone ? ' · ' + tel(o.fkCarrierPhone) : '') : '', true],
+        ['Posted via', o.courierName ? o.courierName + (o.trackingNo ? ' – ' + o.trackingNo : '') : ''],
+        ['Receipt', o.postalReceiptUrl ? '<a href="' + esc(o.postalReceiptUrl) + '" target="_blank">View photo</a>' : '', true]
+      ]) + '</div>';
+      h += '<div class="panel"><h2>Products</h2>' + ((o.products || []).length ? o.products.map(function (p) {
+        return '<div class="prod"><span>' + esc(p.product) + '</span><b>Qty: ' + esc(p.quantity) + '</b></div>';
+      }).join('') : '<div class="hint" style="margin-top:0;">No products on record.</div>') + '</div>';
+
+      document.getElementById('sheetBody').innerHTML = h;
+      bindOrder(o);
+    }
+
+    function statusText(o) {
+      switch (o.status) {
+        case 'Logged': return 'Not verified by Accounts yet – don’t start on it.';
+        case 'On Hold - Balance Due': return 'On hold: the customer still owes a balance. Accounts releases it to you once paid – don’t post it yet.';
+        case 'Sent to Ops': return o.orderType === 'Flipkart' ? (o.fkPackedAt ? 'Packed – waiting for the run to the Flipkart office.' : 'New Flipkart order – pack it now and tap “Packed · RTD”.') : o.acked ? (o.orderType === 'Flipkart' ? 'With you – pack it, hand it over at the Flipkart office and record the hand-over.' : o.dispatchType === 'Courier' ? 'With you – post it and record the receipt.' : 'With you – request the gate pass when it’s ready to go.') : 'New – waiting for you to pick it up.';
+        case 'On Hold - Site Not Ready': return 'On hold: waiting for the customer’s site.';
+        case 'Vehicle Confirmed': return o.paymentPending ? 'Gate pass blocked – the customer still has to pay. The CRE is collecting it.' : 'Gate pass requested' + (o.gatePassRequestedBy ? ' by ' + o.gatePassRequestedBy : '') + ' – with Accounts.';
+        case 'Ready - Payment Pending': return 'Ready – waiting for the customer’s payment' + (o.payHoldSince ? ' since ' + o.payHoldSince : '') + '. The CRE is collecting it; your clock is paused.';
+        case 'Gate-Verified': return o.dispatchedAt ? 'Dispatched ' + o.dispatchedAt + ' (gate pass ' + o.gatePassNo + ').' : 'Gate pass ' + o.gatePassNo + ' issued \u2013 waiting for the gate to mark the vehicle out.';
+        case 'Posted': return (o.orderType === 'Flipkart' ? 'Handed over at the Flipkart office' + (o.trackingNo ? ' (shipment ' + o.trackingNo + ')' : '') : 'Posted' + (o.courierName ? ' via ' + o.courierName : '')) + '. Delivery: ' + (o.deliveryStatus || 'In Transit') + '.';
+        case 'On Standby': return 'On standby (customer delay)' + (o.standby && o.standby.open ? ' until ' + o.standby.open.resume + ' – ' + o.standby.open.reason : '') + '.';
+        case 'Cancelled': return 'Cancelled – nothing to do.';
+        default: return 'Stage: ' + o.status;
+      }
+    }
+    function statusClass(o) {
+      if (o.status === 'Gate-Verified' || o.status === 'Posted') return 'ok';
+      if (o.status === 'Logged' || o.status === 'On Hold - Balance Due' || o.status === 'Cancelled') return 'bad';
+      if (o.status === 'Vehicle Confirmed' && o.paymentPending) return 'bad';
+      if (o.status === 'On Hold - Site Not Ready' || o.status === 'On Standby' || o.status === 'Ready - Payment Pending') return 'warn';
+      return '';
+    }
+
+    function gatePassForm(o) {
+      var pay = !!o.paymentPending;
+      return '<div class="panel"><h2>' + (pay ? 'Ready to go? Tell the CRE to collect payment' : 'Ready to go? Request the gate pass') + '</h2>' +
+        '<label for="gpVehicle">Vehicle number</label><input type="text" id="gpVehicle" autocapitalize="characters" placeholder="e.g. KL 13 AB 1234" value="' + esc(o.vehicleNo) + '">' +
+        '<label class="chk" style="display:flex;gap:8px;align-items:flex-start;margin-top:12px;"><input type="checkbox" id="gpSiteOk" style="width:auto;margin-top:3px;"> <span>The customer has confirmed the site is ready</span></label>' +
+        '<div class="hint">Site not ready, or the customer is delaying? Don’t request the gate pass – ask for standby below. An admin decides on it.</div>' +
+        (pay ? '<div class="hint">Payment is pending, so this goes to the CRE (not Accounts) and your clock stops until it’s paid or approved.</div>' : '') +
+        '<div style="display:flex;margin-top:14px;"><button type="button" class="btn" id="gpBtn">' + (pay ? 'Ready – ask CRE to collect payment' : 'Request gate pass') + '</button></div><div class="err" id="gpErr"></div></div>';
+    }
+
+    function nowLocal() {
+      var d = new Date(); d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+      return d.toISOString().slice(0, 16);
+    }
+    function postingForm(o) {
+      return '<div class="panel"><h2>Posted? Record it</h2>' +
+        '<label for="pCourier">Posted with</label><input type="text" id="pCourier" list="courierList" placeholder="e.g. India Post">' +
+        '<datalist id="courierList"><option value="India Post"><option value="DTDC"><option value="Professional Couriers"><option value="Blue Dart"><option value="Delhivery"></datalist>' +
+        '<label for="pTracking">Tracking / consignment number</label><input type="text" id="pTracking" autocapitalize="characters">' +
+        '<label for="pAt">Date &amp; time on the receipt</label><input type="datetime-local" id="pAt" value="' + nowLocal() + '" max="' + nowLocal() + '">' +
+        '<label for="pPhoto">Photo of the postal receipt' + (o.receiptPhotoRequired ? '' : ' (optional)') + '</label><input type="file" id="pPhoto" accept="image/*,application/pdf" capture="environment">' +
+        '<img class="photo-prev" id="pPrev" alt="Receipt preview">' +
+        '<div class="hint">' + (o.receiptPhotoRequired ? 'The photo is required. ' : 'Add it if you can. ') + 'The CRE uses it to answer the customer.</div>' +
+        '<div style="display:flex;margin-top:14px;"><button type="button" class="btn" id="pBtn">Save posting</button></div><div class="err" id="pErr"></div></div>';
+    }
+
+    // Flipkart on the beta (14 Nov 2026): pack -> going with -> handed over (one order; the lane does the whole run).
+    function fkPanel(o) {
+      if (!o.fkPackedAt) {
+        return '<div class="panel fkp"><h2>Packed and labelled?</h2><div class="hint" style="margin-top:0;">Pack it, stick Flipkart’s address label on top, then tap. No Internal PO for Flipkart orders.</div>' +
+          '<button type="button" class="fk-pack" id="fkPackBtn">Packed · RTD</button></div>';
+      }
+      var opts = ((Q && Q.fk && Q.fk.carriers) || []).map(function (p) { return '<option value="' + esc(p.code) + '">' + esc(p.name) + '</option>'; }).join('');
+      return '<div class="panel fkp"><h2>Packed – waiting for the run</h2>' +
+        '<div class="hint" style="margin-top:0;">Packed ' + esc(o.fkPackedAt) + (o.fkPackedBy ? ' by ' + esc(o.fkPackedBy) : '') + '.' +
+          (o.fkCarrier ? ' Going with <b>' + esc(o.fkCarrier) + '</b>' + (o.fkCarrierPhone ? ' · ' + tel(o.fkCarrierPhone) : '') + '.' : '') + '</div>' +
+        '<label for="fkWho1">Going with</label><div style="display:flex;gap:6px;"><select id="fkWho1"><option value="">– choose –</option>' + opts + '<option value="__other">Someone else…</option></select>' +
+        '<button type="button" class="btn light" id="fkWho1Btn" style="flex:0 0 auto;">Save</button></div>' +
+        '<div id="fkOther1" style="display:none;"><div style="display:flex;gap:6px;margin-top:6px;"><input type="text" id="fkOther1Name" placeholder="Name"><input type="tel" id="fkOther1Phone" placeholder="Phone"></div></div>' +
+        '<label for="fkAt1">Handed over at the Flipkart office</label><input type="datetime-local" id="fkAt1" value="' + nowLocal() + '" max="' + nowLocal() + '">' +
+        '<div style="display:flex;margin-top:12px;"><button type="button" class="btn green" id="fkHand1Btn">Mark handed over</button></div>' +
+        '<div class="hint">When the carrier calls or messages to say it’s with Flipkart.</div>' +
+        '<button type="button" class="linkish" id="fkUndoBtn">Marked packed by mistake? Move it back to “To pack”</button>' +
+        '<div class="err" id="fkErr1"></div></div>';
+    }
+
+    // Flipkart (Oct 2026): the same step as posting, recorded as the hand-over at the Flipkart office.
+    function flipkartForm(o) {
+      return '<div class="panel"><h2>Handed over at Flipkart? Record it</h2>' +
+        '<input type="hidden" id="pCourier" value="Flipkart">' +
+        '<label for="pTracking">Flipkart shipment / tracking ID</label><input type="text" id="pTracking" autocapitalize="characters" value="' + esc(o.trackerId) + '">' +
+        '<div class="hint">From the shipping label. The Flipkart order ID is filled in – change it if the label shows a different shipment ID.</div>' +
+        '<label for="pAt">Date &amp; time handed over</label><input type="datetime-local" id="pAt" value="' + nowLocal() + '" max="' + nowLocal() + '">' +
+        '<label for="pPhoto">Photo of the hand-over slip / manifest (optional)</label><input type="file" id="pPhoto" accept="image/*,application/pdf" capture="environment">' +
+        '<img class="photo-prev" id="pPrev" alt="Slip preview">' +
+        '<div style="display:flex;margin-top:14px;"><button type="button" class="btn" id="pBtn">Save hand-over</button></div><div class="err" id="pErr"></div></div>';
+    }
+
+    function standbyForm(o) {
+      var s = o.standby;
+      var reasons = (s.reasons || []).map(function (r) { return '<option value="' + esc(r) + '">' + esc(r) + '</option>'; }).join('');
+      return '<div class="panel"><details class="more"><summary>Customer delaying? Ask for standby</summary>' +
+        '<div class="hint">Standby takes the order off the live lists and stops the clock while the customer holds it up. An admin approves it.</div>' +
+        '<label for="sbReason">Reason</label><select id="sbReason"><option value="">– choose –</option>' + reasons + '</select>' +
+        '<label for="sbNote">What the customer said</label><textarea id="sbNote" rows="2"></textarea>' +
+        '<label for="sbFrom">Delay started on</label><input type="date" id="sbFrom" value="' + esc(s.today) + '" min="' + esc(s.earliestFromYmd) + '" max="' + esc(s.today) + '">' +
+        '<label for="sbResume">Customer expects to be ready on</label><input type="date" id="sbResume" min="' + esc(s.today) + '">' +
+        '<div class="hint">Longer than ' + esc(s.maxDays) + ' days goes to a director.</div>' +
+        '<div style="display:flex;margin-top:14px;"><button type="button" class="btn light" id="sbBtn">Send standby request</button></div><div class="err" id="sbErr"></div>' +
+        '</details></div>';
+    }
+
+    function showErr(id, text) { var el = document.getElementById(id); if (el) { el.textContent = text; el.classList.add('show'); } }
+    function hideErr(id) { var el = document.getElementById(id); if (el) el.classList.remove('show'); }
+
+    function bindOrder(o) {
+      // Flipkart (14 Nov 2026)
+      var fkPackBtn = document.getElementById('fkPackBtn');
+      if (fkPackBtn) fkPackBtn.addEventListener('click', function () { fkPack(o.trackerId, fkPackBtn); });
+      var who1 = document.getElementById('fkWho1');
+      if (who1) who1.addEventListener('change', function () { document.getElementById('fkOther1').style.display = who1.value === '__other' ? 'block' : 'none'; });
+      var who1Btn = document.getElementById('fkWho1Btn');
+      if (who1Btn) who1Btn.addEventListener('click', function () {
+        hideErr('fkErr1');
+        var form = { trackerIds: [o.trackerId] };
+        if (who1.value === '__other') {
+          form.name = document.getElementById('fkOther1Name').value.trim();
+          form.phone = document.getElementById('fkOther1Phone').value.trim();
+          if (!form.name) return showErr('fkErr1', 'Type the name of whoever is taking it.');
+        } else if (who1.value) form.code = who1.value;
+        else return showErr('fkErr1', 'Choose who is taking it.');
+        who1Btn.disabled = true; who1Btn.textContent = 'Saving…';
+        authRun()
+          .withSuccessHandler(function (r) { toast('Going with ' + r.carrier + '.'); openOrder(o.trackerId); loadQueue(); })
+          .withFailureHandler(function (e) { who1Btn.disabled = false; who1Btn.textContent = 'Save'; showErr('fkErr1', e.message); })
+          .fkSetCarrier(form);
+      });
+      var hand1 = document.getElementById('fkHand1Btn');
+      if (hand1) hand1.addEventListener('click', function () {
+        hideErr('fkErr1');
+        var at = document.getElementById('fkAt1').value;
+        if (!at) return showErr('fkErr1', 'Enter when it was handed over.');
+        if (!confirm('Mark ' + o.trackerId + ' as handed over at the Flipkart office?')) return;
+        hand1.disabled = true; hand1.textContent = 'Saving…';
+        authRun()
+          .withSuccessHandler(function () { toast('Handed over. The CRE follows delivery on the Flipkart seller panel.'); openOrder(o.trackerId); loadQueue(); })
+          .withFailureHandler(function (e) { hand1.disabled = false; hand1.textContent = 'Mark handed over'; showErr('fkErr1', e.message); })
+          .fkMarkHandedOver({ trackerIds: [o.trackerId], handedAt: at });
+      });
+      var undo = document.getElementById('fkUndoBtn');
+      if (undo) undo.addEventListener('click', function () {
+        if (!confirm('Move ' + o.trackerId + ' back to “To pack”?')) return;
+        authRun()
+          .withSuccessHandler(function () { toast('Moved back to “To pack”.'); openOrder(o.trackerId); loadQueue(); })
+          .withFailureHandler(function (e) { showErr('fkErr1', e.message); })
+          .fkUndoPacked({ trackerId: o.trackerId });
+      });
+
+      var ackBtn = document.getElementById('ackBtn');
+      if (ackBtn) ackBtn.addEventListener('click', function () { acknowledge(o.trackerId, ackBtn); });
+
+      var poBtn = document.getElementById('poBtn');
+      if (poBtn) poBtn.addEventListener('click', function () {
+        hideErr('poErr');
+        var label = poBtn.textContent;
+        poBtn.disabled = true; poBtn.textContent = 'Preparing the PO...';
+        authRun()
+          .withSuccessHandler(function () { toast('The PO is ready to print.'); openOrder(o.trackerId); })
+          .withFailureHandler(function (e) { poBtn.disabled = false; poBtn.textContent = label; showErr('poErr', e.message); })
+          .preparePo({ trackerId: o.trackerId });
+      });
+
+      // Gate pass
+      var gpBtn = document.getElementById('gpBtn');
+      if (gpBtn) gpBtn.addEventListener('click', function () {
+        hideErr('gpErr');
+        var v = document.getElementById('gpVehicle').value.trim();
+        var siteBox = document.getElementById('gpSiteOk');
+        var site = siteBox && siteBox.checked ? 'Y' : '';
+        if (!v) return showErr('gpErr', 'Enter the vehicle number.');
+        if (!site) return showErr('gpErr', 'Tick that the customer confirmed the site is ready. If it isn’t ready, ask for standby instead.');
+        var label = gpBtn.textContent;
+        gpBtn.disabled = true; gpBtn.textContent = 'Sending...';
+        var runner = authRun()
+          .withSuccessHandler(function (r) {
+            toast(o.paymentPending && site === 'Y' ? 'Sent to the CRE to collect payment – your clock is paused.'
+              : 'Gate pass requested – it’s with Accounts now.');
+            openOrder(o.trackerId); loadQueue();
+          })
+          .withFailureHandler(function (e) { gpBtn.disabled = false; gpBtn.textContent = label; showErr('gpErr', e.message); });
+        if (o.paymentPending && site === 'Y') runner.markReadyForPayment({ trackerId: o.trackerId, vehicleNo: v });
+        else runner.requestGatePass({ trackerId: o.trackerId, vehicleNo: v, siteReadiness: site });
+      });
+
+      // Site ready
+      var srBtn = document.getElementById('siteReadyBtn');
+      if (srBtn) srBtn.addEventListener('click', function () {
+        hideErr('siteErr');
+        srBtn.disabled = true; srBtn.textContent = 'Sending...';
+        authRun()
+          .withSuccessHandler(function (r) { toast(r && r.paymentPending ? 'Site ready – payment is pending, so it went to the CRE to collect. Your clock is paused.' : 'Gate pass requested – it’s with Accounts now.'); openOrder(o.trackerId); loadQueue(); })
+          .withFailureHandler(function (e) { srBtn.disabled = false; srBtn.textContent = 'Site is ready now – request gate pass'; showErr('siteErr', e.message); })
+          .confirmSiteReady(o.trackerId);
+      });
+
+      // Posting
+      var photo = document.getElementById('pPhoto');
+      var receipt = null;
+      if (photo) photo.addEventListener('change', function () {
+        receipt = null;
+        var file = photo.files && photo.files[0];
+        var prev = document.getElementById('pPrev');
+        prev.style.display = 'none';
+        if (!file) return;
+        prepareReceipt(file, function (err, r) {
+          if (err) { showErr('pErr', err); return; }
+          hideErr('pErr');
+          receipt = r;
+          if (r.preview) { prev.src = r.preview; prev.style.display = 'block'; }
+        });
+      });
+      var pBtn = document.getElementById('pBtn');
+      if (pBtn) pBtn.addEventListener('click', function () {
+        hideErr('pErr');
+        var courier = document.getElementById('pCourier').value.trim();
+        var tracking = document.getElementById('pTracking').value.trim();
+        var at = document.getElementById('pAt').value;
+        if (!courier || !tracking || !at) return showErr('pErr', 'Enter who it was posted with, the tracking number and the time on the receipt.');
+        if (!receipt && o.receiptPhotoRequired) return showErr('pErr', 'Add the photo of the postal receipt.');
+        pBtn.disabled = true; pBtn.textContent = receipt ? 'Uploading...' : 'Saving...';
+        authRun()
+          .withSuccessHandler(function (r) { toast(r && r.flipkart ? 'Hand-over saved. The CRE follows delivery on the Flipkart seller panel.' : 'Posting saved. The CRE takes delivery follow-up from here.'); openOrder(o.trackerId); loadQueue(); })
+          .withFailureHandler(function (e) { pBtn.disabled = false; pBtn.textContent = 'Save posting'; showErr('pErr', e.message); })
+          .recordPosting({ trackerId: o.trackerId, courierName: courier, trackingNo: tracking, postedAt: at,
+                           receipt: receipt ? { data: receipt.data, mimeType: receipt.mimeType, name: receipt.name } : null });
+      });
+
+      // Standby
+      var sbBtn = document.getElementById('sbBtn');
+      if (sbBtn) sbBtn.addEventListener('click', function () {
+        hideErr('sbErr');
+        var form = {
+          trackerId: o.trackerId,
+          reason: document.getElementById('sbReason').value,
+          note: document.getElementById('sbNote').value.trim(),
+          standbyFrom: document.getElementById('sbFrom').value,
+          resumeDate: document.getElementById('sbResume').value
+        };
+        if (!form.reason) return showErr('sbErr', 'Choose the reason.');
+        if (form.reason === 'Other' && !form.note) return showErr('sbErr', 'Write what the customer said.');
+        if (!form.resumeDate) return showErr('sbErr', 'Choose the date the customer expects to be ready.');
+        sbBtn.disabled = true; sbBtn.textContent = 'Sending...';
+        authRun()
+          .withSuccessHandler(function (r) {
+            toast('Standby request sent' + (r.callName ? ' – call ' + r.callName + (r.callPhone ? ' (' + r.callPhone + ')' : '') + ' to approve it' : '') + '.');
+            openOrder(o.trackerId); loadQueue();
+          })
+          .withFailureHandler(function (e) { sbBtn.disabled = false; sbBtn.textContent = 'Send standby request'; showErr('sbErr', e.message); })
+          .requestStandby(form);
+      });
+    }
+
+    /** Shrinks a photo to at most 1600 px (JPEG) so it uploads quickly on mobile data. PDFs go as they are. */
+    function prepareReceipt(file, done) {
+      var reader = new FileReader();
+      reader.onerror = function () { done('Could not read that file. Try taking the photo again.'); };
+      reader.onload = function () {
+        var dataUrl = String(reader.result || '');
+        var raw = { data: dataUrl.split(',')[1] || '', mimeType: file.type || 'image/jpeg', name: file.name || 'receipt' };
+        if (file.type === 'application/pdf' || !/^image\//.test(file.type || '')) {
+          if (file.size > 8 * 1024 * 1024) return done('That file is too large (over 8 MB).');
+          return done(null, raw);
+        }
+        var img = new Image();
+        img.onload = function () {
+          try {
+            var max = 1600, w = img.naturalWidth, h = img.naturalHeight;
+            var scale = Math.min(1, max / Math.max(w, h));
+            var c = document.createElement('canvas');
+            c.width = Math.round(w * scale); c.height = Math.round(h * scale);
+            c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+            var out = c.toDataURL('image/jpeg', 0.78);
+            done(null, { data: out.split(',')[1], mimeType: 'image/jpeg', name: 'receipt.jpg', preview: out });
+          } catch (e) {
+            if (file.size > 8 * 1024 * 1024) return done('That photo is too large. Take it again at a lower resolution.');
+            done(null, raw);
+          }
+        };
+        img.onerror = function () {
+          // e.g. HEIC on a browser that can't draw it -- send the original if it isn't huge.
+          if (file.size > 8 * 1024 * 1024) return done('That photo is too large. Take it again at a lower resolution.');
+          done(null, raw);
+        };
+        img.src = dataUrl;
+      };
+      reader.readAsDataURL(file);
+    }
+
+    // ---------------- Search, refresh, sign-in hooks ----------------
+    function find() {
+      var q = document.getElementById('q').value.trim();
+      if (!q) return;
+      openOrder(q);
+    }
+    document.getElementById('qBtn').addEventListener('click', find);
+    document.getElementById('q').addEventListener('keydown', function (e) { if (e.key === 'Enter') find(); });
+    document.getElementById('refreshBtn').addEventListener('click', function () { loadQueue(); if (CURRENT) openOrder(CURRENT.trackerId); });
+
+    window.ICF_RELOAD = function () { closeSheet(); loadQueue(); };
+    window.ICF_CLEAR = function () {
+      Q = null; closeSheet();
+      document.getElementById('tabs').innerHTML = '';
+      document.getElementById('tabNote').textContent = '';
+      document.getElementById('list').innerHTML = '<div class="empty">Sign in to see the queue.</div>';
+      document.getElementById('fkLane').innerHTML = '';
+      document.getElementById('fkBanner').classList.remove('show');
+    };
+    // Keep the queue fresh on a phone left open on the floor (not while an order is open -- don't wipe a half-filled form).
+    // Every minute (Flipkart orders are urgent). Not while an order is open -- don't wipe a half-filled form.
+    setInterval(function () { if (window.ICF_STAFF && !CURRENT && !document.hidden) loadQueue(); }, 60000);
+    document.getElementById('themeBtn').addEventListener('click', function () {
+      var toLight = document.documentElement.getAttribute('data-theme') !== 'light';
+      if (toLight) document.documentElement.setAttribute('data-theme', 'light'); else document.documentElement.removeAttribute('data-theme');
+      try { localStorage.setItem('icf_cre_beta_theme', toLight ? 'light' : 'dark'); } catch (e) {}
+    });
+    document.addEventListener('visibilitychange', function () { if (!document.hidden && window.ICF_STAFF && !CURRENT) loadQueue(); });
+
+    loadQueue();
+  </script>
+</body>
+</html>

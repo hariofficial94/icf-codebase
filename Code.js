@@ -289,7 +289,9 @@ var HEADERS = [
   'Waived Amount', 'Waived By', 'Waived At', 'Waive Reason',
   // Flipkart net payout (13 Nov 2026) -- what Flipkart actually paid for the order, and what it kept (sale value - net).
   // Recorded beside the sale value, never as a balance: a Flipkart order is never "short" because of its payout.
-  'Flipkart Net Received', 'Flipkart Deductions'
+  'Flipkart Net Received', 'Flipkart Deductions',
+  // Flipkart packing and the run to the Flipkart office (14 Nov 2026) -- see FlipkartOps.js. Header cells are filled in automatically.
+  'Flipkart Packed At', 'Flipkart Packed By', 'Flipkart Carrier', 'Flipkart Carrier Phone'
 ];
 
 var DISPATCH_VEHICLE = 'Vehicle';
@@ -534,6 +536,7 @@ function doGet(e) {
     settings: 'settings',
     gate: 'gate',        // Gate login (Oct 2026) -- Sanju marks vehicles out
     'dashboard-beta': 'dashboard_beta', // Owner dashboard, new layout on trial (Oct 2026) -- the classic dashboard is untouched
+    'ops-beta': 'ops_beta', // Operations page, new layout on trial (14 Nov 2026) -- Flipkart lane on top; the classic Ops page is untouched
     'cre-beta': 'cre_beta', // CRE page, new layout on trial (Oct 2026) -- a separate file; the classic CRE page is untouched
     'accounts-beta': 'accounts_beta', // Accounts page, new layout on trial (13 Nov 2026) -- the classic Accounts page is untouched
     rental: 'rental'     // Rentals (Oct 2026) -- one page for CRE, Accounts, Ops and Ananthu; see Rental.js
@@ -552,6 +555,7 @@ function doGet(e) {
     'cre-beta': 'ICF CRE (Beta)',
     'accounts-beta': 'ICF Accounts (Beta)',
     'dashboard-beta': 'ICF Dashboard (Beta)',
+    'ops-beta': 'ICF Operations (Beta)',
     rental: 'ICF Rentals'
   };
   // Evaluated as a template (not a plain file) so each page can pull in the
@@ -3278,6 +3282,11 @@ function apiMap_() {
     var extra14 = waiverApiMap_();
     for (var k14 in extra14) map[k14] = extra14[k14];
   }
+  // Ops beta: Flipkart lane, packing and the run to the Flipkart office (14 Nov 2026) -- FlipkartOps.gs.
+  if (typeof flipkartOpsApiMap_ === 'function') {
+    var extraFk = flipkartOpsApiMap_();
+    for (var kFk in extraFk) map[kFk] = extraFk[kFk];
+  }
   // Admin "Delete a record" pane (14 Nov 2026) -- DeleteRecords.gs.
   if (typeof deleteRecordsApiMap_ === 'function') {
     var extraDel = deleteRecordsApiMap_();
@@ -3357,6 +3366,7 @@ function activityDetail_(fnName, a, result) {
       if (!d && typeof inductionActivityDetail_ === 'function') d = inductionActivityDetail_(fnName, a, result);
       if (!d && typeof followUpActivityDetail_ === 'function') d = followUpActivityDetail_(fnName, a, result);
       if (!d && typeof waiverActivityDetail_ === 'function') d = waiverActivityDetail_(fnName, a, result);
+      if (!d && typeof flipkartOpsActivityDetail_ === 'function') d = flipkartOpsActivityDetail_(fnName, a, result);
       return d;
   }
 }
@@ -4831,6 +4841,10 @@ function checkApprovalAlerts() {
     }
     if (typeof flipkartSweep_ === 'function') {
       try { sent += flipkartSweep_(now, staffMap, cfg); } catch (e) { Logger.log('Flipkart sweep failed: ' + e); }
+    }
+    // Flipkart packing (2 office hours) and the next-morning run to the Flipkart office (14 Nov 2026, FlipkartOps.gs).
+    if (typeof fkPackSweep_ === 'function') {
+      try { sent += fkPackSweep_(now, staffMap, cfg); } catch (e) { Logger.log('Flipkart packing sweep failed: ' + e); }
     }
     // Workflow-review follow-ups (13 Nov 2026, FollowUps.js): verification, courier balances, delivery, cancellations, refunds.
     if (typeof followUpSweep_ === 'function') {

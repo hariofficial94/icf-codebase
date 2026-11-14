@@ -370,7 +370,7 @@ function getOpsOrder_(query) {
     'Gate Pass No.', 'Dispatch Timestamp', 'Courier / Transport Name', 'Tracking / Consignment No.',
     'Postal Receipt URL', 'Delivery Status', 'Payment Terms Type', 'Total Order Value', 'Advance Received',
     'Payment Hold From', 'Payment Hold Note', 'Cleared For Gate Pass', 'Customer Says Paid', 'CRM PO URL', 'Customer PO URL', 'CRM PO Printed',
-    'Order Type', 'Ship By Date', 'DACC Transporter'
+    'Order Type', 'Ship By Date', 'DACC Transporter', 'Flipkart Packed At', 'Flipkart Packed By', 'Flipkart Carrier', 'Flipkart Carrier Phone'
   ]);
   var id = String(f['Tracker ID']);
   var acked = opsIsAcked_(f['Received by Ops Timestamp'], f['Ops Cutover']);
@@ -421,6 +421,11 @@ function getOpsOrder_(query) {
     shipBy: opsFmtDate_(f['Ship By Date']),
     daysToShip: computeDaysUntilDate(f['Ship By Date']),
     daccTransporter: String(f['DACC Transporter'] || ''),
+    // Flipkart packing and the run (14 Nov 2026, FlipkartOps.js)
+    fkPackedAt: opsFmt_(f['Flipkart Packed At']),
+    fkPackedBy: String(f['Flipkart Packed By'] || ''),
+    fkCarrier: String(f['Flipkart Carrier'] || ''),
+    fkCarrierPhone: String(f['Flipkart Carrier Phone'] || ''),
     standby: (typeof standbyInfoForOrder_ === 'function') ? standbyInfoForOrder_(id, status) : null,
     pendingRequest: (typeof pendingRequestFor_ === 'function') ? pendingRequestFor_(id) : null
   };
@@ -467,7 +472,11 @@ function acknowledgeOrder_(form) {
   // The PO is made now, with the verification and pick-up printed on it. The
   // pick-up is already saved -- if the PDF fails, Ops can press "Prepare PO".
   var pdfUrl = '', poError = '';
-  try { pdfUrl = opsBuildPo_(sheet, row); } catch (e) { poError = 'The PO couldn\u2019t be prepared (' + e.message + '). Tap "Prepare PO" to try again.'; }
+  // Flipkart (14 Nov 2026, Hari): no Internal PO -- the Flipkart shipping label is the paperwork.
+  var noPo = typeof ORDER_TYPE_FLIPKART !== 'undefined' && normalizeOrderType_(getRowFields(sheet, row, ['Order Type'])['Order Type']) === ORDER_TYPE_FLIPKART;
+  if (!noPo) {
+    try { pdfUrl = opsBuildPo_(sheet, row); } catch (e) { poError = 'The PO couldn\u2019t be prepared (' + e.message + '). Tap "Prepare PO" to try again.'; }
+  }
   return {
     trackerId: String(f['Tracker ID']), pickedUpAt: opsFmt_(now), pickedUpBy: me.name,
     wrapperPdfUrl: pdfUrl, poError: poError, verificationCode: String(f['Verification Code'] || ''),
@@ -983,6 +992,9 @@ function opsSweep_(nowMs, staffMap, alertCfg) {
     var endMs = ends[id.toLowerCase()] || 0;
     var acked = opsIsAcked_(o.get('Received by Ops Timestamp'), o.get('Ops Cutover'));
     var courier = normalizeDispatchType_(o.get('Dispatch Type')) === DISPATCH_COURIER;
+    // Flipkart (14 Nov 2026): packing has its own 2-office-hour reminders (fkPackSweep_, FlipkartOps.js), so
+    // it is left out of the 24 h pick-up and posting nudges here. It still goes in the new-order email.
+    var isFk = typeof ORDER_TYPE_FLIPKART !== 'undefined' && normalizeOrderType_(o.get('Order Type')) === ORDER_TYPE_FLIPKART;
     if (!acked) {
       var startMs = Math.max(opsMs_(o.get('Sent to Ops Timestamp')), endMs, goLive);
       var card = opsCard_(o, nowMs, startMs, cfg.ackHours);
@@ -990,10 +1002,10 @@ function opsSweep_(nowMs, staffMap, alertCfg) {
       untouched.push(card);
       if (!opsHasToken_(cell, 'New')) fresh.push(card);
       var h = opsWorkingHours_(startMs, nowMs);
-      if (lockedNow) return;
+      if (lockedNow || isFk) return;
       if (h >= cfg.ackEscalateHours && !opsHasToken_(cell, 'AckEscalated')) ackEsc.push(card);
       else if (h >= cfg.ackHours && !opsHasToken_(cell, 'AckReminder')) ackNudge.push(card);
-    } else if (courier && !lockedNow) {
+    } else if (courier && !lockedNow && !isFk) {
       var ackMs = Math.max(opsMs_(o.get('Received by Ops Timestamp')) || goLive, endMs);
       var pc = opsCard_(o, nowMs, ackMs, cfg.postHours);
       pc._row = o.row; pc._cell = cell;
