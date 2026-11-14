@@ -1194,7 +1194,7 @@ function lookupPincodeFromApi(trimmed) {
  * when it is due, and the payment terms.
  *
  *   [logo] [Tracker ID / logged / CRE]                  [PRIORITY]
- *   [ Deliver to: name, district, PIN, phones ] [ DELIVER BY (reverse) ]
+ *   [ Deliver to: name, district, PIN, phones ] [ DELIVER BY (large)   ]
  *   [ Payment terms + advance %, verifier, UTR ] [ Verification code   ]
  *   [ Items                                    ] [ Ops handoff         ]
  *   [ Site readiness checked | tick box | checked by / time ]   (vehicle only)
@@ -1281,15 +1281,14 @@ function generateWrapperPdf(trackerId, dateLogged, institution, creName, total, 
   if (sys.crePhone) creLine.appendText(String(sys.crePhone)).setFontSize(10).setBold(true).setForegroundColor(PO_INK).setFontFamily('Roboto Mono');
 
   var byCell = r1.getCell(0, 1);
-  byCell.setBackgroundColor('#000000');
   var by = poWriter_(byCell);
   var dd = requestedDeliveryDate ? new Date(requestedDeliveryDate) : null;
   if (dd && isNaN(dd.getTime())) dd = null;
-  by.line('DELIVER BY', { size: 8, color: '#FFFFFF' });
-  by.line(dd ? Utilities.formatDate(dd, tz, 'dd MMM') : 'Not set', { size: dd ? 30 : 16, bold: true, color: '#FFFFFF' });
-  by.line(dd ? Utilities.formatDate(dd, tz, 'EEEE, yyyy') : '', { size: 10, color: '#FFFFFF', after: 10 });
-  by.line('DISPATCH', { size: 8, color: '#FFFFFF' });
-  by.line(isCourier ? 'Courier / Post' : 'Vehicle', { size: 14, bold: true, color: '#FFFFFF' });
+  by.line('DELIVER BY', { size: 8, color: PO_GREY });
+  by.line(dd ? Utilities.formatDate(dd, tz, 'dd MMM') : 'Not set', { size: dd ? 30 : 16, bold: true });
+  by.line(dd ? Utilities.formatDate(dd, tz, 'EEEE, yyyy') : '', { size: 10, after: 10 });
+  by.line('DISPATCH', { size: 8, color: PO_GREY });
+  by.line(isCourier ? 'Courier / Post' : 'Vehicle', { size: 14, bold: true });
   byCell.setVerticalAlignment(DocumentApp.VerticalAlignment.CENTER);
   poSpacer_(body, 4);
 
