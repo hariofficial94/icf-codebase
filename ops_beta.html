@@ -76,14 +76,24 @@
     .search button { padding: 0 16px; font-size: 15px; font-weight: 700; background: var(--leaf-grad); color: var(--on-leaf); border: none; border-radius: 6px; cursor: pointer; }
 
     /* ---- Flipkart (14 Nov 2026) ---- */
-    .fk-banner { display: none; margin-bottom: 10px; padding: 12px 14px; border-radius: 8px; background: var(--red); color: #fff; font-weight: 700; font-size: 15px; cursor: pointer; animation: fkpulse 1.6s ease-in-out infinite; }
-    .fk-banner.show { display: block; }
-    .fk-banner .small { display: block; font-size: 12.5px; font-weight: 500; opacity: 0.92; margin-top: 2px; }
     @keyframes fkpulse { 0%,100% { box-shadow: 0 0 0 0 rgba(242,107,107,0.55); } 50% { box-shadow: 0 0 0 6px rgba(242,107,107,0); } }
-    .fk-lane { border: 2px solid var(--fk-bd); background: var(--fk-bg); border-radius: 12px; padding: 12px; margin-bottom: 6px; }
-    .fk-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
-    .fk-head .t { font-size: 16px; font-weight: 800; color: var(--fk); }
-    .fk-head .s { font-size: 12px; color: var(--text-2); }
+    /* Collapsible (14 Nov 2026): a bar that turns red when something needs packing and opens itself when a new order lands. */
+    .fk-lane { border: 1px solid var(--border-2); background: var(--surface); border-radius: 10px; margin-bottom: 6px; box-shadow: var(--shadow); }
+    .fk-lane.alert { border: 2px solid var(--red); background: var(--red-bg); animation: fkpulse 1.6s ease-in-out infinite; }
+    .fk-lane.warn { border: 2px solid var(--amber-bd); background: var(--amber-bg); }
+    .fk-bar { display: flex; align-items: center; gap: 10px; padding: 11px 12px; cursor: pointer; user-select: none; }
+    .fk-bar .t { font-size: 15px; font-weight: 800; color: var(--fk); white-space: nowrap; }
+    .fk-lane.alert .fk-bar .t { color: var(--red); }
+    .fk-bar .chips { display: flex; gap: 6px; flex-wrap: wrap; flex: 1; min-width: 0; }
+    .fk-chip { font-size: 12px; font-weight: 600; padding: 2px 9px; border-radius: 10px; background: var(--surface-2); color: var(--text-2); white-space: nowrap; }
+    .fk-chip.bad { background: var(--red); color: #fff; }
+    .fk-chip.amb { background: var(--amber-bg); color: var(--amber); border: 1px solid var(--amber-bd); }
+    .fk-chip.new { background: var(--red); color: #fff; letter-spacing: 0.04em; }
+    .fk-chev { flex: 0 0 auto; font-size: 13px; color: var(--text-2); transition: transform .15s ease; }
+    .fk-lane.open .fk-chev { transform: rotate(180deg); }
+    .fk-body { display: none; padding: 0 12px 12px; }
+    .fk-lane.open .fk-body { display: block; }
+    .fk-body .s { font-size: 12px; color: var(--text-2); margin: 0 0 10px; }
     .fk-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
     .fk-col h3 { font-size: 12px; font-weight: 700; color: var(--text-2); margin: 0 0 6px; text-transform: none; }
     .fk-col h3 b { color: var(--text); }
@@ -222,7 +232,6 @@
     </div>
     <div class="notlive" id="notLive">The Ops login isn’t switched on yet – the admin still has to run “Ops login: set up and go live”. Until then, keep working as before.</div>
 
-    <div class="fk-banner" id="fkBanner"></div>
     <div class="fk-lane" id="fkLane"><div class="fk-empty">Loading Flipkart orders…</div></div>
 
     <div class="search">
@@ -410,6 +419,8 @@
     // ---------------- Flipkart lane (14 Nov 2026) ----------------
     var FK_SEL = null;      // packed orders ticked for the run (null = all)
     var FK_OTHER = false;   // "Someone else" chosen in Going with
+    var FK_OPEN = null;     // lane open? null = not decided yet (first load)
+    var FK_SEEN = null;     // { trackerId: true } of the "To pack" orders already shown -- a new one opens the lane
     function fkDue(c) {
       if (c.daysToShip === null || c.daysToShip === undefined) return c.shipBy ? 'ship by ' + c.shipBy : '';
       if (c.daysToShip < 0) return 'ship-by date passed ' + (-c.daysToShip) + ' day' + (c.daysToShip === -1 ? '' : 's') + ' ago';
@@ -419,17 +430,13 @@
     function minsText(m) { m = Math.max(0, Math.round(m || 0)); var h = Math.floor(m / 60), r = m % 60; return h ? h + ' h ' + (r ? r + ' min' : '') : r + ' min'; }
     function renderFk() {
       var fk = Q.fk || { toPack: [], packed: [], handedToday: [], carriers: [] };
-      var banner = document.getElementById('fkBanner');
-      if (fk.toPack.length) {
-        var lateN = fk.toPack.filter(function (c) { return c.late; }).length;
-        banner.innerHTML = (fk.toPack.length === 1 ? 'New Flipkart order ' + esc(fk.toPack[0].trackerId) + ' – pack it now' : fk.toPack.length + ' Flipkart orders to pack – pack them now') +
-          '<span class="small">' + (lateN ? lateN + ' past the ' + fk.packHours + '-hour packing time. ' : 'Pack within ' + fk.packHours + ' office hours. ') + 'Tap to go to them.</span>';
-        banner.classList.add('show');
-        document.title = '(' + fk.toPack.length + ') Flipkart to pack – ICF Operations';
-      } else {
-        banner.classList.remove('show');
-        document.title = 'ICF Operations (Beta)';
-      }
+      // Open by itself when a new order lands (or on first load if anything is waiting); otherwise keep what Manoj chose.
+      var packIds = fk.toPack.map(function (c) { return c.trackerId; });
+      var fresh = packIds.filter(function (id) { return !FK_SEEN || !FK_SEEN[id]; });
+      if (FK_OPEN === null) FK_OPEN = packIds.length > 0;
+      else if (fresh.length) FK_OPEN = true;
+      FK_SEEN = {}; packIds.forEach(function (id) { FK_SEEN[id] = true; });
+      document.title = fk.toPack.length ? '(' + fk.toPack.length + ') Flipkart to pack – ICF Operations' : 'ICF Operations (Beta)';
       var ids = fk.packed.map(function (c) { return c.trackerId; });
       if (FK_SEL) Object.keys(FK_SEL).forEach(function (k) { if (ids.indexOf(k) === -1) delete FK_SEL[k]; });
       var sel = function (id) { return !FK_SEL || FK_SEL[id] !== false; };
@@ -473,13 +480,27 @@
         return '<div class="fk-done" data-id="' + esc(c.trackerId) + '"><b>' + esc(c.trackerId) + '</b> · ' + esc(c.handedAt) + (c.carrier ? ' · ' + esc(c.carrier) : '') + '</div>';
       }).join('') : '<div class="fk-empty">None yet today.</div>';
 
-      document.getElementById('fkLane').innerHTML =
-        '<div class="fk-head"><span class="t">Flipkart – always first</span><span class="s">Pack within ' + fk.packHours + ' office hours · run to the Flipkart office next morning · confirm by ' + fk.confirmHour + ':00</span></div>' +
+      var unconf = fk.packed.filter(function (c) { return c.unconfirmed; }).length;
+      var lateN = fk.toPack.filter(function (c) { return c.late; }).length;
+      var lane = document.getElementById('fkLane');
+      lane.className = 'fk-lane' + (fk.toPack.length ? ' alert' : unconf ? ' warn' : '') + (FK_OPEN ? ' open' : '');
+      lane.innerHTML =
+        '<div class="fk-bar" id="fkBar" role="button" aria-expanded="' + (FK_OPEN ? 'true' : 'false') + '"><span class="t">Flipkart</span><span class="chips">' +
+          '<span class="fk-chip' + (fk.toPack.length ? ' bad' : '') + '">' + fk.toPack.length + ' to pack' + (lateN ? ' · ' + lateN + ' late' : '') + '</span>' +
+          '<span class="fk-chip' + (unconf ? ' amb' : '') + '">' + fk.packed.length + ' waiting for the run' + (unconf ? ' · ' + unconf + ' not confirmed' : '') + '</span>' +
+          '<span class="fk-chip">' + fk.handedToday.length + ' handed over today</span>' +
+        '</span><span class="fk-chev">▼</span></div>' +
+        '<div class="fk-body"><div class="s">Pack within ' + fk.packHours + ' office hours · run to the Flipkart office next morning · confirm by ' + fk.confirmHour + ':00</div>' +
         '<div class="fk-cols">' +
           '<div class="fk-col" id="fkToPack"><h3>1 · To pack <b>(' + fk.toPack.length + ')</b></h3>' + col1 + '</div>' +
           '<div class="fk-col"><h3>2 · Packed, waiting for the run <b>(' + fk.packed.length + ')</b></h3>' + col2 + run + '</div>' +
           '<div class="fk-col"><h3>3 · Handed over today <b>(' + fk.handedToday.length + ')</b></h3>' + col3 + '</div>' +
-        '</div>';
+        '</div></div>';
+      document.getElementById('fkBar').addEventListener('click', function () {
+        FK_OPEN = !FK_OPEN;
+        lane.classList.toggle('open', FK_OPEN);
+        this.setAttribute('aria-expanded', FK_OPEN ? 'true' : 'false');
+      });
       bindFk(fk);
     }
     function fkSelected(fk) {
@@ -552,10 +573,6 @@
         .withFailureHandler(function (e) { if (btn) { btn.disabled = false; btn.textContent = 'Packed · RTD'; } toast(e.message, true); loadQueue(); })
         .fkMarkPacked({ trackerId: id });
     }
-    document.getElementById('fkBanner').addEventListener('click', function () {
-      var el = document.getElementById('fkToPack');
-      if (el && el.scrollIntoView) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    });
 
     function cardHtml(c) {
       var waitLine = '';
@@ -1017,7 +1034,8 @@
       document.getElementById('tabNote').textContent = '';
       document.getElementById('list').innerHTML = '<div class="empty">Sign in to see the queue.</div>';
       document.getElementById('fkLane').innerHTML = '';
-      document.getElementById('fkBanner').classList.remove('show');
+      document.getElementById('fkLane').className = 'fk-lane';
+      FK_OPEN = null; FK_SEEN = null;
     };
     // Keep the queue fresh on a phone left open on the floor (not while an order is open -- don't wipe a half-filled form).
     // Every minute (Flipkart orders are urgent). Not while an order is open -- don't wipe a half-filled form.
