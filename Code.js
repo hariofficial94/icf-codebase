@@ -3278,6 +3278,11 @@ function apiMap_() {
     var extra14 = waiverApiMap_();
     for (var k14 in extra14) map[k14] = extra14[k14];
   }
+  // Admin "Delete a record" pane (14 Nov 2026) -- DeleteRecords.gs.
+  if (typeof deleteRecordsApiMap_ === 'function') {
+    var extraDel = deleteRecordsApiMap_();
+    for (var kDel in extraDel) map[kDel] = extraDel[kDel];
+  }
   return map;
 }
 

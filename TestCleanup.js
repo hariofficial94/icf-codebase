@@ -65,7 +65,7 @@ function deleteTestEntries() {
 
   var lock = LockService.getScriptLock();
   if (!lock.tryLock(30000)) { ui.alert('Delete test entries', 'The tracker is busy – try again in a minute. Nothing was deleted.', ui.ButtonSet.OK); return; }
-  var ids = {}, filesTrashed = 0, otherRows = 0, report = [];
+  var ids = {}, filesTrashed = 0, otherRows = 0, report = [], staged = 0;
   try {
     // Re-read: rows may have moved while the dialog was open.
     last = getLastOrderRow_(tracker);
@@ -92,64 +92,9 @@ function deleteTestEntries() {
         .setValues(rows.map(function (x) { return [now].concat(x.values.map(function (v) { return v === null ? '' : v; })); }));
     }
 
-    // 2. Files to the Drive trash -- the linked ones, then every other copy in the tool's folders.
-    var trashedIds = {};
-    var trash = function (file) {
-      var fid = file.getId();
-      if (trashedIds[fid]) return;
-      try { file.setTrashed(true); trashedIds[fid] = true; filesTrashed++; } catch (e) { Logger.log('Could not trash ' + file.getName() + ': ' + e); }
-    };
-    rows.forEach(function (x) {
-      TEST_FILE_COLS.forEach(function (c) {
-        var url = String(x.values[HEADERS.indexOf(c)] || '');
-        var m = url.match(/\/d\/([A-Za-z0-9_-]+)/) || url.match(/[?&]id=([A-Za-z0-9_-]+)/);
-        if (!m) return;
-        try { trash(DriveApp.getFileById(m[1])); } catch (e) { Logger.log('Could not open ' + url + ': ' + e); }
-      });
-    });
-    var safeIds = rows.map(function (x) { return sanitizeForFilename(x.id).toLowerCase(); });
-    var dayAgo = Date.now() - 86400000, staged = 0;
-    [PDF_FOLDER_NAME, GATE_PASS_FOLDER_NAME, OPS_POSTAL_FOLDER_NAME, DOCS_FOLDER_NAME].forEach(function (fname) {
-      var it = DriveApp.getFoldersByName(fname);
-      while (it.hasNext()) {
-        var files = it.next().getFiles();
-        while (files.hasNext()) {
-          var f = files.next();
-          if (f.isTrashed()) continue;
-          var nm = f.getName();
-          if (testFileBelongs_(nm, safeIds)) trash(f);
-          else if (fname === DOCS_FOLDER_NAME && /^STAGED - /.test(nm) && f.getDateCreated().getTime() < dayAgo) { trash(f); staged++; }
-        }
-      }
-    });
-
-    // 3a. Tracker rows, bottom up
-    rows.sort(function (a, b) { return b.row - a.row; }).forEach(function (x) { tracker.deleteRow(x.row); });
-
-    // 3b. Every other tab with a "Tracker ID" column
-    ss.getSheets().forEach(function (sh) {
-      var name = sh.getName();
-      if (sh.getSheetId() === tracker.getSheetId() || name === TEST_ARCHIVE_SHEET_NAME || name === PINCODE_DIRECTORY_SHEET_NAME) return;
-      var lr = sh.getLastRow(), lc = sh.getLastColumn();
-      if (lr < 2 || lc < 1) return;
-      var hdr = sh.getRange(1, 1, 1, lc).getDisplayValues()[0].map(function (h) { return String(h).trim().toLowerCase(); });
-      var cols = [];
-      hdr.forEach(function (h, i) { if (TEST_ORDER_COLS.indexOf(h) !== -1) cols.push(i); });
-      if (!cols.length) return;
-      var vals = sh.getRange(2, 1, lr - 1, lc).getDisplayValues();
-      var del = [];
-      vals.forEach(function (v, i) {
-        if (cols.some(function (c) { return ids[String(v[c]).trim().toLowerCase()]; })) del.push(i + 2);
-      });
-      // Delete in runs of consecutive rows, bottom up.
-      for (var k = del.length - 1; k >= 0;) {
-        var end = del[k], start = end;
-        while (k - 1 >= 0 && del[k - 1] === start - 1) { k--; start--; }
-        sh.deleteRows(start, end - start + 1);
-        k--;
-      }
-      if (del.length) { otherRows += del.length; report.push(name + ': ' + del.length); }
-    });
+    // 2 + 3. Files, tracker rows and every other tab -- shared with the admin "Delete a record" pane.
+    var res = purgeOrders_(ss, tracker, rows, { sweepStaged: true });
+    filesTrashed = res.filesTrashed; staged = res.staged; otherRows = res.otherRows; report = res.report;
   } finally {
     lock.releaseLock();
   }
@@ -161,4 +106,98 @@ function deleteTestEntries() {
     'The tracker rows are kept in the "' + TEST_ARCHIVE_SHEET_NAME + '" tab – delete that tab whenever you like.';
   logActivity_({ code: 'SYSTEM', name: 'Delete test entries', role: '' }, 'Deleted test orders', '', Object.keys(ids).length + ' order(s)');
   ui.alert('Delete test entries', msg, ui.ButtonSet.OK);
+}
+
+/**
+ * Removes orders completely: their files (linked ones and every other copy
+ * in the tool's folders) go to the Drive trash, their Tracker rows are
+ * deleted, and so is every row in any other tab with a "Tracker ID" or
+ * "Came With Order" column naming them. The caller holds the script lock.
+ * rows = [{ row, id, values }] (values = the full Tracker row, HEADERS order).
+ * opts.sweepStaged: also trash unused upload leftovers older than a day.
+ * Used by deleteTestEntries and by the admin "Delete a record" pane (DeleteRecords.js).
+ */
+function purgeOrders_(ss, tracker, rows, opts) {
+  opts = opts || {};
+  var filesTrashed = 0, staged = 0, otherRows = 0, report = [];
+  var ids = {};
+  rows.forEach(function (x) { ids[String(x.id).trim().toLowerCase()] = true; });
+
+  var trashedIds = {};
+  var trash = function (file) {
+    var fid = file.getId();
+    if (trashedIds[fid]) return;
+    try { file.setTrashed(true); trashedIds[fid] = true; filesTrashed++; } catch (e) { Logger.log('Could not trash ' + file.getName() + ': ' + e); }
+  };
+  rows.forEach(function (x) {
+    TEST_FILE_COLS.forEach(function (c) {
+      var url = String(x.values[HEADERS.indexOf(c)] || '');
+      var m = url.match(/\/d\/([A-Za-z0-9_-]+)/) || url.match(/[?&]id=([A-Za-z0-9_-]+)/);
+      if (!m) return;
+      try { trash(DriveApp.getFileById(m[1])); } catch (e) { Logger.log('Could not open ' + url + ': ' + e); }
+    });
+  });
+  var safeIds = rows.map(function (x) { return sanitizeForFilename(x.id).toLowerCase(); });
+  var dayAgo = Date.now() - 86400000;
+  [PDF_FOLDER_NAME, GATE_PASS_FOLDER_NAME, OPS_POSTAL_FOLDER_NAME, DOCS_FOLDER_NAME].forEach(function (fname) {
+    var it = DriveApp.getFoldersByName(fname);
+    while (it.hasNext()) {
+      var files = it.next().getFiles();
+      while (files.hasNext()) {
+        var f = files.next();
+        if (f.isTrashed()) continue;
+        var nm = f.getName();
+        if (testFileBelongs_(nm, safeIds)) trash(f);
+        else if (opts.sweepStaged && fname === DOCS_FOLDER_NAME && /^STAGED - /.test(nm) && f.getDateCreated().getTime() < dayAgo) { trash(f); staged++; }
+      }
+    }
+  });
+
+  // Tracker rows, bottom up
+  rows.slice().sort(function (a, b) { return b.row - a.row; }).forEach(function (x) { tracker.deleteRow(x.row); });
+
+  // Every other tab that names the order
+  orderRefRows_(ss, tracker, ids).forEach(function (t) {
+    var del = t.rows;
+    for (var k = del.length - 1; k >= 0;) { // runs of consecutive rows, bottom up
+      var end = del[k], start = end;
+      while (k - 1 >= 0 && del[k - 1] === start - 1) { k--; start--; }
+      t.sheet.deleteRows(start, end - start + 1);
+      k--;
+    }
+    otherRows += del.length;
+    report.push(t.name + ': ' + del.length);
+  });
+  return { filesTrashed: filesTrashed, staged: staged, otherRows: otherRows, report: report };
+}
+
+/**
+ * Rows in tabs other than the Tracker that name one of these orders (ids =
+ * { lower-case id: true }) in a "Tracker ID" or "Came With Order" column.
+ * Returns [{ sheet, name, rows: [sheet row numbers, ascending] }]. The archive,
+ * the pincode directory and the Deletion Log are never touched.
+ */
+function orderRefRows_(ss, tracker, ids) {
+  var skip = {};
+  skip[TEST_ARCHIVE_SHEET_NAME] = true;
+  skip[PINCODE_DIRECTORY_SHEET_NAME] = true;
+  if (typeof DELETION_LOG_SHEET_NAME !== 'undefined') skip[DELETION_LOG_SHEET_NAME] = true;
+  var out = [];
+  ss.getSheets().forEach(function (sh) {
+    var name = sh.getName();
+    if (sh.getSheetId() === tracker.getSheetId() || skip[name]) return;
+    var lr = sh.getLastRow(), lc = sh.getLastColumn();
+    if (lr < 2 || lc < 1) return;
+    var hdr = sh.getRange(1, 1, 1, lc).getDisplayValues()[0].map(function (h) { return String(h).trim().toLowerCase(); });
+    var cols = [];
+    hdr.forEach(function (h, i) { if (TEST_ORDER_COLS.indexOf(h) !== -1) cols.push(i); });
+    if (!cols.length) return;
+    var vals = sh.getRange(2, 1, lr - 1, lc).getDisplayValues();
+    var del = [];
+    vals.forEach(function (v, i) {
+      if (cols.some(function (c) { return ids[String(v[c]).trim().toLowerCase()]; })) del.push(i + 2);
+    });
+    if (del.length) out.push({ sheet: sh, name: name, rows: del });
+  });
+  return out;
 }

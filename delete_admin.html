@@ -1,0 +1,139 @@
+<!--
+  "Delete a record" on the Admin page (14 Nov 2026). Pulled in by admin.html with
+  <?!= include('delete_admin'); ?> near the end of <body>. Adds one card at the bottom of the page.
+  Find an order or rental -> see everything that will be removed and any warnings ->
+  give a reason and type the ID -> delete. Server side: DeleteRecords.js.
+-->
+<style>
+  .dl-card { border-left: 4px solid #B00020; }
+  .dl-card h2 { color: #B00020; }
+  .dl-find { display: flex; gap: 8px; margin-top: 10px; }
+  .dl-find input { flex: 1; }
+  .dl-find button { width: auto; margin: 0; }
+  .dl-box { margin-top: 12px; padding: 12px 14px; border: 1px solid #ddd; border-radius: 6px; background: #fafafa; font-size: 13px; }
+  .dl-name { font-size: 14.5px; font-weight: 700; color: #1F3864; }
+  .dl-kind { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 10px; background: #eef1f4; color: #1F3864; margin-right: 6px; }
+  .dl-facts { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 8px; }
+  .dl-facts div { font-size: 12px; color: #666; }
+  .dl-facts b { display: block; font-size: 14px; color: #1F3864; }
+  .dl-list { margin: 6px 0 0 18px; padding: 0; }
+  .dl-list li { margin: 2px 0; }
+  .dl-warn { margin-top: 8px; padding: 8px 10px; background: #fff6e5; border-left: 3px solid #c77700; color: #6b4300; }
+  .dl-block { margin-top: 8px; padding: 8px 10px; background: #fdecee; border-left: 3px solid #B00020; color: #8a0019; }
+  .dl-box textarea { width: 100%; box-sizing: border-box; margin-top: 4px; }
+  .dl-go { background: #B00020; }
+  .dl-pick { padding: 7px 10px; border: 1px solid #ddd; border-radius: 4px; margin-top: 6px; cursor: pointer; background: #fff; }
+  .dl-pick:hover { border-color: #B00020; }
+</style>
+
+<script>
+(function () {
+  function esc(t) { return String(t == null ? '' : t).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+  function inr(n) { var v = Math.round((Number(n) || 0) * 100) / 100; return '₹' + v.toLocaleString('en-IN'); }
+
+  var card = document.createElement('div');
+  card.className = 'card dl-card';
+  card.innerHTML =
+    '<h2>Delete a record</h2>' +
+    '<div class="subtitle">For an entry made by mistake – a duplicate order, the wrong customer, a rental logged twice. ' +
+      'The order or rental is removed from every tab, list and dashboard, and its files go to the Drive trash. This can’t be undone. ' +
+      'Only one line is kept, in the Deletion Log tab: what was deleted, by whom, when and why. ' +
+      'For a real order that just isn’t going ahead, use cancellation instead.</div>' +
+    '<div class="dl-find"><input type="text" id="dlQ" placeholder="Quotation no., rental ID, phone or customer name"><button type="button" id="dlFind">Find</button></div>' +
+    '<div id="dlOut"></div>' +
+    '<details style="margin-top:14px;"><summary>Recent deletions</summary><div class="table-scroll" id="dlRecent"></div></details>';
+  var wrap = document.querySelector('.wrap');
+  if (wrap) wrap.appendChild(card);
+
+  function loadRecent() {
+    authRun()
+      .withSuccessHandler(function (rows) {
+        rows = rows || [];
+        document.getElementById('dlRecent').innerHTML = rows.length
+          ? '<table><tr><th>When</th><th>Deleted</th><th>Stage</th><th>By</th><th>Reason</th></tr>' + rows.map(function (r) {
+              return '<tr><td>' + esc(r.at) + '</td><td>' + esc(r.kind) + ' ' + esc(r.id) + '<div class="sub">' + esc(r.customer) + '</div></td>' +
+                '<td>' + esc(r.stage) + '</td><td>' + esc(r.by) + '</td><td>' + esc(r.reason) + '</td></tr>';
+            }).join('') + '</table>'
+          : '<div class="empty">Nothing deleted yet.</div>';
+      })
+      .withFailureHandler(function () {})
+      .getDeletionLog();
+  }
+
+  function find(q) {
+    var out = document.getElementById('dlOut');
+    q = String(q || '').trim();
+    if (!q) return;
+    out.innerHTML = '<div class="dl-box">Looking up…</div>';
+    authRun()
+      .withSuccessHandler(function (o) {
+        if (o.matches) {
+          out.innerHTML = '<div class="dl-box">Several records match – choose one:' + o.matches.map(function (m) {
+            return '<div class="dl-pick" data-id="' + esc(m.id) + '"><span class="dl-kind">' + (m.kind === 'rental' ? 'Rental' : 'Order') + '</span><b>' +
+              esc(m.customer) + '</b> · ' + esc(m.id) + ' · ' + esc(m.status) + '</div>';
+          }).join('') + '</div>';
+          Array.prototype.forEach.call(out.querySelectorAll('.dl-pick'), function (el) { el.addEventListener('click', function () { find(el.getAttribute('data-id')); }); });
+          return;
+        }
+        render(o);
+      })
+      .withFailureHandler(function (e) { out.innerHTML = '<div class="msg show err">' + esc(e.message) + '</div>'; })
+      .getDeletePreview(q);
+  }
+
+  function render(o) {
+    var out = document.getElementById('dlOut');
+    var label = o.kind === 'rental' ? 'Rental' : 'Order';
+    var tabs = (o.tabs || []).map(function (t) { return '<li>' + esc(t.tab) + ': ' + t.rows + ' row' + (t.rows === 1 ? '' : 's') + '</li>'; });
+    tabs.unshift('<li>' + (o.kind === 'rental' ? 'The rental itself' : 'The order row in the Tracker') + '</li>');
+    if (o.files) tabs.push('<li>' + o.files + ' linked file' + (o.files === 1 ? '' : 's') + (o.kind === 'rental' ? ' plus photos and gate passes' : ' plus any other copies (POs, gate passes)') + ' → Drive trash</li>');
+    if (o.items) tabs.push('<li>' + o.items + ' item' + (o.items === 1 ? '' : 's') + ' released back to the yard (not deleted)</li>');
+    var blocked = (o.blockers || []).length > 0;
+
+    out.innerHTML = '<div class="dl-box">' +
+      '<div><span class="dl-kind">' + label + '</span><span class="dl-name">' + esc(o.customer) + '</span></div>' +
+      '<div class="sub">' + esc(o.id) + (o.cre ? ' · CRE ' + esc(o.cre) : '') + (o.phone ? ' · ' + esc(o.phone) : '') + (o.orderType && o.orderType !== 'Standard' ? ' · ' + esc(o.orderType) : '') + '</div>' +
+      '<div class="dl-facts"><div>Stage<b>' + esc(o.stage) + '</b></div><div>Value<b>' + inr(o.total) + '</b></div><div>Received<b>' + inr(o.received) + '</b></div></div>' +
+      '<div style="margin-top:10px;"><b>What will be removed</b><ul class="dl-list">' + tabs.join('') + '</ul></div>' +
+      (o.warnings || []).map(function (w) { return '<div class="dl-warn">' + esc(w) + '</div>'; }).join('') +
+      (o.blockers || []).map(function (b) { return '<div class="dl-block">' + esc(b) + '</div>'; }).join('') +
+      (blocked ? '' :
+        '<label style="margin-top:12px;display:block;">Why is it being deleted? (kept in the Deletion Log)</label>' +
+        '<textarea id="dlReason" rows="2" placeholder="e.g. Logged twice by mistake – the real order is ICESPL-6480-26-27"></textarea>' +
+        '<label style="margin-top:8px;display:block;">Type <b>' + esc(o.id) + '</b> to confirm</label>' +
+        '<input type="text" id="dlConfirm" autocomplete="off">' +
+        '<div class="actions"><button type="button" class="dl-go" id="dlGo">Delete ' + label.toLowerCase() + ' permanently</button>' +
+        '<button type="button" class="secondary" id="dlCancel">Cancel</button></div>') +
+      '<div class="msg" id="dlMsg"></div></div>';
+
+    if (blocked) return;
+    document.getElementById('dlCancel').addEventListener('click', function () { out.innerHTML = ''; });
+    var go = document.getElementById('dlGo');
+    go.addEventListener('click', function () {
+      var reason = document.getElementById('dlReason').value.trim();
+      var typed = document.getElementById('dlConfirm').value.trim();
+      var msg = document.getElementById('dlMsg');
+      if (reason.length < 5) { msg.textContent = 'Say why it’s being deleted.'; msg.className = 'msg show err'; return; }
+      if (typed.toLowerCase() !== String(o.id).toLowerCase()) { msg.textContent = 'Type the ID exactly as shown: ' + o.id; msg.className = 'msg show err'; return; }
+      if (!window.confirm('Delete ' + label.toLowerCase() + ' ' + o.id + ' (' + o.customer + ') permanently?\n\nThis can’t be undone.')) return;
+      go.disabled = true; go.textContent = 'Deleting…';
+      authRun()
+        .withSuccessHandler(function (r) {
+          out.innerHTML = '<div class="dl-box"><div class="msg show ok">' + esc(r.summary) + '</div></div>';
+          document.getElementById('dlQ').value = '';
+          loadRecent();
+          if (typeof window.ICF_RELOAD === 'function') window.ICF_RELOAD();
+        })
+        .withFailureHandler(function (e) {
+          go.disabled = false; go.textContent = 'Delete ' + label.toLowerCase() + ' permanently';
+          msg.textContent = e.message; msg.className = 'msg show err';
+        })
+        .deleteRecord({ kind: o.kind, id: o.id, reason: reason, confirmId: typed });
+    });
+  }
+
+  document.getElementById('dlFind').addEventListener('click', function () { find(document.getElementById('dlQ').value); });
+  document.getElementById('dlQ').addEventListener('keydown', function (e) { if (e.key === 'Enter') find(this.value); });
+  loadRecent();
+})();
+</script>

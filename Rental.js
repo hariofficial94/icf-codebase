@@ -1859,10 +1859,36 @@ function deleteRentalTestEntries() {
 function rnDeleteTestRentals_(ids) {
   var lock = LockService.getScriptLock();
   if (!lock.tryLock(30000)) return 'The sheet is busy – try again in a minute. Nothing was deleted.';
-  var want = {};
-  ids.forEach(function (x) { want[x] = true; });
-  var report = [], removedItems = 0, released = 0, files = 0;
+  var r;
   try {
+    r = rnPurgeRentals_(ids, {});
+  } finally {
+    lock.releaseLock();
+  }
+  logActivity_({ code: 'SYSTEM', name: 'Delete rental test entries', role: '' }, 'Deleted test rentals', '', ids.length + ' rental(s): ' + ids.join(', '));
+  return 'Deleted ' + ids.length + ' test rental(s). ' + r.removedItems + ' test-tagged item(s) deleted and added back to the untagged yard count' +
+    (r.released ? ', ' + r.released + ' borrowed item(s) released' : '') + '. ' + r.files + ' file(s) moved to the Drive trash. Rows removed: ' + (r.report.join(', ') || 'none') + '.';
+}
+
+/**
+ * Removes rentals from every Rental tab, the Activity Log and the Notification
+ * Log, and trashes their files. The caller holds the script lock.
+ * ids = upper-case rental IDs.
+ * Items:
+ *   - test mode (default): items TAGGED for these rentals that no other rental
+ *     has are deleted and added back to "Untagged In Yard"; borrowed items are released.
+ *   - opts.real (admin "Delete a record", DeleteRecords.js): a real rental's
+ *     tagged items carry a stencilled ID, so they are never deleted -- every
+ *     item on the rental is released back to Available and its "Tagged For"
+ *     link to the deleted rental is cleared.
+ * Returns { removedItems, released, files, report }.
+ */
+function rnPurgeRentals_(ids, opts) {
+  opts = opts || {};
+  var want = {};
+  ids.forEach(function (x) { want[String(x).toUpperCase()] = true; });
+  var report = [], removedItems = 0, released = 0, files = 0;
+  {
     var ctx = rnLoad_();
     var urls = [];
     ctx.orders.rows.forEach(function (o) { if (want[String(o['Rental ID']).toUpperCase()] && o['Agreement URL']) urls.push(String(o['Agreement URL'])); });
@@ -1886,6 +1912,19 @@ function rnDeleteTestRentals_(ids) {
     var delItems = [];
     ctx.items.rows.forEach(function (it) {
       var cur = String(it['Rental ID'] || '').toUpperCase(), tagged = String(it['Tagged For'] || '').toUpperCase();
+      if (opts.real) {
+        if (cur && want[cur]) {
+          // Lost / scrapped / under repair / being inspected keep their status -- only the link goes.
+          var keep = [RI_INSPECTION, RI_REPAIR, RI_LOST, RI_SCRAPPED].indexOf(String(it['Status'])) !== -1;
+          var f = { 'Rental ID': '', 'Trip ID': '', 'Deployment ID': '' };
+          if (!keep) f['Status'] = RI_AVAILABLE;
+          rnSet_(ctx.items, it, f);
+          rnItemHistory_(ctx.items, it, (keep ? 'Unlinked' : 'Released') + ' – rental ' + cur + ' deleted by the admin', null);
+          released++;
+        }
+        if (want[tagged]) rnSet_(ctx.items, it, { 'Tagged For': '' });
+        return;
+      }
       if (want[tagged] && (!cur || want[cur])) {
         delItems.push(it._row);
         var k = it['Category'] + '|' + it['Type'];
@@ -1922,10 +1961,6 @@ function rnDeleteTestRentals_(ids) {
       del.sort(function (a, b) { return b - a; }).forEach(function (r) { sh.deleteRow(r); });
       if (del.length) report.push(name + ': ' + del.length);
     });
-  } finally {
-    lock.releaseLock();
   }
-  logActivity_({ code: 'SYSTEM', name: 'Delete rental test entries', role: '' }, 'Deleted test rentals', '', ids.length + ' rental(s): ' + ids.join(', '));
-  return 'Deleted ' + ids.length + ' test rental(s). ' + removedItems + ' test-tagged item(s) deleted and added back to the untagged yard count' +
-    (released ? ', ' + released + ' borrowed item(s) released' : '') + '. ' + files + ' file(s) moved to the Drive trash. Rows removed: ' + (report.join(', ') || 'none') + '.';
+  return { removedItems: removedItems, released: released, files: files, report: report };
 }
