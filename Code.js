@@ -1308,7 +1308,7 @@ function generateWrapperPdf(trackerId, dateLogged, institution, creName, total, 
   pay.line('PAYMENT TERMS  ·  ' + termLabel.toUpperCase(), { size: 8, color: PO_GREY });
   pay.line(termText, { size: 13, bold: true, after: 5 });
   pay.pairs([['Advance received', advancePct + '%'], ['Verified by', sys.verifiedBy]]);
-  pay.pairs([['Verified on', sys.verifiedAt], ['UTR', sys.utr]]);
+  pay.pairs([['Verified on', sys.verifiedAt], ['UTR', poMaskUtr_(sys.utr)]]);
 
   var codeCell = r2.getCell(0, 1);
   var code = poWriter_(codeCell);
@@ -1469,6 +1469,16 @@ function poLogoBlob_() {
     }
   } catch (e) { Logger.log('poLogoBlob_: ' + e); }
   return null;
+}
+
+/**
+ * Ops don't need the bank reference, so the PO shows only its last 4
+ * characters (enough for Accounts to match it if Ops ever asks).
+ */
+function poMaskUtr_(utr) {
+  var u = String(utr || '').replace(/\s+/g, '');
+  if (!u) return '';
+  return u.length <= 4 ? '\u2022\u2022\u2022\u2022' : '\u2022\u2022\u2022\u2022' + u.slice(-4);
 }
 
 /** Run once from the editor after replacing the logo file. */
