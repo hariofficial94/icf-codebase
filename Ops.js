@@ -483,7 +483,8 @@ function opsBuildPo_(sheet, row) {
   var f = getRowFields(sheet, row, ['Tracker ID', 'Date Logged', 'Institution / Customer', 'CRE Name', 'Total Order Value',
     'Advance Received', 'Customer Requested Delivery Date', 'Priority Level', 'Payment Terms Type', 'State', 'District',
     'Pincode', 'Dispatch Type', 'Verified By', 'Verified Date', 'Verification Code', 'Bank Reference / UTR',
-    'Picked Up By', 'Received by Ops Timestamp', 'Ops Cutover', 'Order Type', 'DACC Transporter']);
+    'Picked Up By', 'Received by Ops Timestamp', 'Ops Cutover', 'Order Type', 'DACC Transporter',
+    'Customer Phone Number', 'Site Readiness Confirmed']);
   var id = String(f['Tracker ID']);
   var total = Number(f['Total Order Value']) || 0, advance = Number(f['Advance Received']) || 0;
   var pct = total > 0 ? Math.round((advance / total) * 1000) / 10 : 0;
@@ -497,7 +498,10 @@ function opsBuildPo_(sheet, row) {
       utr: String(f['Bank Reference / UTR'] || ''),
       pickedUpBy: String(f['Picked Up By'] || '') || (String(f['Ops Cutover'] || '').toUpperCase() === 'Y' ? 'With Ops at go-live' : ''),
       pickedUpAt: pickedAt,
-      dacc: normalizeOrderType_(f['Order Type']) === ORDER_TYPE_DACC ? (String(f['DACC Transporter'] || '') || 'the transporter') : ''
+      dacc: normalizeOrderType_(f['Order Type']) === ORDER_TYPE_DACC ? (String(f['DACC Transporter'] || '') || 'the transporter') : '',
+      customerPhone: String(f['Customer Phone Number'] || '').trim(),
+      crePhone: poCrePhone_(f['CRE Name']),
+      siteReady: String(f['Site Readiness Confirmed'] || '')
     });
   setRowFields(sheet, row, { 'Wrapper PO PDF URL': url });
   return url;

@@ -1185,92 +1185,189 @@ function lookupPincodeFromApi(trimmed) {
  * everything the system already knows is printed rather than hand-written:
  * who verified the payment and when, the verification code, the UTR, and
  * who picked it up and when. The order value is NOT printed -- only the
- * advance as a % of it. sys = { verifiedBy, verifiedAt, verificationCode,
- * utr, pickedUpBy, pickedUpAt } (all strings).
+ * advance as a % of it.
+ *
+ * Layout (Nov 2026 relayout, for Ops readability on a black-and-white
+ * printer): no "label | value" rows. The page is split into asymmetric panes
+ * -- a wide left pane and a narrow right pane -- with the four things Ops
+ * needs most printed largest: where it goes (with the customer's phone),
+ * when it is due, and the payment terms.
+ *
+ *   [logo] [Tracker ID / logged / CRE]                  [PRIORITY]
+ *   [ Deliver to: name, district, PIN, phones ] [ DELIVER BY (reverse) ]
+ *   [ Payment terms + advance %, verifier, UTR ] [ Verification code   ]
+ *   [ Items                                    ] [ Ops handoff         ]
+ *   [ Site readiness checked | tick box | checked by / time ]   (vehicle only)
+ *   [ Remarks / linked Tracker ID (handwritten) ] [ Attach behind     ]
+ *
+ * sys = { verifiedBy, verifiedAt, verificationCode, utr, pickedUpBy,
+ *         pickedUpAt, dacc, customerPhone, crePhone, siteReady } (strings).
+ *
+ * Logo: drop a PNG/JPG whose name starts with "PO Logo" into the
+ * "ICF Wrapper POs" Drive folder. It is picked up automatically; to swap it,
+ * replace the file (and run resetPoLogoCache once). With no logo file the
+ * corner simply prints "ICF GROUP".
  */
+var PO_INK = '#000000';
+var PO_GREY = '#555555';
+var PO_LOGO_PROP = 'PO_LOGO_FILE_ID';
+
 function generateWrapperPdf(trackerId, dateLogged, institution, creName, total, advance, advancePct, requestedDeliveryDate, priority, paymentTermsType, state, district, pincode, lineItems, dispatchType, sys) {
   sys = sys || {};
+  var tz = Session.getScriptTimeZone();
   var isCourier = dispatchType === DISPATCH_COURIER;
   var folder = getOrCreateFolder(PDF_FOLDER_NAME);
   var safeName = sanitizeForFilename(trackerId);
   var doc = DocumentApp.create('Wrapper PO - ' + safeName);
   var body = doc.getBody();
-  body.setMarginTop(36).setMarginBottom(36).setMarginLeft(50).setMarginRight(50);
+  body.setMarginTop(30).setMarginBottom(30).setMarginLeft(36).setMarginRight(36);
+  var W = Math.floor(body.getPageWidth() - 72);
+  var L = Math.round(W * 0.62), R = W - L;
 
-  var kicker = body.appendParagraph('ICF GROUP');
-  kicker.editAsText().setBold(true).setFontSize(11).setForegroundColor('#1F3864');
+  // The new doc starts with one empty paragraph -- shrink it so it adds no gap.
+  poStyle_(body.getChild(0).asParagraph(), { size: 2 });
 
-  if (priority === 'High' || priority === 'Medium') {
-    var flag = body.appendParagraph(priority === 'High' ? 'PRIORITY: HIGH \u2013 AFFIX RED STICKER' : 'PRIORITY: MEDIUM \u2013 AFFIX YELLOW STICKER');
-    flag.editAsText().setBold(true).setFontSize(13).setForegroundColor(priority === 'High' ? '#B00020' : '#B07800');
-    flag.setSpacingAfter(6);
+  // ---- Header: logo | reference | priority (no borders) -----------------
+  var head = poTable_(body, [92, W - 92 - 150, 150], 0);
+  var logoCell = head.getCell(0, 0);
+  var logo = poLogoBlob_();
+  if (logo) {
+    try {
+      var img = logoCell.getChild(0).asParagraph().appendInlineImage(logo);
+      var iw = img.getWidth(), ih = img.getHeight();
+      if (iw > 0) img.setWidth(84).setHeight(Math.round(ih * 84 / iw));
+    } catch (e) { logo = null; }
   }
+  if (!logo) poWriter_(logoCell).line('ICF GROUP', { size: 12, bold: true });
+  logoCell.setVerticalAlignment(DocumentApp.VerticalAlignment.CENTER);
+
+  var ref = poWriter_(head.getCell(0, 1));
+  ref.line('ICF GROUP  ·  INTERNAL PURCHASE ORDER', { size: 8, color: PO_GREY });
+  ref.line(String(trackerId), { size: 17, bold: true, mono: true });
+  var loggedStr = dateLogged instanceof Date ? Utilities.formatDate(dateLogged, tz, 'dd-MMM-yyyy') : String(dateLogged || '');
+  ref.line('Logged ' + loggedStr + '  ·  CRE ' + (creName || '—'), { size: 8, color: PO_GREY });
+  head.getCell(0, 1).setVerticalAlignment(DocumentApp.VerticalAlignment.CENTER);
+
+  var pri = poWriter_(head.getCell(0, 2));
+  var right = DocumentApp.HorizontalAlignment.RIGHT;
+  if (priority === 'High' || priority === 'Medium') {
+    pri.line('PRIORITY: ' + priority.toUpperCase(), { size: 15, bold: true, align: right });
+    pri.line('Affix ' + (priority === 'High' ? 'RED' : 'YELLOW') + ' sticker here →', { size: 8, color: PO_GREY, align: right });
+  } else {
+    pri.line('Priority: Normal', { size: 10, color: PO_GREY, align: right });
+  }
+  head.getCell(0, 2).setVerticalAlignment(DocumentApp.VerticalAlignment.CENTER);
+
+  body.appendHorizontalRule();
+  poSpacer_(body, 2);
 
   if (isCourier) {
-    var cflag = body.appendParagraph('COURIER DISPATCH \u2013 NO VEHICLE, E-WAY BILL OR GATE PASS');
-    cflag.editAsText().setBold(true).setFontSize(12).setForegroundColor('#2E74B5');
-    cflag.setSpacingAfter(6);
+    poWriter_(poTable_(body, [W], 1.5).getCell(0, 0))
+      .line('COURIER DISPATCH – NO VEHICLE, E-WAY BILL OR GATE PASS', { size: 11, bold: true, align: DocumentApp.HorizontalAlignment.CENTER });
+    poSpacer_(body, 4);
   }
 
-  var h = body.appendParagraph('Internal Purchase Order \u2013 Wrapper');
-  h.editAsText().setBold(true).setFontSize(18).setForegroundColor('#1F3864');
-  h.setSpacingAfter(4);
+  // ---- Row 1: Deliver to | Deliver by ----------------------------------
+  var r1 = poTable_(body, [L, R], 1.5);
+  var to = poWriter_(r1.getCell(0, 0));
+  to.line('DELIVER TO', { size: 8, color: PO_GREY });
+  to.line(institution || '—', { size: 15, bold: true });
+  to.line([district, state].filter(function (v) { return v; }).join(', ') || '—', { size: 12 });
+  to.line('PIN ' + (pincode || '—'), { size: 15, bold: true, mono: true, after: 6 });
+  to.line('CUSTOMER PHONE', { size: 8, color: PO_GREY });
+  if (sys.customerPhone) to.line(String(sys.customerPhone), { size: 20, bold: true, mono: true });
+  else to.line('Not given – call the CRE', { size: 12, bold: true });
+  var creLine = to.line('If the customer can’t be reached, call CRE ' + (creName || '') + (sys.crePhone ? ': ' : ''), { size: 8, color: PO_GREY, before: 4 });
+  if (sys.crePhone) creLine.appendText(String(sys.crePhone)).setFontSize(10).setBold(true).setForegroundColor(PO_INK).setFontFamily('Roboto Mono');
 
-  var sub = body.appendParagraph(
-    'Printed by Operations from the ICF Order Tracker when the order was picked up. Every field below comes from the system – nothing to fill by hand except remarks.'
-  );
-  sub.editAsText().setItalic(true).setFontSize(9).setForegroundColor('#595959');
-  sub.setSpacingAfter(10);
+  var byCell = r1.getCell(0, 1);
+  byCell.setBackgroundColor('#000000');
+  var by = poWriter_(byCell);
+  var dd = requestedDeliveryDate ? new Date(requestedDeliveryDate) : null;
+  if (dd && isNaN(dd.getTime())) dd = null;
+  by.line('DELIVER BY', { size: 8, color: '#FFFFFF' });
+  by.line(dd ? Utilities.formatDate(dd, tz, 'dd MMM') : 'Not set', { size: dd ? 30 : 16, bold: true, color: '#FFFFFF' });
+  by.line(dd ? Utilities.formatDate(dd, tz, 'EEEE, yyyy') : '', { size: 10, color: '#FFFFFF', after: 10 });
+  by.line('DISPATCH', { size: 8, color: '#FFFFFF' });
+  by.line(isCourier ? 'Courier / Post' : 'Vehicle', { size: 14, bold: true, color: '#FFFFFF' });
+  byCell.setVerticalAlignment(DocumentApp.VerticalAlignment.CENTER);
+  poSpacer_(body, 4);
 
-  if (sys.verificationCode) {
-    var codeLine = body.appendParagraph('Verification code: ' + sys.verificationCode);
-    codeLine.editAsText().setBold(true).setFontSize(16).setForegroundColor('#1F3864');
-    codeLine.setSpacingAfter(6);
+  // ---- Row 2: Payment | Verification code ------------------------------
+  var r2 = poTable_(body, [L, R], 1.5);
+  var pay = poWriter_(r2.getCell(0, 0));
+  var termLabel, termText;
+  if (paymentTermsType === 'PO Customer') {
+    termLabel = 'PO customer'; termText = 'Partial / deferred payment allowed';
+  } else if (paymentTermsType === 'Flipkart') {
+    termLabel = 'Flipkart order'; termText = 'Paid through Flipkart – hand over at the Flipkart office';
+  } else {
+    termLabel = 'End customer';
+    termText = 'Full payment before dispatch' + (sys.dacc ? ' (DACC: balance collected at ' + sys.dacc + '’s warehouse before release)' : '');
+  }
+  pay.line('PAYMENT TERMS  ·  ' + termLabel.toUpperCase(), { size: 8, color: PO_GREY });
+  pay.line(termText, { size: 13, bold: true, after: 5 });
+  pay.pairs([['Advance received', advancePct + '%'], ['Verified by', sys.verifiedBy]]);
+  pay.pairs([['Verified on', sys.verifiedAt], ['UTR', sys.utr]]);
+
+  var codeCell = r2.getCell(0, 1);
+  var code = poWriter_(codeCell);
+  var centre = DocumentApp.HorizontalAlignment.CENTER;
+  code.line('VERIFICATION CODE', { size: 8, color: PO_GREY, align: centre });
+  code.line(sys.verificationCode || '—', { size: 24, bold: true, mono: true, align: centre });
+  codeCell.setVerticalAlignment(DocumentApp.VerticalAlignment.CENTER);
+  poSpacer_(body, 4);
+
+  // ---- Row 3: Items | Ops handoff --------------------------------------
+  var r3 = poTable_(body, [L, R], 0.75);
+  var items = poWriter_(r3.getCell(0, 0));
+  items.line('ITEMS', { size: 8, color: PO_GREY, after: 2 });
+  var list = (lineItems && lineItems.length) ? lineItems : [];
+  if (!list.length) items.line('No products on record', { size: 10 });
+  list.forEach(function (it) {
+    var q = it.quantity === '' || it.quantity == null ? '' : String(it.quantity) + (Number(it.quantity) === 1 ? ' unit' : ' units');
+    var p = items.line(q ? q + '   ' : '', { size: 11, bold: true, after: 2 });
+    p.appendText(String(it.product)).setBold(false).setFontSize(10.5).setForegroundColor(PO_INK).setFontFamily('Arial');
+  });
+
+  var ops = poWriter_(r3.getCell(0, 1));
+  ops.line(isCourier ? 'OPERATIONS' : 'OPS HANDOFF', { size: 8, color: PO_GREY, after: 2 });
+  ops.pairs([['Picked up by', sys.pickedUpBy]]);
+  ops.pairs([['At', sys.pickedUpAt]]);
+  ops.line(isCourier ? 'Courier, tracking no. and receipt photo go on the Operations page.'
+                     : 'Vehicle and gate pass are recorded on the Operations page.', { size: 8, color: PO_GREY, before: 3 });
+  poSpacer_(body, 4);
+
+  // ---- Row 4: Site readiness tick (vehicle orders only) ----------------
+  if (!isCourier) {
+    var r4 = poTable_(body, [L - 34, 34, R], 1.5);
+    var srW = poWriter_(r4.getCell(0, 0));
+    srW.line('SITE READINESS CHECKED', { size: 10, bold: true });
+    srW.line('Tick once the customer confirms the site is ready to receive.', { size: 8, color: PO_GREY });
+    var box = poWriter_(r4.getCell(0, 1));
+    box.line(String(sys.siteReady || '').toUpperCase() === 'Y' ? 'Y' : '', { size: 16, bold: true, align: centre });
+    r4.getCell(0, 1).setVerticalAlignment(DocumentApp.VerticalAlignment.CENTER);
+    var srBy = poWriter_(r4.getCell(0, 2));
+    srBy.line('CHECKED BY / DATE & TIME', { size: 8, color: PO_GREY });
+    srBy.line('', { size: 14 });
+    r4.getCell(0, 0).setVerticalAlignment(DocumentApp.VerticalAlignment.CENTER);
+    poSpacer_(body, 4);
   }
 
-  var deliveryDateStr = requestedDeliveryDate
-    ? Utilities.formatDate(new Date(requestedDeliveryDate), Session.getScriptTimeZone(), 'dd-MMM-yyyy')
-    : '';
+  // ---- Row 5: Remarks | Attachments ------------------------------------
+  var r5 = poTable_(body, [L, R], 0.75);
+  var rem = poWriter_(r5.getCell(0, 0));
+  rem.line('REMARKS / LINKED TRACKER ID  (write by hand)', { size: 8, color: PO_GREY });
+  rem.line('', { size: 16 });
+  rem.line('', { size: 16 });
+  rem.line('', { size: 16 });
+  var att = poWriter_(r5.getCell(0, 1));
+  att.line('ATTACH BEHIND THIS SHEET', { size: 8, color: PO_GREY, after: 3 });
+  att.line('[   ]  CRM-generated PO', { size: 10, after: 3 });
+  att.line('[   ]  Customer’s own PO', { size: 10 });
 
-  appendSectionTable(body, '1. Order Reference', [
-    ['Tracker ID', trackerId],
-    ['Date', dateLogged instanceof Date ? Utilities.formatDate(dateLogged, Session.getScriptTimeZone(), 'dd-MMM-yyyy') : String(dateLogged || '')],
-    ['Institution / Customer Name', institution],
-    ['CRE Name', creName],
-    ['Location (District, State)', [district, state].filter(function (v) { return v; }).join(', ')],
-    ['Pincode', pincode || ''],
-    ['Customer Requested Delivery Date', deliveryDateStr],
-    ['Priority Level', priority],
-    ['Dispatch Type', isCourier ? 'Courier / Post (packet)' : 'Vehicle'],
-    ['Payment Terms', paymentTermsType === 'PO Customer' ? 'PO Customer – partial/deferred payment allowed'
-      : paymentTermsType === 'Flipkart' ? 'Flipkart order – paid through Flipkart; hand over at the Flipkart office'
-      : 'End Customer – full payment required before dispatch' + (sys && sys.dacc ? ' (DACC: balance collected at ' + sys.dacc + '’s warehouse before release)' : '')]
-  ]);
-
-  appendSectionTable(body, '2. Order Items', (lineItems && lineItems.length ? lineItems : [{ product: 'No products on record', quantity: '' }]).map(function (it) {
-    return [String(it.product), it.quantity === '' ? '' : String(it.quantity) + (Number(it.quantity) === 1 ? ' unit' : ' units')];
-  }));
-
-  var payTable = appendSectionTable(body, '3. Payment Verification (from the system)', [
-    ['Advance received (% of order value)', advancePct + '%'],
-    ['Payment verified by', sys.verifiedBy || ''],
-    ['Verified on', sys.verifiedAt || ''],
-    ['Verification Code', sys.verificationCode || ''],
-    ['Bank Reference / UTR No.', sys.utr || '']
-  ]);
-  try { payTable.getCell(3, 1).getChild(0).asParagraph().editAsText().setBold(true).setFontSize(12).setForegroundColor('#1F3864'); } catch (e) { /* styling only */ }
-
-  appendSectionTable(body, isCourier ? '4. Operations (from the system)' : '4. Operations Handoff (from the system)', [
-    ['Picked up by (Operations)', sys.pickedUpBy || ''],
-    ['Picked up at', sys.pickedUpAt || ''],
-    [isCourier ? 'Posting' : 'Vehicle, site readiness & gate pass',
-     isCourier ? 'Courier, tracking no. and receipt photo are recorded on the Operations page.'
-               : 'Recorded on the Operations page when the gate pass is requested.']
-  ]);
-
-  appendSectionTable(body, '5. Remarks', [
-    ['Remarks / Linked Tracker ID', '']
-  ]);
+  var foot = body.appendParagraph('Printed by Operations from the ICF Order Tracker at pickup. Everything except remarks, site readiness and attachments comes from the system.');
+  poStyle_(foot, { size: 7, color: PO_GREY, before: 6 });
 
   doc.saveAndClose();
   var pdfBlob = DriveApp.getFileById(doc.getId()).getAs('application/pdf');
@@ -1286,6 +1383,110 @@ function generateWrapperPdf(trackerId, dateLogged, institution, creName, total, 
   pdfFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
 
   return pdfFile.getUrl();
+}
+
+/** A one-row table with the given column widths (points) and border width. */
+function poTable_(body, widths, border) {
+  var row = [];
+  for (var i = 0; i < widths.length; i++) row.push('');
+  var t = body.appendTable([row]);
+  t.setBorderWidth(border).setBorderColor('#000000');
+  for (var c = 0; c < widths.length; c++) {
+    t.setColumnWidth(c, widths[c]);
+    t.getCell(0, c).setPaddingTop(5).setPaddingBottom(5).setPaddingLeft(7).setPaddingRight(7)
+      .setVerticalAlignment(DocumentApp.VerticalAlignment.TOP);
+  }
+  return t;
+}
+
+/** Writes lines into a table cell, reusing the cell's own first paragraph. */
+function poWriter_(cell) {
+  var used = false;
+  var w = {
+    line: function (text, o) {
+      var p;
+      if (!used) { p = cell.getChild(0).asParagraph(); p.setText(String(text == null ? '' : text)); used = true; }
+      else p = cell.appendParagraph(String(text == null ? '' : text));
+      poStyle_(p, o || {});
+      return p;
+    },
+    /** One line of "Label value   Label value" -- small grey label, bold value. */
+    pairs: function (list) {
+      var p = w.line('', { size: 10, after: 2 });
+      list.forEach(function (pair, i) {
+        p.appendText((i ? '      ' : '') + pair[0] + '  ').setFontSize(8).setBold(false).setForegroundColor(PO_GREY).setFontFamily('Arial');
+        p.appendText(pair[1] ? String(pair[1]) : '—').setFontSize(10).setBold(true).setForegroundColor(PO_INK).setFontFamily('Arial');
+      });
+      return p;
+    }
+  };
+  return w;
+}
+
+function poStyle_(p, o) {
+  var a = {};
+  a[DocumentApp.Attribute.FONT_SIZE] = o.size || 10;
+  a[DocumentApp.Attribute.BOLD] = !!o.bold;
+  a[DocumentApp.Attribute.ITALIC] = false;
+  a[DocumentApp.Attribute.FOREGROUND_COLOR] = o.color || PO_INK;
+  a[DocumentApp.Attribute.FONT_FAMILY] = o.mono ? 'Roboto Mono' : 'Arial';
+  a[DocumentApp.Attribute.SPACING_BEFORE] = o.before || 0;
+  a[DocumentApp.Attribute.SPACING_AFTER] = o.after || 0;
+  a[DocumentApp.Attribute.LINE_SPACING] = 1;
+  a[DocumentApp.Attribute.HORIZONTAL_ALIGNMENT] = o.align || DocumentApp.HorizontalAlignment.LEFT;
+  p.setAttributes(a);
+  return p;
+}
+
+/** A small gap between panes (Docs needs a paragraph between tables anyway). */
+function poSpacer_(body, size) {
+  return poStyle_(body.appendParagraph(''), { size: size });
+}
+
+/**
+ * The logo for the PO corner: the first image in the "ICF Wrapper POs"
+ * folder whose name starts with "PO Logo". Its file ID is remembered so the
+ * folder isn't searched on every print. null if there is none.
+ */
+function poLogoBlob_() {
+  var props = PropertiesService.getScriptProperties();
+  var id = props.getProperty(PO_LOGO_PROP);
+  if (id) {
+    try {
+      var f = DriveApp.getFileById(id);
+      if (!f.isTrashed()) return f.getBlob();
+    } catch (e) { /* file gone -- search again below */ }
+    props.deleteProperty(PO_LOGO_PROP);
+  }
+  try {
+    var files = getOrCreateFolder(PDF_FOLDER_NAME).getFiles();
+    while (files.hasNext()) {
+      var file = files.next();
+      if (/^po logo/i.test(file.getName()) && /^image\//.test(file.getMimeType()) && !file.isTrashed()) {
+        props.setProperty(PO_LOGO_PROP, file.getId());
+        return file.getBlob();
+      }
+    }
+  } catch (e) { Logger.log('poLogoBlob_: ' + e); }
+  return null;
+}
+
+/** Run once from the editor after replacing the logo file. */
+function resetPoLogoCache() {
+  PropertiesService.getScriptProperties().deleteProperty(PO_LOGO_PROP);
+}
+
+/** The CRE's phone from the Staff tab, matched by name. '' if not found. */
+function poCrePhone_(creName) {
+  try {
+    var n = String(creName || '').trim().toLowerCase();
+    if (!n) return '';
+    var map = getStaffMap_(false);
+    for (var k in map) {
+      if (map[k].name.toLowerCase() === n) return staffPhone_(map[k].code);
+    }
+  } catch (e) { Logger.log('poCrePhone_: ' + e); }
+  return '';
 }
 
 // ================================================================
