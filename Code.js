@@ -1327,7 +1327,7 @@ function generateWrapperPdf(trackerId, dateLogged, institution, creName, total, 
   list.forEach(function (it) {
     var q = it.quantity === '' || it.quantity == null ? '' : String(it.quantity) + (Number(it.quantity) === 1 ? ' unit' : ' units');
     var p = items.line(q ? q + '   ' : '', { size: 11, bold: true, after: 2 });
-    p.appendText(String(it.product)).setBold(false).setFontSize(10.5).setForegroundColor(PO_INK).setFontFamily('Arial');
+    p.appendText(String(it.product || '\u2014')).setBold(false).setFontSize(10.5).setForegroundColor(PO_INK).setFontFamily('Arial');
   });
 
   var ops = poWriter_(r3.getCell(0, 1));
@@ -1404,9 +1404,11 @@ function poWriter_(cell) {
   var used = false;
   var w = {
     line: function (text, o) {
-      var p;
-      if (!used) { p = cell.getChild(0).asParagraph(); p.setText(String(text == null ? '' : text)); used = true; }
-      else p = cell.appendParagraph(String(text == null ? '' : text));
+      // Docs throws "Cannot insert an empty text element" for setText('') and
+      // can for appendParagraph('') -- a blank line is written as one space.
+      var t = String(text == null ? '' : text), p;
+      if (!used) { p = cell.getChild(0).asParagraph(); if (t) p.setText(t); used = true; }
+      else p = cell.appendParagraph(t || ' ');
       poStyle_(p, o || {});
       return p;
     },
@@ -1440,7 +1442,7 @@ function poStyle_(p, o) {
 
 /** A small gap between panes (Docs needs a paragraph between tables anyway). */
 function poSpacer_(body, size) {
-  return poStyle_(body.appendParagraph(''), { size: size });
+  return poStyle_(body.appendParagraph(' '), { size: size });
 }
 
 /**
