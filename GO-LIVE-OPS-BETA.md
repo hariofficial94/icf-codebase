@@ -7,7 +7,7 @@
 - **Flipkart lane on top, as a collapsible bar.** The bar shows the counts (to pack, waiting for the run, handed over today). Tap it to open the three columns: **To pack → Packed, waiting for the run → Handed over today.** Flipkart orders no longer appear in any other Ops list.
 - **The bar turns red** while anything is waiting to be packed, and amber when a run isn't confirmed. **It opens by itself when a new order lands** (and on sign-in if anything is waiting). Otherwise it stays the way Manoj left it. The browser tab shows the count. The page refreshes every minute.
 - **Packed · RTD**: one tap records the time and who. For Flipkart this is also the pickup. **No Internal PO** for Flipkart orders, on the classic page too.
-- **Going with**: tick the packed parcels and choose who's taking them (anyone active in the Staff tab, or type a name and phone). The card shows a **Call** button.
+- **Going with**: tick the packed parcels and choose who is taking them: Ops staff or the Admin (Manoj or Ananthu today), or **Someone else** with a typed name and phone. The card shows a **Call** button.
 - **Mark handed over**: when the carrier calls or messages Manoj, tick the parcels and save. It's the same hand-over record as before: status Posted, delivery In Transit, and the Flipkart order ID as the shipment number.
 - **Undo**: an order marked packed by mistake can go back to To pack, from the order screen.
 - Same dark/light look as the CRE and Accounts beta pages (it shares their theme setting).

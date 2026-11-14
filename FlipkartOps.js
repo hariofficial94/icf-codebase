@@ -47,7 +47,14 @@ function fkConfirmDeadlineMs_(packedMs, alertCfg, hour) {
   return d + hour * 3600000 - off;
 }
 
-/** Active staff with their phones, for "Going with". One read of the Staff tab. */
+/**
+ * Who appears under "Going with" (Hari, 14 Nov 2026): only the Ops staff and
+ * the Admin (Manoj and Ananthu today) -- anyone else is typed in with
+ * "Someone else". Role-based, so a new Ops person appears without a code change.
+ */
+var FK_CARRIER_ROLES = ['Ops', 'Admin'];
+
+/** Active Ops / Admin staff with their phones, for "Going with". One read of the Staff tab. */
 function fkCarriers_() {
   var sh = SpreadsheetApp.openById(SHEET_ID).getSheetByName(STAFF_SHEET_NAME);
   if (!sh || sh.getLastRow() < 2) return [];
@@ -59,6 +66,7 @@ function fkCarriers_() {
   vals.forEach(function (r) {
     var code = String(r[0] || '').trim().toUpperCase(), name = String(r[1] || '').trim();
     if (!code || !name || String(r[3] || '').trim().toUpperCase() !== 'Y') return;
+    if (FK_CARRIER_ROLES.indexOf(normalizeRole_(r[2])) === -1) return;
     out.push({ code: code, name: name, phone: pc === -1 ? '' : String(r[pc] || '').trim() });
   });
   return out.sort(function (a, b) { return a.name.localeCompare(b.name); });
@@ -214,7 +222,7 @@ function fkSetCarrier_(form) {
   var name = String(form.name || '').trim(), phone = String(form.phone || '').trim();
   if (form.code) {
     var st = fkCarriers_().filter(function (c) { return c.code === String(form.code).toUpperCase(); })[0];
-    if (!st) throw new Error('That staff member isn’t active in the Staff tab.');
+    if (!st) throw new Error('Choose Ops or the admin from the list – for anyone else, pick “Someone else” and type the name and phone.');
     name = st.name; phone = st.phone || phone;
   }
   if (!name) throw new Error('Choose or type who is taking the parcels.');
