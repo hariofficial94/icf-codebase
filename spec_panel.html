@@ -1,0 +1,149 @@
+<!--
+  Specification for the factory (17 Nov 2026) -- shared by the CRE, Ops and
+  Accounts beta pages: <?!= include('spec_panel'); ?> AFTER docs_panel (it uses
+  ICF_DOCS.prepare to read files). Server side is Specs.gs.
+
+  window.ICF_SPEC
+    .render(el, trackerId, opts)  -- loads the order's specification into el:
+                                     the description, the design files with
+                                     Open / Print, and (for the CRE on the order
+                                     or the admin) edit / add / remove controls.
+                                     Hides el when the order has no specification
+                                     and its products don't need one.
+                                     opts.onChange() runs after any change.
+                                     opts.title (default "Specification for the factory").
+-->
+<style>
+  .spec-box { border: 1px solid var(--border-2, #d5dbe1); background: var(--surface, #fff); border-radius: var(--radius, 8px); padding: 10px 12px; }
+  .spec-box .spec-h { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+  .spec-box .spec-t { font-size: 12px; font-weight: 700; color: var(--text-2, #555); text-transform: uppercase; letter-spacing: 0.03em; }
+  .spec-box .spec-meta { font-size: 11.5px; color: var(--text-3, #888); }
+  .spec-desc { white-space: pre-wrap; word-break: break-word; font-size: 13.5px; line-height: 1.5; color: var(--text, #222); margin-top: 6px; }
+  .spec-empty { font-size: 13px; color: var(--red, #B00020); margin-top: 6px; }
+  .spec-flag { margin-top: 8px; padding: 7px 10px; border-radius: 6px; font-size: 12.5px; font-weight: 600; background: var(--amber-bg, #fff4e0); color: var(--amber, #9a6100); }
+  .spec-files { margin-top: 8px; }
+  .spec-file { display: flex; align-items: center; gap: 8px; padding: 7px 0; border-top: 1px solid var(--border, #e3e5e8); font-size: 13px; }
+  .spec-file:first-child { border-top: none; }
+  .spec-file .nm { flex: 1; min-width: 0; color: var(--text, #222); word-break: break-word; }
+  .spec-file .nm small { display: block; color: var(--text-3, #888); font-size: 11px; }
+  .spec-file a.open { flex: 0 0 auto; text-decoration: none; padding: 6px 11px; border-radius: 6px; font-size: 12px; font-weight: 700;
+    background: var(--surface-3, #eef1f4); color: var(--text, #222) !important; border: 1px solid var(--border-2, #d3d6db); }
+  .spec-file button.rm { flex: 0 0 auto; background: none; border: none; color: var(--text-3, #888); font-size: 18px; cursor: pointer; padding: 2px 6px; }
+  .spec-file button.rm:hover { color: var(--red, #B00020); }
+  .spec-ed { margin-top: 10px; }
+  .spec-ed textarea { width: 100%; min-height: 110px; box-sizing: border-box; padding: 9px 10px; font: inherit; font-size: 14px; border-radius: 6px;
+    border: 1px solid var(--border-2, #d3d6db); background: var(--bg-2, #fff); color: var(--text, #222); resize: vertical; }
+  .spec-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 6px; }
+  .spec-row .cnt { font-size: 11.5px; color: var(--text-3, #888); margin-right: auto; }
+  .spec-row .cnt.over { color: var(--red, #B00020); font-weight: 700; }
+  .spec-btn { padding: 7px 13px; font-size: 12.5px; font-weight: 700; border-radius: 6px; border: 1px solid var(--border-2, #d3d6db); cursor: pointer;
+    background: var(--surface-3, #eef1f4); color: var(--text, #222); width: auto !important; margin: 0 !important; }
+  .spec-btn.go { background: var(--leaf-grad, #2c7a3f); color: var(--on-leaf, #fff); border: none; }
+  .spec-btn:disabled { opacity: 0.6; cursor: default; }
+  .spec-msg { font-size: 12.5px; margin-top: 6px; display: none; }
+  .spec-msg.show { display: block; }
+  .spec-msg.err { color: var(--red, #B00020); }
+  .spec-msg.ok { color: var(--leaf, #2c7a3f); }
+  .spec-link { background: none; border: none; color: var(--blue, #2266c4); font-size: 12.5px; font-weight: 600; cursor: pointer; padding: 0; text-decoration: underline; width: auto !important; margin: 0 !important; }
+</style>
+<script>
+window.ICF_SPEC = (function () {
+  function esc(t) { return String(t == null ? '' : t).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+  function errText(e) { return String(e && e.message || e).replace(/^(Error:\s*)+/, ''); }
+
+  function render(el, trackerId, opts) {
+    if (!el) return;
+    opts = opts || {};
+    el.innerHTML = '<div class="spec-box"><div class="spec-meta">Loading the specification…</div></div>';
+    authRun()
+      .withSuccessHandler(function (s) { draw(el, s, opts); })
+      .withFailureHandler(function (e) { el.innerHTML = '<div class="spec-box"><div class="spec-empty">Couldn’t load the specification: ' + esc(errText(e)) + '</div></div>'; })
+      .getOrderSpec({ trackerId: trackerId });
+  }
+
+  function draw(el, s, opts) {
+    if (!s.needed && !s.description && !(s.files || []).length) { el.innerHTML = ''; el.style.display = 'none'; return; }
+    el.style.display = '';
+    var files = s.files || [];
+    var h = '<div class="spec-box"><div class="spec-h"><span class="spec-t">' + esc(opts.title || 'Specification for the factory') + '</span>' +
+      (s.updatedBy ? '<span class="spec-meta">Last changed ' + esc(s.updatedAt) + ' by ' + esc(s.updatedBy) + '</span>' : '') + '</div>';
+    if (s.changedAfterPickup) h += '<div class="spec-flag">Changed after Ops picked it up (' + esc(s.changedAfterPickup) + ') – Ops must print the Internal PO again.</div>';
+    h += s.description ? '<div class="spec-desc" id="specDescView">' + esc(s.description) + '</div>'
+                       : '<div class="spec-empty">No description yet – the factory needs one for this product.</div>';
+    h += '<div class="spec-files">' + (files.length ? files.map(function (f) {
+      return '<div class="spec-file"><span class="nm">' + f.no + '. ' + esc(f.name) + '<small>' + esc(f.uploadedAt) + (f.by ? ' · ' + esc(f.by) : '') + '</small></span>' +
+        '<a class="open" href="' + esc(f.url) + '" target="_blank" rel="noopener">Open / Print</a>' +
+        (s.canEdit ? '<button type="button" class="rm" data-id="' + esc(f.fileId) + '" title="Remove" aria-label="Remove ' + esc(f.name) + '">&times;</button>' : '') + '</div>';
+    }).join('') : '<div class="spec-meta">No design files.</div>') + '</div>';
+    if (s.canEdit) {
+      h += '<div class="spec-ed">' +
+        '<div class="spec-row"><button type="button" class="spec-link" data-act="edit">' + (s.description ? 'Edit the description' : 'Add the description') + '</button></div>' +
+        '<div data-part="editor" style="display:none;"><textarea maxlength="' + s.maxChars + '">' + esc(s.description) + '</textarea>' +
+          '<div class="spec-row"><span class="cnt"></span><button type="button" class="spec-btn" data-act="cancel">Cancel</button><button type="button" class="spec-btn go" data-act="save">Save</button></div></div>' +
+        (files.length < s.maxFiles ? '<div class="spec-row" style="margin-top:10px;"><input type="file" accept="application/pdf,image/*" multiple style="flex:1;min-width:0;font-size:12px;">' +
+          '<button type="button" class="spec-btn" data-act="add">Add files</button></div>' +
+          '<div class="spec-meta" style="margin-top:4px;">PDF or photo, up to 8 MB each · ' + files.length + ' of ' + s.maxFiles + ' used</div>'
+          : '<div class="spec-meta" style="margin-top:8px;">' + s.maxFiles + ' of ' + s.maxFiles + ' design files – remove one to add another.</div>') +
+        '<div class="spec-msg"></div></div>';
+    }
+    h += '</div>';
+    el.innerHTML = h;
+    if (s.canEdit) bind(el, s, opts);
+  }
+
+  function bind(el, s, opts) {
+    var msg = el.querySelector('.spec-msg');
+    var say = function (t, bad) { msg.textContent = t; msg.className = 'spec-msg show ' + (bad ? 'err' : 'ok'); };
+    var done = function (t) { say(t); setTimeout(function () { render(el, s.trackerId, opts); if (opts.onChange) opts.onChange(); }, 600); };
+    var ed = el.querySelector('[data-part=editor]'), ta = ed.querySelector('textarea'), cnt = ed.querySelector('.cnt');
+    var count = function () { var n = ta.value.length; cnt.textContent = n + ' / ' + s.maxChars; cnt.className = 'cnt' + (n > s.maxChars ? ' over' : ''); };
+    ta.addEventListener('input', count); count();
+    el.querySelector('[data-act=edit]').addEventListener('click', function () { ed.style.display = 'block'; this.style.display = 'none'; ta.focus(); });
+    ed.querySelector('[data-act=cancel]').addEventListener('click', function () { ta.value = s.description; ed.style.display = 'none'; el.querySelector('[data-act=edit]').style.display = ''; });
+    ed.querySelector('[data-act=save]').addEventListener('click', function () {
+      var b = this, v = ta.value.trim();
+      if (!v) return say('The description can’t be empty.', true);
+      if (v.length > s.maxChars) return say('Keep it under ' + s.maxChars + ' characters – put the rest in the design files.', true);
+      b.disabled = true; b.textContent = 'Saving…';
+      authRun()
+        .withSuccessHandler(function (r) { done(r.opsAlerted ? 'Saved. Ops has been told to print the Internal PO again.' : 'Saved.'); })
+        .withFailureHandler(function (e) { b.disabled = false; b.textContent = 'Save'; say(errText(e), true); })
+        .saveOrderSpec({ trackerId: s.trackerId, description: v });
+    });
+    Array.prototype.forEach.call(el.querySelectorAll('button.rm'), function (b) {
+      b.addEventListener('click', function () {
+        if (!confirm('Remove this design file from the order?')) return;
+        b.disabled = true;
+        authRun()
+          .withSuccessHandler(function (r) { done(r.opsAlerted ? 'Removed. Ops has been told to print the Internal PO again.' : 'Removed.'); })
+          .withFailureHandler(function (e) { b.disabled = false; say(errText(e), true); })
+          .removeOrderSpecFile({ trackerId: s.trackerId, fileId: b.getAttribute('data-id') });
+      });
+    });
+    var add = el.querySelector('[data-act=add]');
+    if (add) add.addEventListener('click', function () {
+      var input = el.querySelector('input[type=file]');
+      var list = Array.prototype.slice.call(input.files || []);
+      if (!list.length) return say('Choose the files first.', true);
+      var room = s.maxFiles - (s.files || []).length;
+      if (list.length > room) return say('Only ' + room + ' more file' + (room === 1 ? '' : 's') + ' can be added (' + s.maxFiles + ' at most).', true);
+      add.disabled = true;
+      var i = 0, alerted = false;
+      (function next() {
+        if (i >= list.length) return done(alerted ? 'Added. Ops has been told to print the Internal PO again.' : 'Added ' + list.length + ' file' + (list.length === 1 ? '' : 's') + '.');
+        add.textContent = 'Uploading ' + (i + 1) + ' of ' + list.length + '…';
+        window.ICF_DOCS.prepare(list[i], function (err, file) {
+          if (err) { add.disabled = false; add.textContent = 'Add files'; return say(list[i].name + ': ' + err, true); }
+          file.name = list[i].name.replace(/\.[^.]+$/, '') + (file.mimeType === 'application/pdf' ? '.pdf' : '.jpg');
+          authRun()
+            .withSuccessHandler(function (r) { alerted = alerted || r.opsAlerted; i++; next(); })
+            .withFailureHandler(function (e) { add.disabled = false; add.textContent = 'Add files'; say(list[i].name + ': ' + errText(e), true); })
+            .addOrderSpecFile({ trackerId: s.trackerId, file: file });
+        });
+      })();
+    });
+  }
+
+  return { render: render };
+})();
+</script>

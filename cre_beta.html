@@ -441,6 +441,14 @@
     .po-layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 28px; align-items: start; max-width: 1120px; }
     .po-sec { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px 22px; margin-bottom: 16px; }
     .po-sec-head { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
+    .spec-files-in { margin-top: 8px; }
+    .spec-files-in .sfi { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; margin-top: 6px; font-size: 13px; background: var(--surface); }
+    .spec-files-in .sfi .nm { flex: 1; min-width: 0; word-break: break-word; }
+    .spec-files-in .sfi .sz { color: var(--text-3); font-size: 11.5px; }
+    .spec-files-in .sfi button { background: none; border: none; color: var(--text-3); font-size: 18px; cursor: pointer; padding: 0 4px; }
+    .spec-files-in .sfi button:hover { color: var(--red); }
+    .spec-cnt { font-size: 11.5px; color: var(--text-3); text-align: right; margin-top: 3px; }
+    .spec-cnt.over { color: var(--red); font-weight: 700; }
     .po-num { width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11.5px; font-weight: 700; background: var(--surface-3); color: var(--text-2); }
     .po-sec-head h3 { margin: 0; font-size: 14.5px; font-weight: 600; }
     .po-sec-head .muted { font-size: 12px; margin-left: auto; }
@@ -545,6 +553,7 @@
   </script>
   <?!= include('auth'); ?>
   <?!= include('docs_panel'); ?>
+  <?!= include('spec_panel'); ?>
 
   <!-- =================== TOP BAR =================== -->
   <header class="topbar">
@@ -826,6 +835,19 @@
             <button type="button" class="add-line" id="addProductLine">+ Add product</button>
             <div class="err" id="productError"></div>
             <div class="note info" id="dispatchNote" style="display:none;">Courier order: Ops will post this packet – no vehicle, e-way bill or gate pass. Once Accounts verifies payment, Ops posts it and records the receipt; you take delivery follow-up from there.</div>
+          </div>
+
+          <!-- Specification for the factory (17 Nov 2026, Specs.gs): shown when a product is marked
+               "Needs Specification" in the Product Catalog (the ReLeaf office container). -->
+          <div class="po-sec" id="specSec" style="display:none;">
+            <div class="po-sec-head"><span class="po-num">3+</span><h3>Specification for the factory</h3><span class="muted">Printed on the Internal PO for Ops</span></div>
+            <div class="field"><label class="lbl" for="specDesc">Description and special instructions<span class="rq">*</span></label>
+              <textarea class="inp" id="specDesc" rows="6" maxlength="1500" placeholder="Size, layout, doors and windows, electricals, colour, finish, anything the factory must do differently for this order…"></textarea>
+              <div class="spec-cnt" id="specCnt">0 / 1500</div></div>
+            <div class="field"><label class="lbl" for="specFiles">Design files<span class="opt">(up to 10 · PDF or photo · 8 MB each)</span></label>
+              <div class="file-box"><input type="file" id="specFiles" accept="application/pdf,image/*" multiple></div>
+              <div class="spec-files-in" id="specList"></div>
+              <div class="hint">Drawings and design PDFs showing how it is to be made. Ops opens and prints them from the order.</div></div>
           </div>
 
           <div class="po-sec">
@@ -1612,6 +1634,8 @@
       h += '<div class="dr-sec"><div class="dr-sec-title">Products</div><div class="prod-list" id="drProducts"><div class="prod faint">Loading…</div></div></div>';
       // ---- 5. Purchase orders (CRM PO / customer PO) ----
       if (order.docs) h += '<div class="dr-sec"><div class="dr-sec-title">Purchase orders</div><div id="creDocs">' + ICF_DOCS.panel(order.docs, { upload: canAct }) + '</div></div>';
+      // ---- 5b. Specification for the factory (17 Nov 2026) -- hides itself when the order has none ----
+      h += '<div class="dr-sec" id="secSpec" style="display:none;"></div>';
       // ---- 6. Timeline ----
       h += '<div class="dr-sec"><div class="dr-sec-title">Order timeline</div><div id="drTimeline" class="tl"><div class="faint">Loading…</div></div></div>';
       // ---- 7. Cancellation ----
@@ -1631,6 +1655,7 @@
       });
       if (order.docs) ICF_DOCS.bind($('creDocs'), order.trackerId, function () { openOrder(order.trackerId, true); });
       renderCancelSection(order);
+      if (window.ICF_SPEC) ICF_SPEC.render($('secSpec'), order.trackerId, { onChange: function () { loadDrawerTimeline(order.trackerId); } });
       if (typeof window.ICF_ORDER_EXTRAS === 'function') { try { window.ICF_ORDER_EXTRAS(order); } catch (e) { if (window.ICF_BETA_ERR) window.ICF_BETA_ERR('Order extras: ' + e.message); } }
       loadDrawerProducts(order.trackerId);
       loadDrawerTimeline(order.trackerId);
@@ -2213,7 +2238,8 @@
     var totalInput = $('totalValue'), advanceInput = $('advanceReceived'), priorityLevel = $('priorityLevel');
     var pincodeInput = $('pincode'), stateInput = $('state'), districtInput = $('district'), pincodeHint = $('pincodeHint');
     var productLinesContainer = $('productLines'), productError = $('productError');
-    var productListCache = [], courierProducts = {}, stagedDocs = {}, lastLogged = '';
+    var productListCache = [], courierProducts = {}, specProducts = {}, stagedDocs = {}, lastLogged = '';
+    var specFiles = [], specStaged = {}; // design files chosen on the form (File objects), and their staged ids by file key
 
     function updateSummary() {
       var total = parseFloat(totalInput.value), adv = parseFloat(advanceInput.value);
@@ -2307,7 +2333,7 @@
       document.querySelector('label[for=crmPoFile]').innerHTML = fk ? 'Flipkart order / label<span class="opt">(optional)</span>' : LBL.crm;
       $('orderTypeHint').textContent = fk ? 'Bio Bacteria sold on Flipkart: paid through Flipkart, no Accounts verification, Ops hands it over at the Flipkart office.'
         : dacc ? 'For a customer who wants to see the goods before paying in full. At least ' + daccMinPct + '% now; the rest at the transporter’s warehouse. Ops never gets stopped for the balance.'
-        : 'A normal order.';
+        : 'A normal order.' + ($('orderType').querySelector('option[value="Flipkart"]').hidden ? ' (Flipkart orders: choose Bio Bacteria as the product first.)' : '');
       $('daccHint').textContent = 'The customer pays at least ' + daccMinPct + '% now and the balance at the transporter’s warehouse after inspecting. You mark when it reaches the warehouse, and release the DACC (email the transporter) once Accounts records the balance.';
       if (fk || dacc) { $('balAfter').checked = false; }
       if (fk) clearCredit();
@@ -2383,6 +2409,67 @@
       each(productLinesContainer.querySelectorAll('.product-select'), function (sel) { if (sel.value) chosen.push(sel.value); });
       var allCourier = chosen.length > 0 && chosen.every(function (p) { return courierProducts[p]; });
       $('dispatchNote').style.display = allCourier ? 'block' : 'none';
+      updateFlipkartOption(chosen);
+      $('specSec').style.display = chosen.some(function (p) { return specProducts[p]; }) ? 'block' : 'none';
+    }
+    // 17 Nov 2026: Flipkart orders are only ever Bio Bacteria -- the option shows only when every product is Bio Bacteria.
+    function updateFlipkartOption(chosen) {
+      var ok = chosen.length > 0 && chosen.every(function (p) { return /^\s*bio\s*bacteria/i.test(p); });
+      var opt = $('orderType').querySelector('option[value="Flipkart"]');
+      opt.hidden = !ok; opt.disabled = !ok;
+      if (!ok && $('orderType').value === 'Flipkart') {
+        $('orderType').value = 'Standard';
+        updateOrderType();
+        $('orderTypeHint').textContent = 'Changed to Standard – Flipkart orders can only have Bio Bacteria on them.';
+      }
+    }
+
+    // ---- Specification for the factory: files chosen on the form ----
+    function specSizeText(n) { return n >= 1048576 ? (Math.round(n / 104857.6) / 10) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB'; }
+    function renderSpecFiles() {
+      $('specList').innerHTML = specFiles.map(function (f, i) {
+        return '<div class="sfi"><span class="nm">' + (i + 1) + '. ' + esc(f.name) + '</span><span class="sz">' + specSizeText(f.size) + '</span>' +
+          '<button type="button" data-i="' + i + '" title="Remove" aria-label="Remove ' + esc(f.name) + '">&times;</button></div>';
+      }).join('') + (specFiles.length ? '<div class="hint">' + specFiles.length + ' of 10</div>' : '');
+      each($('specList').querySelectorAll('button'), function (b) {
+        b.addEventListener('click', function () { specFiles.splice(Number(b.getAttribute('data-i')), 1); renderSpecFiles(); });
+      });
+    }
+    $('specFiles').addEventListener('change', function () {
+      var added = Array.prototype.slice.call(this.files || []), skipped = [];
+      added.forEach(function (f) {
+        if (specFiles.some(function (x) { return fileKey(x) === fileKey(f); })) return;
+        if (f.type !== 'application/pdf' && !/^image\//.test(f.type)) { skipped.push(f.name + ' (not a PDF or photo)'); return; }
+        if (f.type === 'application/pdf' && f.size > 8 * 1024 * 1024) { skipped.push(f.name + ' (over 8 MB)'); return; }
+        if (specFiles.length >= 10) { skipped.push(f.name + ' (10 files at most)'); return; }
+        specFiles.push(f);
+      });
+      this.value = '';
+      renderSpecFiles();
+      if (skipped.length) showErr($('errorBox'), 'Not added: ' + skipped.join(', ') + '.'); else hideEl($('errorBox'));
+    });
+    $('specDesc').addEventListener('input', function () {
+      var n = this.value.length;
+      $('specCnt').textContent = n + ' / 1500';
+      $('specCnt').className = 'spec-cnt' + (n > 1500 ? ' over' : '');
+    });
+    // Uploads the design files one at a time (already-uploaded ones are reused if the order is sent again).
+    function stageSpecFiles(progress, done) {
+      var ids = [], i = 0;
+      (function next() {
+        if (i >= specFiles.length) return done(null, ids);
+        var f = specFiles[i], key = 'spec|' + fileKey(f);
+        if (specStaged[key]) { ids.push(specStaged[key]); i++; return next(); }
+        progress(i + 1, specFiles.length);
+        ICF_DOCS.prepare(f, function (err, file) {
+          if (err) return done('Design file ' + f.name + ': ' + err);
+          file.name = f.name.replace(/\.[^.]+$/, '') + (file.mimeType === 'application/pdf' ? '.pdf' : '.jpg');
+          authRun()
+            .withSuccessHandler(function (r) { specStaged[key] = r.fileId; ids.push(r.fileId); i++; next(); })
+            .withFailureHandler(function (e) { done('Design file ' + f.name + ': ' + ICF_DOCS.errText(e)); })
+            .stageSpecFile({ file: file });
+        });
+      })();
     }
     function collectLineItems() {
       var items = [];
@@ -2395,8 +2482,9 @@
     $('addProductLine').addEventListener('click', function () { addProductLine(); var s = productLinesContainer.querySelectorAll('.product-select'); s[s.length - 1].focus(); });
     authRun()
       .withSuccessHandler(function (catalog) {
-        courierProducts = {};
-        productListCache = (catalog || []).map(function (p) { if (p.dispatchType === 'Courier') courierProducts[p.name] = true; return p.name; });
+        courierProducts = {}; specProducts = {};
+        productListCache = (catalog || []).map(function (p) { if (p.dispatchType === 'Courier') courierProducts[p.name] = true; if (p.needsSpec) specProducts[p.name] = true; return p.name; });
+        updateDispatchNote();
         each(productLinesContainer.querySelectorAll('.product-select'), function (sel) { var cur = sel.value; sel.innerHTML = optionsHtml(); sel.value = cur; });
         if (!productLinesContainer.querySelector('.pline')) addProductLine();
       })
@@ -2436,6 +2524,9 @@
       if (otypeNow === 'DACC' && !$('daccTransporter').value) { showErr(errorBox, 'Choose the transporter the DACC is booked with.'); return; }
       if ($('returnCreditId').value.trim() && !creditPicked) { showErr(errorBox, 'Press “Find credits” to check the return credit, or clear it.'); return; }
       if ($('paymentTermsType').value === 'PO Customer' && !$('customerPoFile').files[0]) { showErr(errorBox, 'Attach the customer’s PO – it’s required for a PO Customer order.'); return; }
+      var needSpec = $('specSec').style.display !== 'none';
+      if (needSpec && !$('specDesc').value.trim()) { showErr(errorBox, 'Fill in the specification for the factory – it’s required for this product.'); $('specDesc').focus(); return; }
+      if (needSpec && $('specDesc').value.length > 1500) { showErr(errorBox, 'Keep the specification under 1,500 characters – put the rest in the design files.'); return; }
 
       submitBtn.disabled = true; submitBtn.textContent = 'Uploading CRM PO…';
       var formData = {
@@ -2458,7 +2549,8 @@
         orderType: otypeNow,
         daccTransporter: otypeNow === 'DACC' ? $('daccTransporter').value : '',
         shipByDate: otypeNow === 'Flipkart' ? $('shipByDate').value : '',
-        returnCreditId: otypeNow !== 'Flipkart' && creditPicked ? creditPicked.returnId : ''
+        returnCreditId: otypeNow !== 'Flipkart' && creditPicked ? creditPicked.returnId : '',
+        specDescription: needSpec ? $('specDesc').value.trim() : ''
       };
       if (otypeNow === 'Flipkart') formData.advanceReceived = totalInput.value;
       var fail = function (msg) { showErr(errorBox, 'Error: ' + msg); submitBtn.disabled = false; submitBtn.textContent = 'Generate Internal PO'; };
@@ -2468,6 +2560,9 @@
         stageDoc('customer', 'customerPoFile', function (err2, custId) {
           if (err2) return fail(err2);
           formData.crmPoFileId = crmId; formData.customerPoFileId = custId;
+          stageSpecFiles(function (n, of) { submitBtn.textContent = 'Uploading design file ' + n + ' of ' + of + '…'; }, function (err3, specIds) {
+          if (err3) return fail(err3);
+          formData.specFileIds = needSpec ? specIds : [];
           submitBtn.textContent = 'Generating…';
           authRun()
             .withSuccessHandler(function (result) {
@@ -2488,12 +2583,13 @@
             })
             .withFailureHandler(function (err) { fail(errText(err)); })
             .submitOrder(formData);
+          });
         });
       });
     });
     function resetPoForm() {
       $('poForm').reset();
-      stagedDocs = {};
+      stagedDocs = {}; specStaged = {}; specFiles = []; renderSpecFiles(); $('specCnt').textContent = '0 / 1500'; $('specCnt').className = 'spec-cnt';
       updateCustomerPoLabel();
       pincodeHint.textContent = 'Enter the 6-digit pincode and State/District fill in automatically.'; pincodeHint.style.color = '';
       resetProductLines(); clearCredit(); updateOrderType(); updateBalAfter();

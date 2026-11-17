@@ -370,7 +370,8 @@ function getOpsOrder_(query) {
     'Gate Pass No.', 'Dispatch Timestamp', 'Courier / Transport Name', 'Tracking / Consignment No.',
     'Postal Receipt URL', 'Delivery Status', 'Payment Terms Type', 'Total Order Value', 'Advance Received',
     'Payment Hold From', 'Payment Hold Note', 'Cleared For Gate Pass', 'Customer Says Paid', 'CRM PO URL', 'Customer PO URL', 'CRM PO Printed',
-    'Order Type', 'Ship By Date', 'DACC Transporter', 'Flipkart Packed At', 'Flipkart Packed By', 'Flipkart Carrier', 'Flipkart Carrier Phone'
+    'Order Type', 'Ship By Date', 'DACC Transporter', 'Flipkart Packed At', 'Flipkart Packed By', 'Flipkart Carrier', 'Flipkart Carrier Phone',
+    'Spec Description', 'Spec Changed After Pickup'
   ]);
   var id = String(f['Tracker ID']);
   var acked = opsIsAcked_(f['Received by Ops Timestamp'], f['Ops Cutover']);
@@ -426,6 +427,9 @@ function getOpsOrder_(query) {
     fkPackedBy: String(f['Flipkart Packed By'] || ''),
     fkCarrier: String(f['Flipkart Carrier'] || ''),
     fkCarrierPhone: String(f['Flipkart Carrier Phone'] || ''),
+    // Specification for the factory (17 Nov 2026, Specs.js): the page loads the details with getOrderSpec.
+    hasSpec: !!String(f['Spec Description'] || '').trim(),
+    specChanged: opsFmt_(f['Spec Changed After Pickup']),
     standby: (typeof standbyInfoForOrder_ === 'function') ? standbyInfoForOrder_(id, status) : null,
     pendingRequest: (typeof pendingRequestFor_ === 'function') ? pendingRequestFor_(id) : null
   };
@@ -493,7 +497,7 @@ function opsBuildPo_(sheet, row) {
     'Advance Received', 'Customer Requested Delivery Date', 'Priority Level', 'Payment Terms Type', 'State', 'District',
     'Pincode', 'Dispatch Type', 'Verified By', 'Verified Date', 'Verification Code', 'Bank Reference / UTR',
     'Picked Up By', 'Received by Ops Timestamp', 'Ops Cutover', 'Order Type', 'DACC Transporter',
-    'Customer Phone Number', 'Site Readiness Confirmed']);
+    'Customer Phone Number', 'Site Readiness Confirmed', 'Spec Description']);
   var id = String(f['Tracker ID']);
   var total = Number(f['Total Order Value']) || 0, advance = Number(f['Advance Received']) || 0;
   var pct = total > 0 ? Math.round((advance / total) * 1000) / 10 : 0;
@@ -510,9 +514,11 @@ function opsBuildPo_(sheet, row) {
       dacc: normalizeOrderType_(f['Order Type']) === ORDER_TYPE_DACC ? (String(f['DACC Transporter'] || '') || 'the transporter') : '',
       customerPhone: String(f['Customer Phone Number'] || '').trim(),
       crePhone: poCrePhone_(f['CRE Name']),
-      siteReady: String(f['Site Readiness Confirmed'] || '')
+      siteReady: String(f['Site Readiness Confirmed'] || ''),
+      spec: (typeof specForPo_ === 'function') ? specForPo_(id, f['Spec Description']) : null
     });
-  setRowFields(sheet, row, { 'Wrapper PO PDF URL': url });
+  // A fresh PO carries the latest specification, so the "changed after pickup" flag clears (Specs.js, 17 Nov 2026).
+  setRowFields(sheet, row, { 'Wrapper PO PDF URL': url, 'Spec Changed After Pickup': '' });
   return url;
 }
 

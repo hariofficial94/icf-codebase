@@ -240,6 +240,7 @@
   <script>window.ICF_PAGE = 'ops';</script>
   <?!= include('auth'); ?>
   <?!= include('docs_panel'); ?>
+  <?!= include('spec_panel'); ?>
 
   <div class="wrap">
     <div class="top">
@@ -721,6 +722,8 @@
           '<div class="err" id="poErr"></div></div>';
       }
       // CRM PO / customer PO (Oct 2026): print them if needed, once the order is picked up.
+      // Specification for the factory (17 Nov 2026): filled by ICF_SPEC after render; hides itself if the order has none.
+      h += '<div id="opsSpec" style="display:none;margin-bottom:12px;"></div>';
       if (o.docs && (o.docs.crmUrl || o.docs.customerUrl)) {
         h += '<div class="panel"><h2>Purchase orders</h2>' + ICF_DOCS.panel({ crmUrl: o.docs.crmUrl, customerUrl: o.docs.customerUrl, customerRequired: false }, { title: 'From the CRE' }).replace('docs-box', 'docs-box" style="margin-top:0;') + '</div>';
       }
@@ -757,8 +760,11 @@
         return '<div class="prod"><span>' + esc(p.product) + '</span><b>Qty: ' + esc(p.quantity) + '</b></div>';
       }).join('') : '<div class="hint" style="margin-top:0;">No products on record.</div>') + '</div>';
 
+      if (o.specChanged) h = '<div class="status-line warn">The CRE changed the factory specification on ' + esc(o.specChanged) + ' after you picked this up. Check the new instructions and print the Internal PO again.</div>' + h;
       document.getElementById('sheetBody').innerHTML = h;
       bindOrder(o);
+      var specEl = document.getElementById('opsSpec');
+      if (specEl && window.ICF_SPEC) ICF_SPEC.render(specEl, o.trackerId, {});
     }
 
     function statusText(o) {

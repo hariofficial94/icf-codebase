@@ -541,6 +541,7 @@
   </script>
   <?!= include('auth'); ?>
   <?!= include('docs_panel'); ?>
+  <?!= include('spec_panel'); ?>
   <style>
     .q-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
     .q-tab { height: 32px; padding: 0 12px; border-radius: 16px; border: 1px solid var(--border-2); background: var(--surface); color: var(--text-2); font-size: 12.5px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 7px; }
@@ -994,8 +995,10 @@
       if (o.docs && (o.docs.crmUrl || o.docs.customerUrl) && o.status !== 'Logged') {
         h += '<div class="dr-sec"><div class="dr-sec-title">Purchase orders</div>' + window.ICF_DOCS.panel(o.docs, { title: 'Purchase orders' }) + '</div>';
       }
+      h += '<div class="dr-sec" id="accSpec" style="display:none;"></div>'; // specification for the factory (17 Nov 2026) -- read-only here
       h += '<div class="dr-sec"><div class="dr-sec-title">Timeline</div><div id="tlBox" class="loading">Loading…</div></div>';
       $('drBody').innerHTML = h;
+      if (window.ICF_SPEC) ICF_SPEC.render($('accSpec'), o.trackerId, {});
       if (!standbyActive) {
         if (o.status === 'Logged') bindVerify(o);
         else if (o.status === 'Vehicle Confirmed') bindGate(o, gateItem);

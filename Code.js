@@ -291,7 +291,9 @@ var HEADERS = [
   // Recorded beside the sale value, never as a balance: a Flipkart order is never "short" because of its payout.
   'Flipkart Net Received', 'Flipkart Deductions',
   // Flipkart packing and the run to the Flipkart office (14 Nov 2026) -- see FlipkartOps.js. Header cells are filled in automatically.
-  'Flipkart Packed At', 'Flipkart Packed By', 'Flipkart Carrier', 'Flipkart Carrier Phone'
+  'Flipkart Packed At', 'Flipkart Packed By', 'Flipkart Carrier', 'Flipkart Carrier Phone',
+  // Specification for the factory (17 Nov 2026) -- see Specs.js. Design files are in the "Order Design Files" tab.
+  'Spec Description', 'Spec Updated At', 'Spec Updated By', 'Spec Changed After Pickup'
 ];
 
 var DISPATCH_VEHICLE = 'Vehicle';
@@ -378,6 +380,7 @@ function getOrCreateProductCatalogSheet() {
     sheet.getRange(2, 1, seedRows.length, 2).setValues(seedRows);
   }
   ensureCatalogDispatchColumn_(sheet);
+  if (typeof ensureCatalogSpecColumn_ === 'function') ensureCatalogSpecColumn_(sheet); // column D, 17 Nov 2026 (Specs.gs)
   return sheet;
 }
 
@@ -412,12 +415,13 @@ function getProductCatalog_() {
   var sheet = getOrCreateProductCatalogSheet();
   var lastRow = sheet.getLastRow();
   if (lastRow < 2) return DEFAULT_PRODUCT_LIST.map(function (p) { return { name: p, dispatchType: DISPATCH_VEHICLE }; });
-  var data = sheet.getRange(2, 1, lastRow - 1, 3).getValues();
+  var data = sheet.getRange(2, 1, lastRow - 1, 4).getValues();
   var results = [];
   for (var i = 0; i < data.length; i++) {
     var name = String(data[i][0] || '').trim();
     var active = String(data[i][1] || '').trim().toUpperCase();
-    if (name && active === 'Y') results.push({ name: name, dispatchType: normalizeDispatchType_(data[i][2]) });
+    // needsSpec (17 Nov 2026, Specs.gs): column D "Needs Specification" = Y opens the factory-specification section on the form.
+    if (name && active === 'Y') results.push({ name: name, dispatchType: normalizeDispatchType_(data[i][2]), needsSpec: String(data[i][3] || '').trim().toUpperCase() === 'Y' });
   }
   return results.length ? results : DEFAULT_PRODUCT_LIST.map(function (p) { return { name: p, dispatchType: DISPATCH_VEHICLE }; });
 }
@@ -940,6 +944,10 @@ function submitOrder_(form) {
     if (form.customerPoFileId) docsStagedFile_(form.customerPoFileId, 'customer', CURRENT_STAFF_);
   }
 
+  // Specification for the factory (17 Nov 2026, Specs.gs): required when a
+  // product needs one (Product Catalog "Needs Specification" = Y).
+  var spec = (typeof specIntakeCheck_ === 'function') ? specIntakeCheck_(form, lineItems) : null;
+
   var sheet = getSheet();
 
   // Two CREs can now submit at the same moment. Without a lock, both could
@@ -1064,6 +1072,14 @@ function submitOrder_(form) {
       if (form.customerPoFileId) docsAttach_(sheet, newRow, trackerId, 'customer', form.customerPoFileId, CURRENT_STAFF_);
     } catch (e) {
       docsWarning = 'The order is logged, but a PO file could not be attached (' + e.message + '). Upload it from Look Up an Enquiry – Accounts can’t verify until it’s there.';
+    }
+  }
+  if (spec) {
+    try {
+      var specWarn = specIntakeAttach_(sheet, newRow, trackerId, spec, CURRENT_STAFF_);
+      if (specWarn) docsWarning = (docsWarning ? docsWarning + ' ' : '') + specWarn;
+    } catch (e) {
+      docsWarning = (docsWarning ? docsWarning + ' ' : '') + 'The specification could not be saved (' + e.message + ') – add it again from the order.';
     }
   }
 
@@ -1205,7 +1221,8 @@ function lookupPincodeFromApi(trimmed) {
  *   [ Remarks / linked Tracker ID (handwritten) ] [ Attach behind     ]
  *
  * sys = { verifiedBy, verifiedAt, verificationCode, utr, pickedUpBy,
- *         pickedUpAt, dacc, customerPhone, crePhone, siteReady } (strings).
+ *         pickedUpAt, dacc, customerPhone, crePhone, siteReady } (strings),
+ *       spec = { description, files: [names] } or null -- made-to-order products (Specs.js).
  *
  * Logo: drop a PNG/JPG whose name starts with "PO Logo" into the
  * "ICF Wrapper POs" Drive folder. It is picked up automatically; to swap it,
@@ -1340,6 +1357,21 @@ function generateWrapperPdf(trackerId, dateLogged, institution, creName, total, 
   ops.line(isCourier ? 'Courier, tracking no. and receipt photo go on the Operations page.'
                      : 'Vehicle and gate pass are recorded on the Operations page.', { size: 8, color: PO_GREY, before: 3 });
   poSpacer_(body, 4);
+
+  // ---- Manufacturing instructions (17 Nov 2026, Specs.js) -------------
+  // Made-to-order products: the CRE's description in full, and the design
+  // files by name (they print from the order on the Ops page).
+  if (sys.spec && (sys.spec.description || (sys.spec.files || []).length)) {
+    var sp = poWriter_(poTable_(body, [W], 1.5).getCell(0, 0));
+    sp.line('MANUFACTURING INSTRUCTIONS  (from the CRE \u2013 build exactly to this and the design files)', { size: 8, color: PO_GREY, after: 3 });
+    String(sys.spec.description || '').split(/\n/).forEach(function (ln) { sp.line(ln, { size: 10, after: 1 }); });
+    var fl = sys.spec.files || [];
+    if (fl.length) {
+      sp.line('DESIGN FILES (' + fl.length + ') \u2013 open and print them from this order on the Operations page:', { size: 8, color: PO_GREY, before: 6, after: 2 });
+      fl.forEach(function (nm, i) { sp.line((i + 1) + '.  ' + nm, { size: 9.5, after: 1 }); });
+    }
+    poSpacer_(body, 4);
+  }
 
   // ---- Row 4: Site readiness tick (vehicle orders only) ----------------
   if (!isCourier) {
@@ -3282,6 +3314,11 @@ function apiMap_() {
     var extra14 = waiverApiMap_();
     for (var k14 in extra14) map[k14] = extra14[k14];
   }
+  // Specification for the factory: description + design files (17 Nov 2026) -- Specs.gs.
+  if (typeof specsApiMap_ === 'function') {
+    var extraSpec = specsApiMap_();
+    for (var kSpec in extraSpec) map[kSpec] = extraSpec[kSpec];
+  }
   // Ops beta: Flipkart lane, packing and the run to the Flipkart office (14 Nov 2026) -- FlipkartOps.gs.
   if (typeof flipkartOpsApiMap_ === 'function') {
     var extraFk = flipkartOpsApiMap_();
@@ -3367,6 +3404,7 @@ function activityDetail_(fnName, a, result) {
       if (!d && typeof followUpActivityDetail_ === 'function') d = followUpActivityDetail_(fnName, a, result);
       if (!d && typeof waiverActivityDetail_ === 'function') d = waiverActivityDetail_(fnName, a, result);
       if (!d && typeof flipkartOpsActivityDetail_ === 'function') d = flipkartOpsActivityDetail_(fnName, a, result);
+      if (!d && typeof specsActivityDetail_ === 'function') d = specsActivityDetail_(fnName, a, result);
       return d;
   }
 }

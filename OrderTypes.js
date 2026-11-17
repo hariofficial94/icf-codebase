@@ -178,6 +178,9 @@ function otIntakeCheck_(form, lineItems, paymentTermsType, dispatchType) {
     if (form.balanceAfterDelivery) throw new Error('A DACC order is already paid at the transporter’s warehouse – untick “Balance to be paid after delivery”.');
     out.transporter = known.name;
   } else if (type === ORDER_TYPE_FLIPKART) {
+    // 17 Nov 2026 (Hari): Flipkart orders are only ever Bio Bacteria (any pack size).
+    var notBio = (lineItems || []).filter(function (it) { return !/^\s*bio\s*bacteria/i.test(String(it.product || '')); });
+    if (notBio.length) throw new Error('Flipkart orders are only for Bio Bacteria – ' + notBio.map(function (it) { return it.product; }).join(', ') + ' can’t be on one. Log it as a standard order.');
     if (dispatchType !== DISPATCH_COURIER) {
       throw new Error('Flipkart orders are packed and handed over at the Flipkart office as parcels, so only parcel products (Dispatch Type “Courier” in the Product Catalog, e.g. Bio Bacteria) can be on one.');
     }

@@ -28,12 +28,13 @@ var TEST_ORDER_COLS = ['tracker id', 'came with order']; // headers that name th
 
 /** True if a Drive file name belongs to one of these orders (sanitized ids, lower case). */
 function testFileBelongs_(name, safeIds) {
-  var n = String(name || '').toLowerCase().replace(/^\(replaced [^)]*\)\s*/, '');
+  var n = String(name || '').toLowerCase().replace(/^\((replaced|removed) [^)]*\)\s*/, '');
   for (var i = 0; i < safeIds.length; i++) {
     var s = safeIds[i];
     if (n === 'wrapper po - ' + s + '.pdf' || n === 'gate pass - ' + s + '.pdf' ||
         n.indexOf('postal receipt - ' + s + '.') === 0 ||
-        n.indexOf(s + ' - crm po.') === 0 || n.indexOf(s + ' - customer po.') === 0) return true;
+        n.indexOf(s + ' - crm po.') === 0 || n.indexOf(s + ' - customer po.') === 0 ||
+        n.indexOf(s + ' - design ') === 0) return true; // design files (Specs.js, 17 Nov 2026)
   }
   return false;
 }
